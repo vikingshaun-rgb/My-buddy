@@ -1,0 +1,13 @@
+{
+  "name": "My Buddy — AI companion for your glasses",
+  "short_name": "My Buddy",
+  "description": "Your friendly AI companion: see, translate, navigate, remember — through your smart glasses.",
+  "start_url": "./app.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B1026",
+  "theme_color": "#0B1026",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0B1026" />
+<title>My Buddy — Easy Setup</title>
+<link rel="apple-touch-icon" href="./icon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chivo+Mono:wght@400;700&family=Sora:wght@400;600;700;800&family=Archivo+Expanded:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--midnight:#0B1026;--panel:#161f44;--amber:#F5A623;--paper:#EAE6DA;
+    --paper-dim:#9aa0bd;--teal:#3DD6B0;--coral:#FF6B5C;--line:rgba(234,230,218,.12);
+    --tile:linear-gradient(160deg,#18224d 0%,#111a3c 100%)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--midnight);color:var(--paper);font-family:'Sora',system-ui,sans-serif;
+    max-width:560px;margin:0 auto;padding:0 18px 60px;-webkit-font-smoothing:antialiased;
+    background:radial-gradient(1000px 460px at 85% -10%,rgba(245,166,35,.10),transparent 60%),var(--midnight)}
+  header{padding:26px 0 10px;text-align:center}
+  .logo{font-family:'Archivo Expanded';font-weight:800;letter-spacing:.06em;font-size:15px;text-transform:uppercase}
+  .logo b{color:var(--amber)}
+  h1{font-family:'Archivo Expanded';font-size:25px;margin:14px 0 6px;line-height:1.1}
+  h1 span{color:var(--amber)}
+  .sub{color:var(--paper-dim);font-size:14px;max-width:40ch;margin:0 auto 8px}
+  .progress{display:flex;gap:6px;justify-content:center;margin:18px 0 4px}
+  .pip{width:26px;height:5px;border-radius:3px;background:var(--line)}
+  .pip.on{background:var(--amber)}
+  .card{background:var(--tile);border:1px solid var(--line);border-radius:20px;padding:22px;margin:16px 0}
+  .step-n{font-family:'Chivo Mono';font-size:11px;letter-spacing:.14em;color:var(--amber);text-transform:uppercase}
+  .card h2{font-size:19px;margin:6px 0 4px}
+  .card .why{color:var(--paper-dim);font-size:13.5px;line-height:1.5;margin-bottom:6px}
+  .plain{background:rgba(61,214,176,.08);border:1px solid rgba(61,214,176,.2);border-radius:12px;
+    padding:12px 14px;font-size:13px;color:var(--paper);margin:14px 0;line-height:1.5}
+  .plain b{color:var(--teal)}
+  .help{margin:8px 0 0}
+  .help-btn{display:inline-flex;align-items:center;gap:6px;font-family:'Chivo Mono';font-size:11px;
+    background:rgba(245,166,35,.12);color:var(--amber);border:1px solid rgba(245,166,35,.3);
+    padding:7px 12px;border-radius:9px;cursor:pointer}
+  .help-body{display:none;margin-top:10px;background:#0b0d11;border:1px solid var(--line);
+    border-radius:11px;padding:14px}
+  .help-body.open{display:block}
+  .help-body h4{font-size:13px;margin:0 0 8px;color:var(--amber)}
+  .help-body ol{list-style:none;counter-reset:h;padding:0;margin:0}
+  .help-body li{position:relative;padding:7px 0 7px 28px;font-size:13px;line-height:1.5;
+    border-bottom:1px solid var(--line)}
+  .help-body li:last-child{border-bottom:none}
+  .help-body li:before{counter-increment:h;content:counter(h);position:absolute;left:0;top:7px;
+    width:19px;height:19px;border-radius:50%;background:var(--amber);color:#2a1c02;
+    font-family:'Chivo Mono';font-size:10px;font-weight:700;display:grid;place-items:center}
+  .help-body a{color:var(--amber)}
+  .help-body .note{margin-top:10px;font-size:12px;color:var(--paper-dim);line-height:1.5}
+  .help-body .cost{display:inline-block;margin-top:8px;font-family:'Chivo Mono';font-size:10px;
+    background:rgba(61,214,176,.12);color:var(--teal);padding:3px 8px;border-radius:6px}
+  label{display:block;font-size:13px;color:var(--paper-dim);margin:16px 0 6px;font-weight:600}
+  input{width:100%;padding:13px 14px;border-radius:11px;border:1px solid var(--line);
+    background:var(--midnight);color:var(--paper);font:inherit}
+  input:focus{outline:none;border-color:var(--amber)}
+  .btn{width:100%;margin-top:18px;padding:15px;border-radius:13px;border:none;font:inherit;
+    font-weight:700;font-size:15px;cursor:pointer;background:linear-gradient(120deg,var(--amber),#ffce6b);color:#2a1c02}
+  .btn.ghost{background:transparent;color:var(--paper);border:1px solid var(--line)}
+  .btn.sec{background:transparent;color:var(--amber);border:1px solid var(--line)}
+  .btnrow{display:flex;gap:10px}
+  .btnrow .btn{flex:1}
+  .steps{list-style:none;counter-reset:s}
+  .steps li{position:relative;padding:10px 0 10px 34px;font-size:13.5px;line-height:1.5;color:var(--paper);border-bottom:1px solid var(--line)}
+  .steps li:last-child{border-bottom:none}
+  .steps li:before{counter-increment:s;content:counter(s);position:absolute;left:0;top:9px;
+    width:22px;height:22px;border-radius:50%;background:var(--amber);color:#2a1c02;
+    font-family:'Chivo Mono';font-size:11px;font-weight:700;display:grid;place-items:center}
+  .steps a{color:var(--amber)}
+  .out{margin-top:14px;background:#0b0d11;border:1px solid var(--line);border-radius:11px;
+    padding:14px;font:12px/1.55 'Chivo Mono',monospace;white-space:pre-wrap;word-break:break-word;color:var(--paper-dim)}
+  .good{color:var(--teal)}.bad{color:var(--coral)}
+  .tag{display:inline-block;font-family:'Chivo Mono';font-size:10px;background:rgba(245,166,35,.14);
+    color:var(--amber);padding:3px 8px;border-radius:6px;margin-left:8px}
+  .save-note{text-align:center;font-family:'Chivo Mono';font-size:10px;color:var(--paper-dim);margin-top:8px}
+  a{color:var(--amber)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">My <b>Buddy</b></div>
+  <h1>Let's get you <span>set up.</span></h1>
+  <p class="sub">A few simple steps. No coding. I'll explain every part in plain English — take your time.</p>
+  <div class="progress" id="pips"></div>
+</header>
+
+<div id="stage"></div>
+<p class="save-note" id="saveNote">Your answers save automatically on this phone.</p>
+
+<script>
+// ---------- saved settings (persist on this device) ----------
+const S = {
+  get(k){ return localStorage.getItem('buddy_'+k)||''; },
+  set(k,v){ localStorage.setItem('buddy_'+k, v); },
+};
+
+// ---------- "How do I get this?" step-by-step help for each service ----------
+const HELP = {
+  render: {
+    title: "How to set up Render (Buddy's brain host)",
+    cost: "Free tier",
+    steps: [
+      'Open <a href="https://render.com" target="_blank">render.com</a> and click <b>Get Started</b>. Sign up with Google or email — it\'s free.',
+      'You need Buddy\'s <b>server.js</b> and <b>package.json</b> in a GitHub repo. Easiest: make a free <a href="https://github.com" target="_blank">github.com</a> account, click <b>New repository</b>, and upload those two files (drag-and-drop works on the GitHub website).',
+      'Back on Render, click <b>New +</b> → <b>Web Service</b>, then <b>Connect</b> your GitHub and pick that repo.',
+      'Leave the defaults, click <b>Create Web Service</b>. Wait ~2 minutes for it to say "Live".',
+      'Copy the web address at the top (like <b>https://buddy-xxxx.onrender.com</b>). That\'s Buddy\'s brain address.',
+    ],
+    note: "This is the one fiddly step. If GitHub feels like too much, a friend or a $10 freelancer can do just this part in 15 minutes — everything else is tap-and-type.",
+  },
+  anthropic: {
+    title: "How to get your Anthropic (Claude) key",
+    cost: "Pay per use — usually a few cents",
+    steps: [
+      'Go to <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> and sign up.',
+      'Add a payment method under <b>Billing</b> (you\'re charged only for what you use — often cents a day).',
+      'Click <b>API Keys</b> → <b>Create Key</b>. Name it "Buddy".',
+      'Copy the key (starts with <b>sk-ant-</b>). You only see it once — copy it now.',
+      'In Render → your service → <b>Environment</b> → <b>Add Environment Variable</b>: name it <b>ANTHROPIC_API_KEY</b>, paste the key as the value.',
+    ],
+    note: "This is the only key Buddy truly needs. Keep it secret — never put it in the app itself, only in Render.",
+  },
+  google: {
+    title: "How to get a Google Maps key (optional)",
+    cost: "Free monthly allowance, then pay per use",
+    steps: [
+      'Go to <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> and sign in with your Google account.',
+      'Create a project (top bar → <b>New Project</b>, any name).',
+      'Search for and <b>Enable</b> these two: <b>Directions API</b> and <b>Places API</b>.',
+      'Go to <b>Credentials</b> → <b>Create Credentials</b> → <b>API key</b>. Copy it.',
+      '<b>Important:</b> click the key → <b>Restrict key</b> → limit it to Directions + Places (stops others running up your bill).',
+      'In Render, add <b>GOOGLE_MAPS_API_KEY</b> = your key. Set a budget alert in Google Cloud to be safe.',
+    ],
+    note: "Skip this and Buddy simply won't do maps/directions/nearby — everything else still works.",
+  },
+  flights: {
+    title: "How to get an AviationStack key (optional)",
+    cost: "Free plan (500 lookups/month)",
+    steps: [
+      'Go to <a href="https://aviationstack.com" target="_blank">aviationstack.com</a> and click <b>Get Free API Key</b>.',
+      'Sign up (no card needed for the free plan).',
+      'On your dashboard, copy your <b>API Access Key</b>.',
+      'In Render, add <b>AVIATIONSTACK_KEY</b> = that key.',
+    ],
+    note: "This powers gate/delay/boarding alerts. Skip = no flight tracking; everything else is fine.",
+  },
+  email: {
+    title: "How to connect iCloud email safely (optional)",
+    cost: "Free",
+    steps: [
+      'Go to <a href="https://appleid.apple.com" target="_blank">appleid.apple.com</a> and sign in.',
+      'Open <b>Sign-In &amp; Security</b> → <b>App-Specific Passwords</b> → <b>+</b>.',
+      'Name it "Buddy" and copy the password it gives you.',
+      'In Render, add TWO settings: <b>ICLOUD_USER</b> = your iCloud email address, and <b>ICLOUD_APP_PW</b> = that app-specific password.',
+    ],
+    note: "This is NOT your real Apple password — it's a special one just for Buddy that you can delete anytime. Your real password never leaves Apple.",
+  },
+};
+
+function helpBox(key){
+  const h = HELP[key]; if(!h) return '';
+  const items = h.steps.map(s=>`<li>${s}</li>`).join('');
+  return `<div class="help">
+    <button class="help-btn" onclick="toggleHelp('${key}')">＋ How do I get this?</button>
+    <div class="help-body" id="help-${key}">
+      <h4>${h.title}</h4>
+      <ol>${items}</ol>
+      <div class="note">${h.note}</div>
+      <span class="cost">${h.cost}</span>
+    </div>
+  </div>`;
+}
+function toggleHelp(key){
+  const b=document.getElementById('help-'+key);
+  if(b) b.classList.toggle('open');
+}
+
+let step = Number(S.get('wizard_step')||0);
+const TOTAL = 6;
+
+function pips(){
+  const p=document.getElementById('pips'); p.innerHTML='';
+  for(let i=0;i<TOTAL;i++){ const d=document.createElement('div'); d.className='pip'+(i<=step?' on':''); p.appendChild(d); }
+}
+
+function go(n){ step=Math.max(0,Math.min(TOTAL-1,n)); S.set('wizard_step',step); render(); window.scrollTo(0,0); }
+
+// ---------- the steps ----------
+function render(){
+  pips();
+  const el=document.getElementById('stage');
+  el.innerHTML = STEPS[step]();
+  wireStep();
+}
+
+const STEPS = [
+  // 0 — Welcome / what this is
+  () => `
+    <div class="card">
+      <div class="step-n">Welcome</div>
+      <h2>What My Buddy is</h2>
+      <p class="why">Buddy is your friendly AI that talks to you through your smart glasses — answers questions, translates, gives directions, remembers things for you, and more.</p>
+      <div class="plain"><b>How it works in plain terms:</b> your phone does all the thinking. Your glasses are just the ears, eyes, and speaker. This setup connects your phone to the smart "brain" (a small online helper) that makes it work.</div>
+      <p class="why">You'll set up a few free things. I'll tell you exactly what each one is and why — nothing scary.</p>
+      <button class="btn" onclick="go(1)">Start setup →</button>
+    </div>`,
+
+  // 1 — The brain (backend) — explained simply, with two paths
+  () => `
+    <div class="card">
+      <div class="step-n">Step 1 of 5</div>
+      <h2>Set up Buddy's brain <span class="tag">free</span></h2>
+      <p class="why">Buddy needs a little "helper server" online that holds the secret keys and talks to the AI. It's free, and you only do this once.</p>
+      <div class="plain"><b>Why a helper server?</b> It keeps your secret keys safe — they never sit inside the app where someone could steal them. Think of it as Buddy's locked backroom.</div>
+      <p class="why">The easiest free host is <b>Render</b>. You'll create an account, then it runs Buddy's brain for you.</p>
+      <ol class="steps">
+        <li>Go to <a href="https://render.com" target="_blank">render.com</a> and make a free account.</li>
+        <li>Put the <b>server.js</b> and <b>package.json</b> files (from this project) into a free GitHub repo — or ask a helper to, it's a 2-minute job.</li>
+        <li>On Render, click <b>New → Web Service</b>, pick that repo, and deploy.</li>
+        <li>Render gives you a web address like <b>https://buddy-xxxx.onrender.com</b> — copy it, you'll paste it next.</li>
+      </ol>
+      <div class="plain">Not comfortable with GitHub? This is the one step where 15 minutes of a helper's time (or a freelancer) is worth it. Everything after is tap-and-type.</div>
+      ${helpBox('render')}
+      <div class="btnrow">
+        <button class="btn ghost" onclick="go(0)">Back</button>
+        <button class="btn" onclick="go(2)">Done, next →</button>
+      </div>
+    </div>`,
+
+  // 2 — Keys, explained one at a time
+  () => `
+    <div class="card">
+      <div class="step-n">Step 2 of 5</div>
+      <h2>Add your keys <span class="tag">important</span></h2>
+      <p class="why">A "key" is like a password that lets Buddy use a service. You paste these into Render's settings (Environment → Add Environment Variable). Here's each one, plain:</p>
+
+      <div class="plain"><b>ANTHROPIC_API_KEY</b> — powers Buddy's AI answers. Get it at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> → API Keys. This is the only one Buddy truly needs. <i>(Paid per use, usually cents.)</i></div>
+      ${helpBox('anthropic')}
+      <div class="plain"><b>APP_SHARED_TOKEN</b> — a made-up password so only YOUR app can use your brain. Tap generate below and paste it into Render too.</div>
+
+      <label>Your app password (tap to make one)</label>
+      <div class="btnrow">
+        <input id="tok" value="${S.get('tok')}" placeholder="press generate →" readonly />
+        <button class="btn sec" style="flex:0 0 auto;margin-top:0" onclick="genTok()">Generate</button>
+      </div>
+
+      <p class="why" style="margin-top:18px">These next ones are <b>optional</b> — add them only if you want that feature. Skip any you don't:</p>
+      <div class="plain"><b>GOOGLE_MAPS_API_KEY</b> — maps, directions, nearby places. From <a href="https://console.cloud.google.com" target="_blank">Google Cloud</a> (enable Directions + Places). <b>Skip = no maps.</b></div>
+      ${helpBox('google')}
+      <div class="plain"><b>AVIATIONSTACK_KEY</b> — flight gate/delay alerts. Free at <a href="https://aviationstack.com" target="_blank">aviationstack.com</a>. <b>Skip = no flight tracking.</b></div>
+      ${helpBox('flights')}
+      <div class="plain"><b>Weather & currency</b> — need no key, they just work. Nothing to do.</div>
+
+      <div class="btnrow">
+        <button class="btn ghost" onclick="go(1)">Back</button>
+        <button class="btn" onclick="go(3)">Next →</button>
+      </div>
+    </div>`,
+
+  // 3 — connect the app to the brain + test
+  () => `
+    <div class="card">
+      <div class="step-n">Step 3 of 5</div>
+      <h2>Connect &amp; test</h2>
+      <p class="why">Now tell Buddy where its brain lives. Paste the Render web address from Step 1 and the app password from Step 2.</p>
+      <label>Buddy's brain address (from Render)</label>
+      <input id="url" value="${S.get('url')}" placeholder="https://buddy-xxxx.onrender.com" />
+      <label>App password</label>
+      <input id="tok2" value="${S.get('tok')}" placeholder="the one you generated" />
+      <button class="btn" onclick="testIt()">Save &amp; test the connection</button>
+      <div id="out" class="out" style="display:none"></div>
+      <div class="btnrow" style="margin-top:16px">
+        <button class="btn ghost" onclick="go(2)">Back</button>
+        <button class="btn" onclick="go(4)">Next →</button>
+      </div>
+    </div>`,
+
+  // 4 — email (optional), explained
+  () => `
+    <div class="card">
+      <div class="step-n">Step 4 of 5</div>
+      <h2>Email briefing <span class="tag">optional</span></h2>
+      <p class="why">Want Buddy to say "you have 3 new emails, want to hear them?" This connects your iCloud email — safely.</p>
+      <div class="plain"><b>The safe way:</b> you make a special "app password" just for Buddy (NOT your real Apple password). If it ever leaked, it only touches email and you can delete it anytime.</div>
+      ${helpBox('email')}
+      <ol class="steps">
+        <li>Go to <a href="https://appleid.apple.com" target="_blank">appleid.apple.com</a> → Sign-In &amp; Security → App-Specific Passwords.</li>
+        <li>Make one called "Buddy". Copy it.</li>
+        <li>In Render, add two settings: <b>ICLOUD_USER</b> = your iCloud email, and <b>ICLOUD_APP_PW</b> = that password.</li>
+      </ol>
+      <div class="plain">Rather skip email for now? Totally fine — Buddy works without it. Just tap next.</div>
+      <div class="btnrow">
+        <button class="btn ghost" onclick="go(3)">Back</button>
+        <button class="btn" onclick="go(5)">Next →</button>
+      </div>
+    </div>`,
+
+  // 5 — install to home screen + finish
+  () => `
+    <div class="card">
+      <div class="step-n">Step 5 of 5</div>
+      <h2>Put Buddy on your home screen</h2>
+      <p class="why">This makes Buddy open like a real app, with its own icon — no App Store needed. Works on iPhone and Android.</p>
+      <div class="plain"><b>iPhone:</b> in Safari, tap the Share button (the square with an arrow) → <b>Add to Home Screen</b>.<br><br><b>Android:</b> in Chrome, tap the ⋮ menu → <b>Add to Home screen</b>.</div>
+      <p class="why">That's it — Buddy's icon appears on your phone. Tap it anytime.</p>
+      <div class="plain"><b>What works now (no glasses needed):</b> asking questions, weather, currency, flights, email briefing, local headlines, and the command trainer. <b>The glasses features</b> (camera, "what am I seeing", offline AI) switch on later when the glasses arrive and the full app is built.</div>
+      <a href="./app.html"><button class="btn">Open Buddy →</button></a>
+      <a href="./trainer.html"><button class="btn sec" style="margin-top:10px">Learn the voice commands</button></a>
+      <button class="btn ghost" style="margin-top:10px" onclick="go(0)">Start over</button>
+    </div>`,
+];
+
+// ---------- per-step wiring ----------
+function wireStep(){ /* inputs read on demand; nothing persistent needed here */ }
+
+function genTok(){
+  const b=new Uint8Array(20); crypto.getRandomValues(b);
+  const t=Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join('');
+  S.set('tok',t);
+  const f=document.getElementById('tok'); if(f) f.value=t;
+}
+
+async function testIt(){
+  const url=(document.getElementById('url').value||'').trim().replace(/\/$/,'');
+  const tok=(document.getElementById('tok2').value||'').trim();
+  S.set('url',url); S.set('tok',tok);
+  // Also write the keys the main app reads, so finishing setup carries straight over.
+  localStorage.setItem('ap_url', url); localStorage.setItem('ap_tok', tok);
+  const out=document.getElementById('out'); out.style.display='block';
+  if(!url||!tok){ out.innerHTML='<span class="bad">Please paste both the brain address and the app password.</span>'; return; }
+  out.textContent='Testing the connection…';
+  try{
+    const r=await fetch(url+'/health',{headers:{'Authorization':'Bearer '+tok}});
+    const d=await r.json().catch(()=>({}));
+    if(r.ok){
+      out.innerHTML='<span class="good">✓ Connected! Buddy\'s brain is working.</span>\n\nYou\'re all set for this step — tap Next.';
+    } else if(r.status===401){
+      out.innerHTML='<span class="bad">Connected, but the app password doesn\'t match.</span>\nMake sure APP_SHARED_TOKEN in Render is exactly the password above.';
+    } else {
+      out.innerHTML='<span class="bad">Reached the server but something\'s off (status '+r.status+').</span>\nCheck your keys in Render.';
+    }
+  }catch(e){
+    out.innerHTML='<span class="bad">Couldn\'t reach that address.</span>\nCheck the web address is right and that Render finished deploying (it can take a minute the first time).';
+  }
+}
+
+render();
+</script>
+</body>
+</html>
