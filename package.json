@@ -1,0 +1,16 @@
+{
+  "name": "aperture-proxy",
+  "version": "1.0.0",
+  "description": "Backend proxy for the Aperture glasses app — holds API keys, forwards to Claude, maps, flight, weather, currency, and iCloud mail.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "imapflow": "^1.0.164"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
