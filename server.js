@@ -236,29 +236,26 @@ app.post("/chat", requireAuth, async (req, res) => {
         max_tokens: b.max_tokens || 400,
         system: buddyPersona(ctx),
         messages,
-        stream: true,
+        // NON-streaming: simpler + reliable. App just reads data.reply.
       }),
     });
 
-    if (!upstream.ok || !upstream.body) {
-      // Graceful, human fallback instead of a raw error blob.
-      res.setHeader("content-type", "application/json");
+    const raw = await upstream.text();
+    if (!upstream.ok) {
+      // Surface the real reason (bad model, no credit, bad key) so we can see it.
+      let why = "";
+      try { why = JSON.parse(raw)?.error?.message || ""; } catch {}
       return res.status(200).json({
         fallback: true,
-        reply: "Sorry Shaun, my brain hiccuped for a sec — try me again?",
+        reply: why ? `Buddy's brain said: ${why}` : "Sorry Shaun, my brain hiccuped — try me again?",
       });
     }
-
-    res.status(200);
-    res.setHeader("content-type", "text/event-stream");
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(decoder.decode(value, { stream: true }));
-    }
-    res.end();
+    let reply = "";
+    try {
+      const j = JSON.parse(raw);
+      reply = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+    } catch {}
+    return res.status(200).json({ reply: reply || "…I didn't catch that, try again?" });
   } catch (e) {
     res.setHeader("content-type", "application/json");
     res.status(200).json({
