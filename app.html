@@ -608,7 +608,14 @@
           const payload=s.slice(5).trim(); if(payload==='[DONE]') continue;
           try{
             const j=JSON.parse(payload);
-            const chunk=j.delta?.text || j.content_block?.text || '';
+            // Anthropic streams text in content_block_delta events (j.delta.text),
+            // but be tolerant of every shape so we never miss the reply.
+            let chunk='';
+            if(j.type==='content_block_delta' && j.delta && typeof j.delta.text==='string') chunk=j.delta.text;
+            else if(j.delta && typeof j.delta.text==='string') chunk=j.delta.text;
+            else if(j.content_block && typeof j.content_block.text==='string') chunk=j.content_block.text;
+            else if(typeof j.text==='string') chunk=j.text;
+            else if(j.type==='message' && Array.isArray(j.content)) chunk=j.content.filter(x=>x.type==='text').map(x=>x.text).join('');
             if(chunk){ full+=chunk; thinking.textContent=full;
               document.getElementById('chatLog').scrollTop=1e9; }
           }catch(e){}
