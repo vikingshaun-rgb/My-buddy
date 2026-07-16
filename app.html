@@ -16,6 +16,56 @@
   :root{--midnight:#0B1026;--panel:#161f44;--amber:#F5A623;--paper:#EAE6DA;
     --paper-dim:#9aa0bd;--teal:#3DD6B0;--coral:#FF6B5C;--line:rgba(234,230,218,.10);
     --tile:linear-gradient(160deg,#18224d 0%,#111a3c 100%)}
+
+  /* ===== THEME SYSTEM: 5 colours × dark/light ===== */
+  /* 1. MIDNIGHT (default dark) is the :root above. Light variant: */
+  html[data-theme="midnight-light"]{--midnight:#F4F5FB;--panel:#FFFFFF;--amber:#E0951A;
+    --paper:#1A2140;--paper-dim:#5b6488;--teal:#12B58C;--coral:#E85546;--line:rgba(20,25,60,.12);
+    --tile:linear-gradient(160deg,#FFFFFF 0%,#EEF0FA 100%)}
+
+  /* 2. EMBER — warm charcoal + orange */
+  html[data-theme="ember"]{--midnight:#1A1310;--panel:#2A1E17;--amber:#FF8A3D;--paper:#F6E9DE;
+    --paper-dim:#b39a86;--teal:#E8B04B;--coral:#FF6B4A;--line:rgba(246,233,222,.10);
+    --tile:linear-gradient(160deg,#2C2018 0%,#1E1510 100%)}
+  html[data-theme="ember-light"]{--midnight:#FBF4EE;--panel:#FFFFFF;--amber:#D96A1E;--paper:#2A1B12;
+    --paper-dim:#8a6f5c;--teal:#C08420;--coral:#E0553A;--line:rgba(42,27,18,.12);
+    --tile:linear-gradient(160deg,#FFFFFF 0%,#F7ECE2 100%)}
+
+  /* 3. FOREST — deep green + gold */
+  html[data-theme="forest"]{--midnight:#0C1A12;--panel:#13291C;--amber:#E9C46A;--paper:#E6F0E4;
+    --paper-dim:#8fae97;--teal:#4FD69A;--coral:#F08C5A;--line:rgba(230,240,228,.10);
+    --tile:linear-gradient(160deg,#15301F 0%,#0E2116 100%)}
+  html[data-theme="forest-light"]{--midnight:#F0F6EF;--panel:#FFFFFF;--amber:#B8892A;--paper:#122A1B;
+    --paper-dim:#5d7a64;--teal:#1EA774;--coral:#D97440;--line:rgba(18,42,27,.12);
+    --tile:linear-gradient(160deg,#FFFFFF 0%,#E9F2E7 100%)}
+
+  /* 4. OCEAN — deep teal-blue + cyan */
+  html[data-theme="ocean"]{--midnight:#08151F;--panel:#0F2735;--amber:#37C9D6;--paper:#E1F0F4;
+    --paper-dim:#89a8b5;--teal:#4FE0C8;--coral:#FF7E7E;--line:rgba(225,240,244,.10);
+    --tile:linear-gradient(160deg,#123141 0%,#0B2130 100%)}
+  html[data-theme="ocean-light"]{--midnight:#EEF6F9;--panel:#FFFFFF;--amber:#0E9CAA;--paper:#0A2430;
+    --paper-dim:#557685;--teal:#12A88F;--coral:#E85F5F;--line:rgba(10,36,48,.12);
+    --tile:linear-gradient(160deg,#FFFFFF 0%,#E5F1F5 100%)}
+
+  /* 5. ROSE — plum + pink */
+  html[data-theme="rose"]{--midnight:#1A0F1C;--panel:#2B1830;--amber:#FF8FC7;--paper:#F4E6EF;
+    --paper-dim:#b596ab;--teal:#C98BE8;--coral:#FF7AA8;--line:rgba(244,230,239,.10);
+    --tile:linear-gradient(160deg,#2E1A34 0%,#1F1123 100%)}
+  html[data-theme="rose-light"]{--midnight:#FBF0F6;--panel:#FFFFFF;--amber:#D84E93;--paper:#2A1226;
+    --paper-dim:#8a6480;--teal:#9B54C9;--coral:#E05590;--line:rgba(42,18,38,.12);
+    --tile:linear-gradient(160deg,#FFFFFF 0%,#F8E9F2 100%)}
+
+  /* Theme picker swatches in settings */
+  .themes{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+  .swatch{width:44px;height:44px;border-radius:12px;cursor:pointer;border:2px solid transparent;
+    display:flex;align-items:flex-end;justify-content:flex-end;padding:4px;transition:transform .1s}
+  .swatch:active{transform:scale(.94)}
+  .swatch.sel{border-color:var(--paper)}
+  .swatch i{width:12px;height:12px;border-radius:50%;display:block}
+  .modeToggle{display:flex;gap:8px;margin-top:6px}
+  .modeToggle button{flex:1;padding:10px;border-radius:11px;border:1px solid var(--line);
+    background:var(--panel);color:var(--paper);font:inherit;cursor:pointer}
+  .modeToggle button.on{background:var(--amber);color:#231400;font-weight:700;border-color:transparent}
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{background:var(--midnight);color:var(--paper);font-family:'Sora',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   body{max-width:520px;margin:0 auto;padding:0 18px 40px;min-height:100vh;
@@ -107,6 +157,29 @@
     background:linear-gradient(90deg,transparent,rgba(234,230,218,.12),transparent);
     animation:shimmer 1.2s infinite}
   @keyframes shimmer{100%{transform:translateX(100%)}}
+
+  /* Chat panel — talk to Buddy's genius brain */
+  #chat{position:fixed;inset:0;z-index:90;background:rgba(11,16,38,.6);
+    backdrop-filter:blur(6px);display:none;flex-direction:column;justify-content:flex-end}
+  #chat.open{display:flex}
+  .chat-sheet{background:var(--midnight);border-top:1px solid var(--line);
+    border-radius:22px 22px 0 0;max-height:88vh;display:flex;flex-direction:column}
+  .chat-head{display:flex;align-items:center;gap:10px;padding:16px 18px 10px}
+  .chat-head .dot-live{width:9px;height:9px;border-radius:50%;background:var(--teal)}
+  .chat-head h3{font-size:16px;font-weight:700;flex:1}
+  .chat-head .x{font-family:'Chivo Mono';font-size:13px;color:var(--paper-dim);
+    background:none;border:none;cursor:pointer;padding:6px}
+  .chat-log{flex:1;overflow-y:auto;padding:8px 16px 4px;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:82%;padding:11px 14px;border-radius:15px;font-size:14.5px;line-height:1.45}
+  .msg.me{align-self:flex-end;background:linear-gradient(120deg,var(--amber),#ffce6b);color:#2a1c02;border-bottom-right-radius:5px}
+  .msg.buddy{align-self:flex-start;background:var(--tile);border:1px solid var(--line);color:var(--paper);border-bottom-left-radius:5px}
+  .msg.buddy.think{color:var(--paper-dim);font-style:italic}
+  .chat-input{display:flex;gap:8px;padding:12px 14px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+  .chat-input input{flex:1;padding:13px 15px;border-radius:13px;border:1px solid var(--line);
+    background:var(--panel);color:var(--paper);font:inherit;font-size:15px}
+  .chat-input input:focus{outline:none;border-color:var(--amber)}
+  .chat-input button{border:none;border-radius:13px;padding:0 18px;font-weight:700;
+    background:linear-gradient(120deg,var(--amber),#ffce6b);color:#2a1c02;cursor:pointer}
 </style>
 </head>
 <body>
@@ -151,49 +224,64 @@
     <span><b style="color:var(--paper-dim)">○ glasses</b> needs camera</span>
   </div>
 
-  <button class="talk" onclick="say('Listening… ask me anything.')"><span class="pulse"></span> Talk to Buddy</button>
+  <button class="talk" onclick="openChat()"><span class="pulse"></span> Talk to Buddy</button>
 
-  <div class="group"><h2>See</h2><div class="rule"></div></div>
-  <div class="grid">
-    <div class="tile" onclick="hint('what am I looking at?')"><span class="badge soon">glasses</span><div class="ic">👁️</div><h3>What am I seeing?</h3><p>Identify objects, landmarks</p></div>
-    <div class="tile" onclick="hint('read this')"><span class="badge soon">glasses</span><div class="ic">🈳</div><h3>Read &amp; translate</h3><p>Menus, signs, labels</p></div>
+  <input type="file" id="visionFile" accept="image/*" capture="environment" style="display:none" />
+
+  <div id="chat" onclick="if(event.target.id==='chat')closeChat()">
+    <div class="chat-sheet">
+      <div class="chat-head">
+        <span class="dot-live"></span>
+        <h3>Buddy</h3>
+        <button class="x" onclick="closeChat()">Close</button>
+      </div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-input">
+        <input id="chatText" placeholder="Ask Buddy anything…" autocomplete="off"
+          onkeydown="if(event.key==='Enter')sendChat()" />
+        <button id="micBtn" onclick="micDictate()" title="Tap to speak">🎤</button>
+        <button onclick="sendChat()">Send</button>
+      </div>
+    </div>
   </div>
 
-  <div class="group"><h2>Hear</h2><div class="rule"></div></div>
+  <div class="group"><h2>Look</h2><div class="rule"></div></div>
   <div class="grid">
-    <div class="tile" onclick="hint('translate to Spanish')"><span class="badge say">say</span><div class="ic">💬</div><h3>Live translate</h3><p>Auto-detect language</p></div>
-    <div class="tile" onclick="hint('play my focus playlist')"><span class="badge say">say</span><div class="ic">🎧</div><h3>Music</h3><p>Apple Music by voice</p></div>
+    <div class="tile" onclick="visionShot('identify')"><span class="badge live">live</span><div class="ic">👁️</div><h3>What am I seeing?</h3><p>Snap a photo — Buddy identifies it</p></div>
+    <div class="tile" onclick="visionShot('read')"><span class="badge live">live</span><div class="ic">🈳</div><h3>Read &amp; translate</h3><p>Menus, signs, labels</p></div>
+    <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
+    <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
   </div>
 
-  <div class="group"><h2>Get around</h2><div class="rule"></div></div>
+  <div class="group"><h2>Out &amp; about</h2><div class="rule"></div></div>
   <div class="grid">
-    <div class="tile" onclick="hint('navigate to the hotel')"><span class="badge say">say</span><div class="ic">🧭</div><h3>Navigate</h3><p>Spoken turn-by-turn</p></div>
-    <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Food, ATMs, pharmacies</p></div>
+    <div class="tile" onclick="navigateTo()"><span class="badge live">live</span><div class="ic">🧭</div><h3>Navigate</h3><p>Spoken turn-by-turn</p></div>
+    <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Ask Buddy for a rec</p></div>
+    <div class="tile" onclick="weatherHere()"><span class="badge live">live</span><div class="ic">🌦️</div><h3>Weather</h3><p id="wxSub">Tap for conditions</p></div>
+    <div class="tile" onclick="markSpot()"><span class="badge live">live</span><div class="ic">🅿️</div><h3>Mark a spot</h3><p>Walk-back pin for later</p></div>
+  </div>
+
+  <div class="group"><h2>Money &amp; travel</h2><div class="rule"></div></div>
+  <div class="grid">
+    <div class="tile" onclick="convertDemo()"><span class="badge live">live</span><div class="ic">💱</div><h3>Currency</h3><p id="fxSub">Ask any conversion</p></div>
+    <div class="tile" onclick="visaInfo()"><span class="badge live">live</span><div class="ic">🛂</div><h3>Entry &amp; visa</h3><p>Verify officially</p></div>
     <div class="tile wide" id="flightTile" onclick="checkFlight()"><span class="badge live">live</span><div class="ic">✈️</div><div class="txt"><h3 id="flightTitle">Track a flight</h3><p id="flightSub">Tap to add a flight number</p></div></div>
   </div>
 
-  <div class="group"><h2>Remember</h2><div class="rule"></div></div>
+  <div class="group"><h2>My stuff</h2><div class="rule"></div></div>
   <div class="grid">
-    <div class="tile" onclick="hint('mark this spot')"><span class="badge say">say</span><div class="ic">🅿️</div><h3>Mark a spot</h3><p>Walk-back pin for later</p></div>
-    <div class="tile" onclick="hint('where did I leave my passport?')"><span class="badge say">say</span><div class="ic">🔎</div><h3>Recall</h3><p>Search your own notes</p></div>
+    <div class="tile" onclick="recallNote()"><span class="badge live">live</span><div class="ic">🔎</div><h3>Recall</h3><p>Remember &amp; find notes</p></div>
     <div class="tile" onclick="mailBrief()"><span class="badge live">live</span><div class="ic">📧</div><h3>Email briefing</h3><p id="mailSub">Unread, spoken</p></div>
-    <div class="tile" onclick="hint('log this receipt')"><span class="badge soon">glasses</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Photo → expense</p></div>
-  </div>
-
-  <div class="group"><h2>Travel desk</h2><div class="rule"></div></div>
-  <div class="grid">
-    <div class="tile" onclick="convertDemo()"><span class="badge live">live</span><div class="ic">💱</div><h3>Currency</h3><p id="fxSub">Live rates</p></div>
-    <div class="tile" onclick="weatherHere()"><span class="badge live">live</span><div class="ic">🌦️</div><h3>Weather</h3><p id="wxSub">Tap for conditions</p></div>
     <div class="tile" onclick="localBrief()"><span class="badge live">live</span><div class="ic">📰</div><h3>Around me</h3><p id="localSub">Headlines, events, food</p></div>
-    <div class="tile" onclick="hint('do I need a visa for Japan?')"><span class="badge say">say</span><div class="ic">🛂</div><h3>Entry &amp; visa</h3><p>Verify officially</p></div>
+    <div class="tile" onclick="playMusic()"><span class="badge live">live</span><div class="ic">🎧</div><h3>Music</h3><p>Play in Apple Music</p></div>
   </div>
 
   <div class="group"><h2>System</h2><div class="rule"></div></div>
   <div class="grid">
-    <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Settings</h3><p>Backend &amp; features</p></div>
+    <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Settings</h3><p>Backend, themes &amp; more</p></div>
     <div class="tile" onclick="runHealth()"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
     <div class="tile" onclick="location.href='./trainer.html'"><span class="badge live">live</span><div class="ic">🎓</div><h3>Learn commands</h3><p>Practice out loud</p></div>
-    <div class="tile" onclick="hint('save battery')"><span class="badge say">say</span><div class="ic">🔋</div><h3>Low power</h3><p>Voice-only mode</p></div>
+    <div class="tile" onclick="lowPower()"><span class="badge live">live</span><div class="ic">🔋</div><h3>Low power</h3><p>Dim &amp; simplify</p></div>
   </div>
 
   <div class="foot">APERTURE · phone does the work · glasses do the living</div>
@@ -207,6 +295,14 @@
       <input id="inUrl" placeholder="https://your-app.onrender.com" />
       <label>App token</label>
       <input id="inTok" placeholder="the token from your wizard" />
+
+      <label>Appearance</label>
+      <div class="themes" id="themeSwatches"></div>
+      <div class="modeToggle">
+        <button id="modeDark" onclick="setMode('dark')">🌙 Dark</button>
+        <button id="modeLight" onclick="setMode('light')">☀️ Light</button>
+      </div>
+
       <div class="row">
         <button class="btn-ghost" onclick="closeSettings()">Cancel</button>
         <button class="btn-primary" onclick="saveSettings()">Save &amp; test</button>
@@ -215,12 +311,54 @@
   </div>
 
 <script>
+  // Apply saved theme ASAP (defined below, but call once DOM parses the head vars).
+  try{
+    var _c=localStorage.getItem('buddy_theme')||'midnight', _m=localStorage.getItem('buddy_mode')||'dark';
+    var _a=(_c==='midnight'&&_m==='dark')?'':(_m==='light'?_c+'-light':_c);
+    if(_a) document.documentElement.setAttribute('data-theme',_a);
+  }catch(e){}
+  // ---- Theme system: 5 colours × dark/light, saved per-device ----
+  const THEMES=[
+    {id:'midnight', name:'Midnight', dark:'#0B1026', dot:'#F5A623'},
+    {id:'ember',    name:'Ember',    dark:'#1A1310', dot:'#FF8A3D'},
+    {id:'forest',   name:'Forest',   dark:'#0C1A12', dot:'#E9C46A'},
+    {id:'ocean',    name:'Ocean',    dark:'#08151F', dot:'#37C9D6'},
+    {id:'rose',     name:'Rose',     dark:'#1A0F1C', dot:'#FF8FC7'},
+  ];
+  function themeColor(){ return localStorage.getItem('buddy_theme')||'midnight'; }
+  function themeMode(){ return localStorage.getItem('buddy_mode')||'dark'; }
+  function applyTheme(){
+    const c=themeColor(), m=themeMode();
+    // Midnight dark is the bare :root (no attribute); everything else uses data-theme.
+    const attr=(c==='midnight'&&m==='dark')? '' : (m==='light'? c+'-light' : c);
+    if(attr) document.documentElement.setAttribute('data-theme',attr);
+    else document.documentElement.removeAttribute('data-theme');
+    // reflect selection in the picker if it's open
+    document.querySelectorAll('.swatch').forEach(s=>s.classList.toggle('sel', s.dataset.id===c));
+    const md=document.getElementById('modeDark'), ml=document.getElementById('modeLight');
+    if(md&&ml){ md.classList.toggle('on',m==='dark'); ml.classList.toggle('on',m==='light'); }
+  }
+  function setTheme(id){ localStorage.setItem('buddy_theme',id); applyTheme(); }
+  function setMode(m){ localStorage.setItem('buddy_mode',m); applyTheme(); }
+  function buildSwatches(){
+    const box=document.getElementById('themeSwatches'); if(!box||box.childElementCount) return;
+    THEMES.forEach(t=>{
+      const d=document.createElement('div');
+      d.className='swatch'; d.dataset.id=t.id; d.title=t.name;
+      d.style.background=t.dark;
+      d.innerHTML=`<i style="background:${t.dot}"></i>`;
+      d.onclick=()=>setTheme(t.id);
+      box.appendChild(d);
+    });
+    applyTheme();
+  }
+
   // ---- config in localStorage ----
   const cfg = {
     get url(){ return localStorage.getItem('ap_url')||localStorage.getItem('buddy_url')||'' },
     get tok(){ return localStorage.getItem('ap_tok')||localStorage.getItem('buddy_tok')||'' },
   };
-  function openSettings(){ inUrl.value=cfg.url; inTok.value=cfg.tok; sheet.classList.add('open'); }
+  function openSettings(){ inUrl.value=cfg.url; inTok.value=cfg.tok; buildSwatches(); sheet.classList.add('open'); }
   function closeSettings(){ sheet.classList.remove('open'); }
   async function saveSettings(){
     localStorage.setItem('ap_url', inUrl.value.trim().replace(/\/$/,''));
@@ -228,7 +366,263 @@
     closeSettings(); runHealth();
   }
 
+  // ---- Vision: snap a photo, Buddy tells you what it is (phone-camera test) ----
+  let visionMode='identify';
+  function visionShot(mode){
+    if(!cfg.url||!cfg.tok){ openSettings(); return; }
+    visionMode=mode||'identify';
+    const f=document.getElementById('visionFile');
+    f.value=''; f.click();
+  }
+  document.getElementById('visionFile').addEventListener('change', async (e)=>{
+    const file=e.target.files&&e.target.files[0];
+    if(!file) return;
+    // Downscale before upload to keep it fast + cheap (big phone photos are huge).
+    const dataUrl=await shrinkImage(file, 1024);
+    const base64=dataUrl.split(',')[1];
+    openChat();
+    // Receipt mode routes to /receipt for structured expense extraction.
+    if(visionMode==='__receipt__'){
+      addMsg('me','🧾 Log this receipt');
+      const t=addMsg('buddy','Reading the receipt…','think');
+      try{
+        const {data}=await api('/receipt',{image:base64,mediaType:'image/jpeg'});
+        const line=data.summary || (data.merchant? `Logged ${data.currency||''}${data.total||''} at ${data.merchant}.` : "Couldn't read that receipt — try a clearer photo?");
+        t.classList.remove('think'); t.textContent=line; say(line);
+        if(data.merchant){ const ex=JSON.parse(localStorage.getItem('buddy_expenses')||'[]'); ex.push(data); localStorage.setItem('buddy_expenses',JSON.stringify(ex.slice(-200))); }
+      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't reach Buddy to log that — try again."; }
+      return;
+    }
+    addMsg('me', visionMode==='read'?'📷 Read this for me':'📷 What is this?');
+    const thinking=addMsg('buddy','Buddy is looking…','think');
+    try{
+      const ctrl=new AbortController();
+      const slow=setTimeout(()=>{thinking.textContent='Waking Buddy up…';},3500);
+      const kill=setTimeout(()=>ctrl.abort(),45000);
+      const r=await fetch(cfg.url+'/vision',{
+        method:'POST',
+        headers:{'Authorization':'Bearer '+cfg.tok,'Content-Type':'application/json'},
+        signal:ctrl.signal,
+        body:JSON.stringify({ image:base64, mode:visionMode, mediaType:'image/jpeg' }),
+      });
+      clearTimeout(slow); clearTimeout(kill);
+      const d=await r.json().catch(()=>({}));
+      const ans=d.answer||d.reply||"I couldn't read that photo — try another?";
+      thinking.classList.remove('think'); thinking.textContent=ans; say(ans);
+      chatHistory.push({role:'assistant',content:ans});
+    }catch(err){
+      thinking.classList.remove('think');
+      thinking.textContent="Couldn't reach Buddy's eyes just now — try again in a moment.";
+    }
+  });
+  // Shrink an image file to maxPx on its longest side, return a JPEG data URL.
+  function shrinkImage(file, maxPx){
+    return new Promise((resolve)=>{
+      const img=new Image(); const url=URL.createObjectURL(file);
+      img.onload=()=>{
+        let {width:w,height:h}=img;
+        const scale=Math.min(1, maxPx/Math.max(w,h));
+        w=Math.round(w*scale); h=Math.round(h*scale);
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg',0.82));
+      };
+      img.onerror=()=>resolve('');
+      img.src=url;
+    });
+  }
+
+  // ---- Recall: save short notes (per-device) + ask Buddy to find them ----
+  function getNotes(){ try{return JSON.parse(localStorage.getItem('buddy_notes')||'[]')}catch(e){return[]} }
+  function saveNotes(a){ localStorage.setItem('buddy_notes', JSON.stringify(a.slice(-100))); }
+  function recallNote(){
+    const choice=prompt("Type a note to REMEMBER it, or start with '?' to ASK.\n(e.g. \"passport in the blue bag\"  or  \"? where's my passport\")");
+    if(!choice) return;
+    if(choice.trim().startsWith('?')){
+      const q=choice.replace(/^\?/,'').trim();
+      const notes=getNotes();
+      if(!notes.length){ say("You haven't saved any notes yet, Shaun."); return; }
+      // Try the brain for a smart answer; fall back to a local keyword match.
+      openChat(); addMsg('me','🔎 '+q);
+      const thinking=addMsg('buddy','Looking through your notes…','think');
+      (async()=>{
+        try{
+          const {ok,data}=await api('/recall',{action:'search',query:q,notes});
+          const ans=data.answer|| localFind(notes,q);
+          thinking.classList.remove('think'); thinking.textContent=ans; say(ans);
+        }catch(e){ const ans=localFind(notes,q); thinking.classList.remove('think'); thinking.textContent=ans; say(ans); }
+      })();
+    } else {
+      const notes=getNotes(); notes.push({text:choice.trim(), at:Date.now()}); saveNotes(notes);
+      api('/recall',{action:'save',text:choice.trim()}).catch(()=>{}); // best-effort mirror
+      say("Got it — I'll remember that."); toast('📝 Saved: '+choice.trim());
+    }
+  }
+  function localFind(notes,q){
+    const words=q.toLowerCase().split(/\s+/).filter(w=>w.length>2);
+    const hit=notes.slice().reverse().find(n=>words.some(w=>n.text.toLowerCase().includes(w)));
+    return hit? `You noted: "${hit.text}".` : "I couldn't find anything about that in your notes.";
+  }
+
+  // ---- Log receipt: snap a photo, Buddy extracts the expense ----
+  function logReceipt(){
+    if(!cfg.url||!cfg.tok){ openSettings(); return; }
+    visionMode='__receipt__';
+    const f=document.getElementById('visionFile'); f.value=''; f.click();
+  }
+
   function say(text){ try{const u=new SpeechSynthesisUtterance(text);speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){} toast(text); }
+
+  // ---- Tap-to-speak: dictate into the chat box (where the browser supports it) ----
+  function micDictate(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ toast("Voice input isn't supported in this browser — type instead, or it'll work on the glasses."); return; }
+    const rec = new SR();
+    rec.lang='en-AU'; rec.interimResults=false; rec.maxAlternatives=1;
+    const btn=document.getElementById('micBtn');
+    btn.textContent='🔴'; toast('Listening…');
+    rec.onresult=(e)=>{ const t=e.results[0][0].transcript; const box=document.getElementById('chatText');
+      box.value=t; btn.textContent='🎤'; sendChat(); };
+    rec.onerror=()=>{ btn.textContent='🎤'; toast("Didn't catch that — try again or type."); };
+    rec.onend=()=>{ btn.textContent='🎤'; };
+    try{ rec.start(); }catch(e){ btn.textContent='🎤'; }
+  }
+
+  // ---- Live translate: pick a language, speak/type a phrase, Buddy translates ----
+  async function liveTranslate(){
+    const lang=prompt("Translate INTO which language? (e.g. Spanish, Japanese, French)","Spanish");
+    if(!lang) return;
+    const text=prompt("What should I translate?");
+    if(!text) return;
+    openChat(); addMsg('me',`💬 “${text}” → ${lang}`);
+    const t=addMsg('buddy','Translating…','think');
+    try{
+      const {data}=await api('/translate',{text,targetLang:lang});
+      const line=data.translation||"Couldn't translate that.";
+      const extra=data.note?` (${data.note})`:'';
+      t.classList.remove('think'); t.textContent=line+extra; say(line);
+    }catch(e){ t.classList.remove('think'); t.textContent="Translation didn't go through — try again."; }
+  }
+
+  // ---- Music: open Apple Music with a search (best a web app can do) ----
+  function playMusic(){
+    const q=prompt("What should I play? (song, artist, or playlist)");
+    if(!q) return;
+    // Apple Music web search — opens the app on iPhone.
+    const url='https://music.apple.com/search?term='+encodeURIComponent(q);
+    say(`Opening ${q} in Apple Music.`);
+    window.open(url,'_blank');
+  }
+
+  // ---- Mark a spot: save current location to walk back to ----
+  function markSpot(){
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    say('Marking this spot…');
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const spot={lat:pos.coords.latitude,lng:pos.coords.longitude,at:Date.now()};
+      localStorage.setItem('buddy_spot',JSON.stringify(spot));
+      toast('📍 Spot saved — tap again to walk back');
+      say("Got it, I'll remember this spot. Tap again anytime to walk back.");
+    }, ()=>say('Location permission needed.'));
+  }
+
+  // ---- Entry & visa: honest advisory via the brain (always verify officially) ----
+  async function visaInfo(){
+    const q=prompt("Where are you travelling, and on what passport? (e.g. 'Japan on Australian passport')");
+    if(!q) return;
+    openChat(); addMsg('me','🛂 '+q);
+    const t=addMsg('buddy','Checking…','think');
+    try{
+      const {data}=await api('/chat',{message:`Visa/entry question: ${q}. Give a SHORT spoken answer, and ALWAYS end by saying to verify with the official embassy or government site.`});
+      // /chat streams; but api() returns JSON on fallback. Handle both:
+      const line=data.reply||"I can give general guidance — but always confirm with the official embassy site.";
+      t.classList.remove('think'); t.textContent=line; say(line);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check that — always verify with the official embassy site."; }
+  }
+
+  // ---- Low power: a simple voice-only/dim mode toggle ----
+  function lowPower(){
+    const on=document.body.classList.toggle('lowpower');
+    if(on){ document.body.style.filter='brightness(0.7)'; toast('🔋 Low power on — dimmed'); say('Low power mode on.'); }
+    else { document.body.style.filter=''; toast('Low power off'); say('Back to normal.'); }
+  }
+
+  // ---- Chat panel: talk to Buddy's genius brain (with memory + streaming) ----
+  let chatHistory = [];   // {role, content} — gives the brain conversation memory
+  function openChat(){
+    document.getElementById('chat').classList.add('open');
+    if(chatHistory.length===0){ addMsg('buddy',"Hey Shaun! What can I do for you?"); }
+    setTimeout(()=>document.getElementById('chatText').focus(), 150);
+  }
+  function closeChat(){ document.getElementById('chat').classList.remove('open'); }
+  function addMsg(who, text, cls){
+    const log=document.getElementById('chatLog');
+    const d=document.createElement('div');
+    d.className='msg '+(who==='me'?'me':'buddy')+(cls?(' '+cls):'');
+    d.textContent=text; log.appendChild(d); log.scrollTop=log.scrollHeight;
+    return d;
+  }
+  async function sendChat(){
+    const box=document.getElementById('chatText');
+    const text=(box.value||'').trim();
+    if(!text) return;
+    if(!cfg.url||!cfg.tok){ closeChat(); openSettings(); return; }
+    box.value='';
+    addMsg('me', text);
+    chatHistory.push({role:'user', content:text});
+    const thinking=addMsg('buddy','Buddy is thinking…','think');
+
+    try{
+      const ctrl=new AbortController();
+      const slow=setTimeout(()=>{ thinking.textContent='Waking Buddy up…'; }, 3500);
+      const kill=setTimeout(()=>ctrl.abort(), 45000);
+      const r=await fetch(cfg.url+'/chat',{
+        method:'POST',
+        headers:{'Authorization':'Bearer '+cfg.tok,'Content-Type':'application/json'},
+        signal:ctrl.signal,
+        body:JSON.stringify({ message:text, history:chatHistory.slice(0,-1) }),
+      });
+      clearTimeout(slow); clearTimeout(kill);
+
+      // Graceful fallback path (server returns JSON when the brain hiccups).
+      const ct=r.headers.get('content-type')||'';
+      if(ct.includes('application/json')){
+        const d=await r.json().catch(()=>({}));
+        const msg=d.reply||"Sorry Shaun, something went wrong — try me again?";
+        thinking.classList.remove('think'); thinking.textContent=msg; say(msg);
+        chatHistory.push({role:'assistant', content:msg});
+        return;
+      }
+
+      // Stream the SSE reply, revealing text as it arrives.
+      thinking.classList.remove('think'); thinking.textContent='';
+      const reader=r.body.getReader(); const dec=new TextDecoder();
+      let full='', buf='';
+      for(;;){
+        const {done,value}=await reader.read(); if(done) break;
+        buf+=dec.decode(value,{stream:true});
+        const lines=buf.split('\n'); buf=lines.pop();
+        for(const line of lines){
+          const s=line.trim(); if(!s.startsWith('data:')) continue;
+          const payload=s.slice(5).trim(); if(payload==='[DONE]') continue;
+          try{
+            const j=JSON.parse(payload);
+            const chunk=j.delta?.text || j.content_block?.text || '';
+            if(chunk){ full+=chunk; thinking.textContent=full;
+              document.getElementById('chatLog').scrollTop=1e9; }
+          }catch(e){}
+        }
+      }
+      if(!full) full="…I didn't catch that, try again?";
+      thinking.textContent=full; say(full);
+      chatHistory.push({role:'assistant', content:full});
+      if(chatHistory.length>16) chatHistory=chatHistory.slice(-16); // keep memory bounded
+    }catch(e){
+      thinking.classList.remove('think');
+      thinking.textContent="Couldn't reach Buddy just now — check your connection and try again.";
+    }
+  }
 
   // SAY / glasses tiles: teach the exact phrase instead of pretending to act.
   function hint(phrase){ toast('🎙️  Say to Buddy:  “'+phrase+'”'); }
@@ -282,9 +676,17 @@
 
   // ---- live: currency ----
   async function convertDemo(){
+    const raw=prompt("Convert what? (e.g. 50 EUR to JPY, or 100 USD AUD)","50 EUR to AUD");
+    if(!raw) return;
+    // Parse "<amount> <FROM> [to] <TO>"
+    const m=raw.toUpperCase().match(/([\d.]+)?\s*([A-Z]{3})\s*(?:TO|IN)?\s*([A-Z]{3})/);
+    if(!m){ say("Try it like: 50 EUR to AUD."); return; }
+    const amount=Number(m[1])||1, from=m[2], to=m[3];
     try{ busy('fxSub',true);
-      const {data}=await api('/currency',{from:'EUR',to:'JPY',amount:50});
-      if(data.converted){ const s=`50 EUR ≈ ${Math.round(data.converted)} JPY`; fxSub.textContent=s; say(s); }
+      const {data}=await api('/currency',{from,to,amount});
+      if(data.spoken){ fxSub.textContent=`${amount} ${from}→${to}`; say(data.spoken); }
+      else if(data.converted){ const s=`${amount} ${from} ≈ ${Number(data.converted).toFixed(2)} ${to}`; fxSub.textContent=s; say(s); }
+      else say("Couldn't get that rate — check the currency codes?");
     }catch(e){} finally{ busy('fxSub',false); }
   }
 
@@ -294,8 +696,9 @@
     busy('wxSub',true);
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{ const {data}=await api('/weather',{lat:pos.coords.latitude,lng:pos.coords.longitude});
-        const t=data.current?.temperature_2m;
-        if(t!=null){ const s=`${Math.round(t)}° right now`; wxSub.textContent=s; say(`It's ${Math.round(t)} degrees.`); }
+        const t=data.raw?.current?.temperature_2m;
+        if(t!=null) wxSub.textContent=`${Math.round(t)}° now`;
+        say(data.spoken || (t!=null?`It's ${Math.round(t)} degrees.`:'Weather unavailable.'));
       }catch(e){} finally{ busy('wxSub',false); }
     }, ()=>{ busy('wxSub',false); say('Location permission needed.'); });
   }
@@ -303,26 +706,56 @@
   // ---- live: nearby ----
   function findNearby(){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    const what=prompt("What are you after nearby? (e.g. coffee, ATM, pharmacy, ramen)","coffee");
+    if(what===null) return;
     busy('nearbySub',true);
     navigator.geolocation.getCurrentPosition(async pos=>{
-      try{ const {data}=await api('/places',{lat:pos.coords.latitude,lng:pos.coords.longitude,query:'coffee'});
-        const first=data.places?.[0];
-        say(first? `Nearest coffee: ${first.name}.` : 'Nothing found nearby.');
+      try{
+        const {data}=await api('/places',{lat:pos.coords.latitude,lng:pos.coords.longitude,query:what,recommend:'auto'});
+        if(data.recommendation){ nearbySub.textContent='Buddy recommends'; say(data.recommendation); toast(data.recommendation); }
+        else { const first=data.places?.[0]; say(first?`Nearest: ${first.name}.`:'Nothing found nearby.'); }
       }catch(e){} finally{ busy('nearbySub',false); }
     }, ()=>{ busy('nearbySub',false); say('Location permission needed.'); });
+  }
+
+  // ---- Navigate: type a destination, Buddy speaks the guide ----
+  function navigateTo(){
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    const dest=prompt("Where to? (e.g. the hotel, Central Station, a café name)");
+    if(!dest) return;
+    const mode=(prompt("Walk, drive, transit, or bike?","walking")||"walking").toLowerCase();
+    say('Finding the way…');
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try{
+        const {ok,status,data}=await api('/directions',{
+          originLat:pos.coords.latitude, originLng:pos.coords.longitude,
+          destination:dest, mode:mode.includes('driv')?'driving':mode.includes('trans')?'transit':mode.includes('bik')||mode.includes('cyc')?'bicycling':'walking'
+        });
+        if(status===501){ say("Maps aren't set up yet — add your Google Maps key to switch this on."); return; }
+        if(!ok||!data.steps){ say("I couldn't find a route there, Shaun."); return; }
+        const line=data.spoken||`${data.durationText}, ${data.distanceText}.`;
+        say(line);
+        openChat(); addMsg('me','🧭 Navigate to: '+dest);
+        addMsg('buddy', line);
+        // Show the first few steps too, so it's usable on screen.
+        const steps=(data.steps||[]).slice(0,6).map((s,i)=>`${i+1}. ${s.text}`).join('\n');
+        if(steps) addMsg('buddy', steps);
+      }catch(e){ say("Something went wrong finding that route."); }
+    }, ()=>say('Location permission needed.'));
   }
 
   // ---- live: flight ----
   async function checkFlight(){
     const code=prompt('Flight number (e.g. BA292)'); if(!code) return;
-    try{ const {data}=await api('/flight',{flightIata:code.toUpperCase()});
+    try{ const {status,data}=await api('/flight',{flightIata:code.toUpperCase()});
+      if(status===501){ say("Flight tracking isn't switched on — add your flight API key to enable it."); return; }
       if(data.found){
         flightTitle.textContent=`${code.toUpperCase()} — ${data.status||'tracked'}`;
         const bits=[]; if(data.depGate)bits.push('Gate '+data.depGate);
         if(data.delayMin>0)bits.push(data.delayMin+' min late'); else bits.push('on time');
         flightSub.textContent=bits.join(' · ');
-        say(`${data.airline||'Flight'} ${code}: ${bits.join(', ')}.`);
-      } else { say(`No live data for ${code}.`); }
+        say(data.spoken || `${data.airline||'Flight'} ${code}: ${bits.join(', ')}.`);
+      } else { say(data.spoken||`No live data for ${code}.`); }
     }catch(e){}
   }
 
@@ -351,11 +784,10 @@
       if(status===501){ mailSub.textContent='Set up in backend'; say('Email isn\'t set up yet.'); return; }
       const n=data.count||0;
       mailSub.textContent = n+' unread';
-      if(n===0){ say('No new emails.'); return; }
-      const highs=(data.messages||[]).filter(m=>m.priority==='high');
-      let line=`${n} new email${n===1?'':'s'}.`;
-      if(highs.length){ line+=` ${highs.length} time-sensitive, from ${highs.slice(0,2).map(m=>m.from).join(' and ')}.`; }
-      else { line+=` From ${(data.messages||[]).slice(0,3).map(m=>m.from).join(', ')}.`; }
+      if(n===0){ say(data.briefing||'No new emails.'); return; }
+      // Buddy's smart spoken triage (falls back to a simple line if absent).
+      const line = data.briefing || (`${n} new email${n===1?'':'s'}.`);
+      openChat(); addMsg('me','📧 Email briefing'); addMsg('buddy', line);
       say(line);
     }catch(e){ mailSub.textContent='Add backend in settings'; }
     finally{ busy('mailSub',false); }

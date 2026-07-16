@@ -79,13 +79,55 @@ async function callClaude(body) {
 }
 
 // --- Vision: image + prompt in, one short line out (matches ClaudeVisionClient) ---
+// --- Vision: Buddy looks at a photo and answers, purpose-aware ---
+// Body: { image: "<base64 jpeg/png>", mode?, question?, mediaType? }
+//   mode: "identify" | "read" | "translate" | "safe" | "describe" (default: identify)
+//   question: optional free-text ("what am I looking at?") — overrides mode framing
+// Returns: { answer }  (warm, short, spoken-style) or { fallback:true, answer }
+const VISION_MODES = {
+  identify: "Tell Shaun what he's looking at — the main object, place, or landmark. One or two warm, spoken sentences. If notable, add one useful detail.",
+  read:     "Read the text in this image for Shaun and tell him what it says, plainly. If it's a menu, sign, or label, give the gist first, then key details. Spoken style, no markdown.",
+  translate:"Translate any text in this image into English for Shaun, then briefly say what it means in context. Spoken style, short.",
+  safe:     "Shaun is asking if this looks safe (food, path, situation). Give your honest read in one or two sentences, name anything worth caution, and be clear you can't be certain from a photo. Never give medical or allergy guarantees.",
+  describe: "Describe the scene for Shaun as if he can't see it — the setting, key things, and mood, in two or three warm spoken sentences.",
+};
 app.post("/vision", requireAuth, async (req, res) => {
   try {
-    // The app already sends a well-formed /v1/messages body; just forward it.
-    const { status, text } = await callClaude(req.body);
-    res.status(status).type("application/json").send(text);
+    const b = req.body || {};
+    // Back-compat: if the app already sent a full /v1/messages body, forward it.
+    if (Array.isArray(b.messages)) {
+      const { status, text } = await callClaude(b);
+      return res.status(status).type("application/json").send(text);
+    }
+    if (!b.image) return res.status(400).json({ error: "image required" });
+
+    const framing = b.question
+      ? `Shaun asks: "${b.question}". Answer from what you see, warm and spoken, one or two sentences.`
+      : (VISION_MODES[b.mode] || VISION_MODES.identify);
+
+    const system = "You are Buddy, Shaun's warm AI companion in his glasses. You're looking through his camera. Keep answers SHORT, warm, and spoken-friendly — no markdown, no lists, no preamble.";
+
+    const body = {
+      model: "claude-sonnet-4-6", // vision reasoning wants the capable model
+      max_tokens: 300,
+      system,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: b.mediaType || "image/jpeg", data: b.image } },
+          { type: "text", text: framing },
+        ],
+      }],
+    };
+    const { status, text } = await callClaude(body);
+    if (status !== 200) {
+      return res.status(200).json({ fallback: true, answer: "I couldn't make out the photo just then, Shaun — try once more?" });
+    }
+    const json = JSON.parse(text);
+    const answer = (json.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+    res.json({ answer: answer || "Hmm, I couldn't quite tell — want to try again?" });
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, answer: "My eyes glitched for a sec — give it another go." });
   }
 });
 
@@ -95,35 +137,93 @@ app.post("/translate", requireAuth, async (req, res) => {
   if (!text || !targetLang) {
     return res.status(400).json({ error: "text and targetLang required" });
   }
-  const src = sourceLang ? `from ${sourceLang} ` : "";
+  const src = sourceLang ? `from ${sourceLang} ` : "(auto-detect the source language) ";
   const body = {
     model: "claude-haiku-4-5-20251001", // fast + cheap; translation doesn't need Opus
-    max_tokens: 400,
+    max_tokens: 500,
+    system: "You are Buddy, a warm translation helper for Shaun. Be accurate and natural, not literal-clunky.",
     messages: [{
       role: "user",
       content:
-        `Translate the following ${src}into ${targetLang}. ` +
-        `Reply with ONLY the translation, no preamble, no quotes:\n\n${text}`,
+        `Translate the following ${src}into ${targetLang}.\n` +
+        `Reply as compact JSON ONLY (no markdown, no preamble) with keys: ` +
+        `"translation" (the natural translation), ` +
+        `"detected" (the source language name), ` +
+        `"note" (a SHORT note ONLY if there's useful nuance, tone, or a common phrase to know — else ""). ` +
+        `Text:\n${text}`,
     }],
   };
   try {
     const { status, text: out } = await callClaude(body);
-    if (status !== 200) return res.status(status).type("application/json").send(out);
+    if (status !== 200) return res.status(200).json({ fallback: true, translation: "Couldn't translate that just now — try again?" });
     const json = JSON.parse(out);
-    const translation = (json.content || [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join(" ")
-      .trim();
-    res.json({ translation });
+    const raw = (json.content || []).filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+    // The model returns JSON text; parse it, but degrade gracefully to plain text.
+    let parsed;
+    try { parsed = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { parsed = { translation: raw, detected: sourceLang || "", note: "" }; }
+    res.json({
+      translation: parsed.translation || raw,
+      detected: parsed.detected || "",
+      note: parsed.note || "",
+    });
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, translation: "Translation hiccup — give it another go." });
   }
 });
 
 // --- Chat: streaming voice-assistant turn. Pass through Claude's SSE stream. ---
+// --- Buddy's brain: persona + memory + smart model routing + live context ---
+// Body: { message, history?: [{role, content}], location?: {city|lat,lng}, model? }
+// Streams Buddy's reply back (SSE) so speech can start early.
+
+// Buddy's personality — warm, friendly companion; short & punchy for glasses.
+function buddyPersona(ctx) {
+  return [
+    "You are Buddy, a warm and friendly AI companion who lives in Shaun's smart glasses.",
+    "You talk to Shaun like a helpful, upbeat mate — never robotic, never stiff.",
+    "Keep replies SHORT and punchy: usually one or two sentences. You're spoken aloud through glasses, so brevity matters.",
+    "Be genuinely useful first, friendly second. No filler, no 'as an AI', no long preambles.",
+    "Address him as Shaun when it feels natural, not every line.",
+    "If you're unsure, say so briefly and offer your best guess.",
+    "When it's genuinely helpful, end with a short proactive offer — e.g. 'Want me to set a reminder?' or 'Shall I find one nearby?' — but only when it truly adds value. Never tack on a filler question.",
+    ctx.time ? `The current time is ${ctx.time}.` : "",
+    ctx.place ? `Shaun's rough location is ${ctx.place} — use it only if relevant.` : "",
+  ].filter(Boolean).join(" ");
+}
+
+// Light heuristic: is this a hard question (needs the powerful model) or simple (fast/cheap)?
+function pickModel(message, explicit) {
+  if (explicit) return explicit; // app can override
+  const t = (message || "").toLowerCase();
+  const words = t.split(/\s+/).filter(Boolean).length;
+  const hard = ["explain","compare","why","analyze","analyse","plan","write","summarize",
+                "summarise","pros and cons","difference","how does","calculate","code",
+                "translate a","step by step","help me think","strategy","draft"];
+  if (hard.some(h => t.includes(h))) return "claude-sonnet-4-6";
+  if (words > 20) return "claude-sonnet-4-6";
+  return "claude-haiku-4-5-20251001"; // short & simple → fast, cheap
+}
+
 app.post("/chat", requireAuth, async (req, res) => {
   try {
+    const b = req.body || {};
+    const message = b.message ?? (Array.isArray(b.messages) ? "" : "");
+    const place = b.location?.city || (b.location?.lat ? `${b.location.lat},${b.location.lng}` : "");
+    const ctx = {
+      time: new Date().toLocaleString("en-AU", { timeZone: "Australia/Brisbane" }),
+      place,
+    };
+
+    // Build the message list: prior history (trimmed) + this turn.
+    const history = Array.isArray(b.history) ? b.history.slice(-8) : [];
+    const messages = b.messages /* app may still send raw */ || [
+      ...history,
+      { role: "user", content: message },
+    ];
+
+    const model = pickModel(message || history.map(h=>h.content).join(" "), b.model);
+
     const upstream = await fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: {
@@ -131,11 +231,26 @@ app.post("/chat", requireAuth, async (req, res) => {
         "x-api-key": KEY,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({ ...req.body, stream: true }),
+      body: JSON.stringify({
+        model,
+        max_tokens: b.max_tokens || 400,
+        system: buddyPersona(ctx),
+        messages,
+        stream: true,
+      }),
     });
-    res.status(upstream.status);
+
+    if (!upstream.ok || !upstream.body) {
+      // Graceful, human fallback instead of a raw error blob.
+      res.setHeader("content-type", "application/json");
+      return res.status(200).json({
+        fallback: true,
+        reply: "Sorry Shaun, my brain hiccuped for a sec — try me again?",
+      });
+    }
+
+    res.status(200);
     res.setHeader("content-type", "text/event-stream");
-    // Pipe the SSE bytes straight to the app so speech can start early.
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     for (;;) {
@@ -145,7 +260,11 @@ app.post("/chat", requireAuth, async (req, res) => {
     }
     res.end();
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.setHeader("content-type", "application/json");
+    res.status(200).json({
+      fallback: true,
+      reply: "Sorry Shaun, I couldn't reach my brain just now. Give it another go in a moment.",
+    });
   }
 });
 
@@ -189,8 +308,27 @@ app.post("/directions", requireAuth, async (req, res) => {
       lng: s.start_location?.lng,
     }));
 
+    // Concierge voice: a warm one-line summary Buddy can speak before guiding.
+    let spoken = "";
+    try {
+      const firstFew = steps.slice(0, 3).map(s => s.text).join(". ");
+      const g = await callClaude({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 120,
+        system: "You are Buddy guiding Shaun through his glasses. One warm, natural spoken sentence — no lists.",
+        messages: [{ role: "user", content:
+          `Summarise this walk/drive for Shaun in ONE friendly spoken sentence (mention the time and roughly what to do first). ` +
+          `${leg.duration?.text || ""}, ${leg.distance?.text || ""}. First moves: ${firstFew}` }],
+      });
+      if (g.status === 200) {
+        const j = JSON.parse(g.text);
+        spoken = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+      }
+    } catch {}
+
     res.json({
       summary: route.summary || "",
+      spoken: spoken || `It's ${leg.duration?.text || "a short trip"} — I'll guide you.`,
       distanceText: leg.distance?.text || "",
       durationText: leg.duration?.text || "",
       steps,
@@ -249,7 +387,39 @@ app.post("/places", requireAuth, async (req, res) => {
       types: p.types || [],
       placeId: p.place_id,
     }));
-    res.json({ places });
+
+    // Concierge layer: let Buddy recommend, not just list. style: "pick" | "list" | "auto"
+    const style = (req.body || {}).recommend || "auto";
+    if (style === "none" || places.length === 0) {
+      return res.json({ places, recommendation: places.length ? "" : "I couldn't find anything matching nearby, Shaun." });
+    }
+    // Rank client-side first (open now + rating), so Buddy reasons over the best few.
+    const ranked = [...places].sort((a, b) =>
+      (Number(b.openNow) - Number(a.openNow)) || ((b.rating || 0) - (a.rating || 0)));
+    const top = ranked.slice(0, 5).map(p =>
+      `${p.name}${p.rating ? ` (${p.rating}★)` : ""}${p.openNow === false ? " [closed now]" : p.openNow ? " [open]" : ""} — ${p.address}`
+    ).join("\n");
+    const wants = style === "list"
+      ? "Give Shaun a SHORT ranked shortlist (top 3), one line each, warm and spoken. End by offering directions to his pick."
+      : style === "pick"
+      ? "Recommend the single BEST option for Shaun in one or two warm spoken sentences (favour open-now and higher rating), then offer directions."
+      : "If one option clearly stands out, recommend just that one warmly and offer directions. If it's close, give a quick top-3. Spoken style, short, no markdown.";
+    try {
+      const rec = await callClaude({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 220,
+        system: "You are Buddy, Shaun's warm companion in his glasses. Recommend places like a helpful local friend — never a raw list dump.",
+        messages: [{ role: "user", content: `${wants}\n\nNearby options:\n${top}` }],
+      });
+      let recommendation = "";
+      if (rec.status === 200) {
+        const j = JSON.parse(rec.text);
+        recommendation = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+      }
+      return res.json({ places: ranked, recommendation });
+    } catch {
+      return res.json({ places: ranked, recommendation: "" });
+    }
   } catch (e) {
     res.status(502).json({ error: String(e) });
   }
@@ -275,9 +445,9 @@ app.post("/flight", requireAuth, async (req, res) => {
     const r = await fetch(url);
     const data = await r.json();
     const f = (data.data || [])[0];
-    if (!f) return res.json({ found: false });
+    if (!f) return res.json({ found: false, spoken: "I couldn't find that flight, Shaun — double-check the number?" });
 
-    res.json({
+    const info = {
       found: true,
       airline: f.airline?.name || "",
       status: f.flight_status || "",            // scheduled/active/landed/cancelled/diverted
@@ -291,7 +461,16 @@ app.post("/flight", requireAuth, async (req, res) => {
       arrGate: f.arrival?.gate || null,
       arrTerminal: f.arrival?.terminal || null,
       arrBaggage: f.arrival?.baggage || null,
-    });
+    };
+    // Buddy's plain spoken status line.
+    const bits = [];
+    if (info.status) bits.push(info.status);
+    if (info.delayMin > 0) bits.push(`delayed about ${info.delayMin} min`);
+    if (info.depGate) bits.push(`gate ${info.depGate}`);
+    if (info.depTerminal) bits.push(`terminal ${info.depTerminal}`);
+    info.spoken = `${info.airline || "Your flight"} ${flightIata}: ${bits.join(", ") || "no live details yet"}.` +
+      (info.arrBaggage ? ` Baggage at ${info.arrBaggage}.` : "");
+    res.json(info);
   } catch (e) {
     res.status(502).json({ error: String(e) });
   }
@@ -364,7 +543,24 @@ app.post("/weather", requireAuth, async (req, res) => {
   u.searchParams.set("forecast_days", "2");
   u.searchParams.set("timezone", "auto");
   try {
-    const r = await fetch(u); res.status(r.status).type("application/json").send(await r.text());
+    const r = await fetch(u);
+    const data = await r.json();
+    // Buddy's warm spoken forecast + a practical tip.
+    let spoken = "";
+    try {
+      const c = data.current || {}, d = data.daily || {};
+      const facts = `Now: ${c.temperature_2m}°C (feels ${c.apparent_temperature}°), wind ${c.wind_speed_10m} km/h, precip ${c.precipitation}mm, code ${c.weather_code}. ` +
+        `Today high ${d.temperature_2m_max?.[0]}° low ${d.temperature_2m_min?.[0]}°, rain chance ${d.precipitation_probability_max?.[0]}%.`;
+      const g = await callClaude({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 120,
+        system: "You are Buddy in Shaun's glasses. Say the weather like a friend — one or two spoken sentences, plain temps, and ONE practical tip (jacket/umbrella/sunscreen/wind) when relevant. No numbers-soup, no markdown.",
+        messages: [{ role: "user", content: `Give Shaun the weather from this data:\n${facts}` }],
+      });
+      if (g.status === 200) { const j = JSON.parse(g.text);
+        spoken = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim(); }
+    } catch {}
+    res.json({ raw: data, spoken: spoken || `It's ${data.current?.temperature_2m}° right now.` });
   } catch (e) { res.status(502).json({ error: String(e) }); }
 });
 
@@ -382,8 +578,9 @@ app.post("/currency", requireAuth, async (req, res) => {
     const r = await fetch(u); const j = await r.json();
     const converted = j.rates?.[to.toUpperCase()];
     if (converted == null) return res.status(404).json({ error: "rate_unavailable" });
-    res.json({ from: from.toUpperCase(), to: to.toUpperCase(), amount: amt,
-               converted, rateDate: j.date });
+    const F = from.toUpperCase(), T = to.toUpperCase();
+    const spoken = `${amt} ${F} is about ${Number(converted).toFixed(2)} ${T}.`;
+    res.json({ from: F, to: T, amount: amt, converted, rateDate: j.date, spoken });
   } catch (e) { res.status(502).json({ error: String(e) }); }
 });
 
@@ -397,7 +594,7 @@ app.post("/summarize", requireAuth, async (req, res) => {
   const joined = items.map((s, i) => `${i + 1}. ${s}`).join("\n");
   const instruction = style === "debrief"
     ? `These are notes from the wearer's day. Give a warm, brief spoken recap (3-4 sentences), then one gentle suggestion if useful. No lists, no markdown.`
-    : `These are recent messages/notifications the wearer missed. Summarize what matters in 2-3 spoken sentences: who needs a reply and why. No lists, no markdown.`;
+    : `These are recent messages/notifications the wearer missed. Lead with anything URGENT or time-sensitive first, then the rest. Summarize what matters in 2-3 spoken sentences: who needs a reply and why. No lists, no markdown.`;
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 300,
@@ -476,11 +673,39 @@ app.get("/mail/unread", requireAuth, async (req, res) => {
       }
       return out;
     });
-    res.json({ count: messages.length, messages });
+    res.json({ count: messages.length, messages, briefing: await mailBriefing(messages) });
   } catch (e) {
     res.status(502).json({ error: "imap_failed", detail: String(e) });
   }
 });
+
+// Buddy reads the unread senders/subjects and gives a warm spoken triage.
+async function mailBriefing(messages) {
+  if (!messages.length) return "Your inbox is clear, Shaun — nothing unread.";
+  try {
+    const list = messages.slice(0, 12)
+      .map((m, i) => `${i + 1}. from ${m.from} — "${m.subject}"`).join("\n");
+    const r = await callClaude({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 220,
+      system: "You are Buddy, Shaun's warm companion in his glasses. Triage his unread email like a sharp assistant.",
+      messages: [{ role: "user", content:
+        `Give Shaun a SHORT spoken briefing of his unread email. Lead with anything that genuinely needs him ` +
+        `(real people, bills, bookings, security), name who and why in a phrase, then note how many are just newsletters/promos. ` +
+        `Two or three sentences, warm, no lists, no markdown.\n\n${list}` }],
+    });
+    if (r.status === 200) {
+      const j = JSON.parse(r.text);
+      const t = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+      if (t) return t;
+    }
+  } catch {}
+  // Fallback: simple count using the keyword priority we already computed.
+  const high = messages.filter(m => m.priority === "high").length;
+  return high
+    ? `You've got ${messages.length} unread, Shaun — ${high} look important.`
+    : `You've got ${messages.length} unread, nothing urgent-looking.`;
+}
 
 app.post("/mail/read", requireAuth, async (req, res) => {
   if (!mailReady()) return res.status(501).json({ error: "mail_disabled" });
@@ -569,14 +794,89 @@ app.post("/local", requireAuth, async (req, res) => {
 // Body: a /v1/messages body with the receipt image (app builds it, like /vision).
 // The app prompts for JSON; this just forwards. Kept as its own route for clarity
 // and so you can meter receipt costs separately.
+// --- Receipt: Buddy reads a receipt photo → structured expense ---
+// Body: { image:"<base64>", mediaType? }  OR raw messages (back-compat)
+// Returns: { merchant, total, currency, date, category, summary } or {fallback,...}
 app.post("/receipt", requireAuth, async (req, res) => {
   try {
-    const { status, text } = await callClaude(req.body);
-    res.status(status).type("application/json").send(text);
+    const b = req.body || {};
+    if (Array.isArray(b.messages)) { // back-compat
+      const { status, text } = await callClaude(b);
+      return res.status(status).type("application/json").send(text);
+    }
+    if (!b.image) return res.status(400).json({ error: "image required" });
+    const r = await callClaude({
+      model: "claude-sonnet-4-6",
+      max_tokens: 400,
+      system: "You are Buddy, logging Shaun's expenses. Read receipts precisely.",
+      messages: [{ role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: b.mediaType || "image/jpeg", data: b.image } },
+        { type: "text", text:
+          `Extract this receipt as compact JSON ONLY (no markdown): keys ` +
+          `"merchant","total"(number),"currency","date"(YYYY-MM-DD or ""),` +
+          `"category"(one of: food, transport, lodging, shopping, fuel, other),` +
+          `"summary"(one warm spoken sentence for Shaun, e.g. "Logged $18.50 at Joe's Cafe."). ` +
+          `If unreadable, set fields to "" and say so in summary.` },
+      ]}],
+    });
+    if (r.status !== 200) return res.status(200).json({ fallback: true, summary: "Couldn't read that receipt — try a clearer photo?" });
+    const j = JSON.parse(r.text);
+    const raw = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+    let out; try { out = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { out = { summary: raw }; }
+    res.json(out);
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, summary: "Receipt scan glitched — give it another go." });
   }
 });
+
+// --- Recall: Buddy remembers short notes and finds them again ---
+// NOTE: server-side store is in-memory (resets on redeploy). The app ALSO keeps
+// its own per-device copy, which is the durable one until the native app.
+// Body: { action:"save", text } | { action:"search", query }
+const _notes = [];
+app.post("/recall", requireAuth, async (req, res) => {
+  const { action, text, query } = req.body || {};
+  try {
+    if (action === "save") {
+      if (!text) return res.status(400).json({ error: "text required" });
+      _notes.push({ text, at: Date.now() });
+      return res.json({ ok: true, saved: text });
+    }
+    if (action === "search") {
+      if (!_notes.length) return res.json({ answer: "I don't have any notes saved yet, Shaun." });
+      const list = _notes.slice(-50).map((n, i) => `${i + 1}. ${n.text}`).join("\n");
+      const r = await callClaude({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 160,
+        system: "You are Buddy recalling Shaun's own saved notes. Answer only from them, warmly and briefly.",
+        messages: [{ role: "user", content:
+          `Shaun asks: "${query || "what have I saved?"}". From his notes below, answer in one or two spoken sentences. ` +
+          `If nothing matches, say so gently.\n\n${list}` }],
+      });
+      let answer = "I couldn't find that in your notes.";
+      if (r.status === 200) { const j = JSON.parse(r.text);
+        answer = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim() || answer; }
+      return res.json({ answer });
+    }
+    return res.status(400).json({ error: "action must be save or search" });
+  } catch (e) {
+    res.status(200).json({ fallback: true, answer: "My memory glitched for a moment — try again?" });
+  }
+});
+
+// --- Keep-alive: a tiny public endpoint + self-ping so the free tier never sleeps ---
+// /ping needs no auth (it's harmless) so an external uptime service can hit it too.
+app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));
+
+// Self-ping every 10 min to stay warm (fixes the ~30-50s cold-start on first use).
+// SELF_URL should be this service's own address, e.g. https://my-buddy-xu2x.onrender.com
+const SELF_URL = process.env.SELF_URL || process.env.RENDER_EXTERNAL_URL;
+if (SELF_URL) {
+  setInterval(() => {
+    fetch(`${SELF_URL}/ping`).catch(() => {}); // best-effort, ignore errors
+  }, 10 * 60 * 1000);
+}
 
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => console.log(`glasses proxy listening on :${PORT}`));
