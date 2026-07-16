@@ -29,6 +29,7 @@
 const express = require("express");
 const app = express();
 app.use(express.json({ limit: "12mb" })); // images arrive base64, keep this generous
+app.use(express.urlencoded({ extended: false })); // Twilio posts form-encoded webhooks
 
 // CORS: the web app (served from a different origin, or added to the home screen)
 // must be allowed to call this backend from the browser. Without this, every
@@ -172,6 +173,299 @@ app.post("/translate", requireAuth, async (req, res) => {
   }
 });
 
+// --- Scam & price-check guard: is this a fair price here? ---
+app.post("/scamcheck", requireAuth, async (req, res) => {
+  const { item, price, currency, country } = req.body || {};
+  if (!item || price == null) return res.status(400).json({ error: "item and price required" });
+  const where = country ? ` in ${country}` : "";
+  const cur = currency || "local currency";
+  const body = {
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 220,
+    system: "You are Buddy, a savvy travel companion who protects Shaun from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. Be honest and practical, never alarmist.",
+    messages: [{
+      role: "user",
+      content:
+        `Shaun is being asked to pay ${price} ${cur} for "${item}"${where}. ` +
+        `Reply as compact JSON ONLY (no markdown) with keys: ` +
+        `"verdict" (one of: "fair", "high", "rip-off", "unsure"), ` +
+        `"spoken" (one short friendly spoken sentence Buddy would say — e.g. what a fair price is, or "that's steep, offer X"), ` +
+        `"fairRange" (a short string like "20,000–30,000 VND" or "" if unknown).`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "I couldn't price-check that just now — trust your gut and haggle a little." });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { verdict: "unsure", spoken: raw, fairRange: "" }; }
+    res.json({ verdict: p.verdict || "unsure", spoken: p.spoken || raw, fairRange: p.fairRange || "" });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Price-check hiccup — give it another go." });
+  }
+});
+
+// --- Allergy / dietary shield: is this safe for me to eat? ---
+app.post("/allergy", requireAuth, async (req, res) => {
+  const { dish, avoid, country, image, mediaType } = req.body || {};
+  const avoidList = Array.isArray(avoid) ? avoid.join(", ") : (avoid || "");
+  if (!avoidList) return res.status(400).json({ error: "avoid (what to avoid) required" });
+  const sys = "You are Buddy, Shaun's dietary safety guard while travelling. You know common hidden sources of allergens/restricted ingredients in local cuisines (e.g. fish sauce, shrimp paste, peanuts in SE Asian food). Be careful and clear. When unsure, say so and advise asking/confirming with the vendor in the local language. NEVER give false reassurance.";
+  const askText =
+    `Shaun must AVOID: ${avoidList}.${country ? ` He's in ${country}.` : ""} ` +
+    `${dish ? `The dish is: "${dish}". ` : "Assess the food in the image. "}` +
+    `Reply as compact JSON ONLY (no markdown) with keys: ` +
+    `"risk" (one of: "safe", "caution", "avoid", "unsure"), ` +
+    `"spoken" (one or two short spoken sentences: the verdict + the biggest hidden risk to check), ` +
+    `"askVendor" (a short phrase Shaun can show/say to the vendor in the LOCAL language to confirm, with the English in brackets — or "" if not needed).`;
+  const content = image
+    ? [{ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } }, { type: "text", text: askText }]
+    : askText;
+  const body = {
+    model: "claude-sonnet-4-6", // safety-critical → stronger model
+    max_tokens: 320,
+    system: sys,
+    messages: [{ role: "user", content }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, risk: "unsure", spoken: "I couldn't check that clearly — when in doubt, ask the vendor directly before eating." });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { risk: "unsure", spoken: raw, askVendor: "" }; }
+    res.json({ risk: p.risk || "unsure", spoken: p.spoken || raw, askVendor: p.askVendor || "" });
+  } catch (e) {
+    res.status(200).json({ fallback: true, risk: "unsure", spoken: "Dietary-check hiccup — when unsure, confirm with the vendor before eating." });
+  }
+});
+
+// --- Get me un-lost: spoken walking route from here back to a saved spot ---
+app.post("/unlost", requireAuth, async (req, res) => {
+  const { fromLat, fromLng, toLat, toLng, label } = req.body || {};
+  if (fromLat == null || fromLng == null || toLat == null || toLng == null)
+    return res.status(400).json({ error: "fromLat,fromLng,toLat,toLng required" });
+  const MAPS = process.env.GOOGLE_MAPS_API_KEY;
+  if (!MAPS) return res.status(501).json({ error: "maps_not_configured", spoken: "Add a Google Maps key and I can walk you back step by step." });
+  try {
+    const u = new URL("https://maps.googleapis.com/maps/api/directions/json");
+    u.searchParams.set("origin", `${fromLat},${fromLng}`);
+    u.searchParams.set("destination", `${toLat},${toLng}`);
+    u.searchParams.set("mode", "walking");
+    u.searchParams.set("key", MAPS);
+    const r = await fetch(u);
+    const data = await r.json();
+    const leg = data.routes?.[0]?.legs?.[0];
+    if (!leg) return res.status(200).json({ found: false, spoken: "I couldn't map a walking route back — but your spot is saved; head roughly toward it and I'll retry." });
+    const steps = (leg.steps || []).map(s => (s.html_instructions || "").replace(/<[^>]+>/g, "")).filter(Boolean);
+    const dest = label || "your spot";
+    // Buddy speaks the first move warmly.
+    const spoken = `Okay Shaun, ${dest} is ${leg.distance?.text || "close by"}, about ${leg.duration?.text || "a short walk"}. Start by heading ${steps[0] || "toward it"}.`;
+    res.json({ found: true, spoken, distanceText: leg.distance?.text || "", durationText: leg.duration?.text || "", steps });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Route hiccup — your spot's still saved, try again in a sec." });
+  }
+});
+
+// --- Is this a good deal? convert a price AND judge if it's reasonable ---
+app.post("/gooddeal", requireAuth, async (req, res) => {
+  const { item, price, currency, home, country } = req.body || {};
+  if (price == null || !currency) return res.status(400).json({ error: "price and currency required" });
+  const homeCur = (home || "AUD").toUpperCase();
+  // First get the real conversion (factual), then let Buddy judge value.
+  let convertedLine = "", convertedNum = null;
+  try {
+    const u = new URL("https://api.frankfurter.app/latest");
+    u.searchParams.set("from", currency.toUpperCase());
+    u.searchParams.set("to", homeCur);
+    u.searchParams.set("amount", String(Number(price) || 1));
+    const r = await fetch(u); const j = await r.json();
+    convertedNum = j.rates?.[homeCur];
+    if (convertedNum != null) convertedLine = `${price} ${currency.toUpperCase()} ≈ ${Number(convertedNum).toFixed(2)} ${homeCur}`;
+  } catch {}
+  const body = {
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 200,
+    system: "You are Buddy, Shaun's savvy money companion abroad. You judge whether a price is good value for the country, in plain friendly terms. You know rough local costs across SE Asia and worldwide.",
+    messages: [{
+      role: "user",
+      content:
+        `Shaun is looking at ${item ? `"${item}" for ` : ""}${price} ${currency.toUpperCase()}` +
+        `${country ? ` in ${country}` : ""}. ${convertedLine ? `That's about ${convertedLine}. ` : ""}` +
+        `Reply as compact JSON ONLY (no markdown): "verdict" (one of "great","fair","pricey","rip-off","unsure"), ` +
+        `"spoken" (one short friendly spoken sentence — is it good value, and what's normal?).`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    let p = { verdict: "unsure", spoken: convertedLine || "Couldn't judge that one." };
+    if (status === 200) {
+      const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+      try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p.spoken = raw; }
+    }
+    res.json({ verdict: p.verdict || "unsure", spoken: p.spoken || convertedLine, converted: convertedNum, convertedLine, home: homeCur });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: convertedLine || "Deal-check hiccup — try again.", convertedLine });
+  }
+});
+
+// --- Agentic trip-planner: goal → structured day itinerary ---
+app.post("/planday", requireAuth, async (req, res) => {
+  const { goal, city, budget, currency, profile, date } = req.body || {};
+  if (!goal && !city) return res.status(400).json({ error: "goal or city required" });
+  const body = {
+    model: "claude-sonnet-4-6", // planning benefits from the stronger model
+    max_tokens: 900,
+    system: "You are Buddy, Shaun's travel companion who PLANS his day, not just answers. Build a realistic, well-paced itinerary for the place and budget, with actual place types, rough times, and rough costs. Be specific and local, mindful of opening hours and travel time. Keep it doable, not a rushed checklist.",
+    messages: [{
+      role: "user",
+      content:
+        `Plan Shaun's day. Goal: ${goal || "explore"}.` +
+        `${city ? ` City: ${city}.` : ""}${budget ? ` Budget: ${budget} ${currency || ""}.` : ""}` +
+        `${date ? ` Date: ${date}.` : ""}${profile ? ` About Shaun: ${profile}.` : ""}\n` +
+        `Reply as compact JSON ONLY (no markdown) with keys: ` +
+        `"title" (short day title), ` +
+        `"spoken" (2-3 sentence friendly spoken overview Buddy would say), ` +
+        `"stops" (array of {time, name, what, approxCost} — 4 to 7 stops), ` +
+        `"totalCost" (rough total as a short string), ` +
+        `"tip" (one short local tip).`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "I couldn't plan that just now — try again in a moment." });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { title: "Your day", spoken: raw, stops: [], totalCost: "", tip: "" }; }
+    res.json({
+      title: p.title || "Your day",
+      spoken: p.spoken || "Here's a plan for your day.",
+      stops: Array.isArray(p.stops) ? p.stops : [],
+      totalCost: p.totalCost || "",
+      tip: p.tip || "",
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Trip-planner hiccup — give it another go." });
+  }
+});
+
+// --- Conversation mode: two-way, auto-detect, tone-aware translation ---
+app.post("/converse", requireAuth, async (req, res) => {
+  const { text, myLang, theirLang } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+  const mine = myLang || "English";
+  const theirs = theirLang || "the other language";
+  const body = {
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 400,
+    system: "You are Buddy, powering a live two-way conversation translator for Shaun (a traveller). You auto-detect which language a line is in. If it's Shaun's language, translate INTO the other person's language; if it's the other person's language, translate INTO Shaun's. Keep it natural and colloquial, not literal. Also read the emotional tone.",
+    messages: [{
+      role: "user",
+      content:
+        `Shaun's language: ${mine}. The other person's language: ${theirs}. ` +
+        `Here is a spoken line — detect its language and translate it the RIGHT direction:\n"${text}"\n` +
+        `Reply as compact JSON ONLY (no markdown): "detected" (language name), ` +
+        `"direction" (either "to-them" or "to-me"), ` +
+        `"translation" (the natural translation to speak aloud), ` +
+        `"tone" (one or two words: e.g. friendly, annoyed, urgent, neutral), ` +
+        `"note" (SHORT — only if a cultural nuance matters, else "").`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, translation: "Didn't catch that — say it again?" });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { detected: "", direction: "", translation: raw, tone: "", note: "" }; }
+    res.json({ detected: p.detected || "", direction: p.direction || "", translation: p.translation || raw, tone: p.tone || "", note: p.note || "" });
+  } catch (e) {
+    res.status(200).json({ fallback: true, translation: "Translation hiccup — try again." });
+  }
+});
+
+// --- Etiquette whisper: local customs coaching ---
+app.post("/etiquette", requireAuth, async (req, res) => {
+  const { question, country } = req.body || {};
+  if (!question) return res.status(400).json({ error: "question required" });
+  const body = {
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 240,
+    system: "You are Buddy, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic.",
+    messages: [{
+      role: "user",
+      content: `${country ? `In ${country}: ` : ""}${question}\n` +
+        `Reply as compact JSON ONLY: "spoken" (one or two short spoken sentences of practical etiquette advice), "phrase" (a useful local phrase with English in brackets, or "").`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't check that just now — when unsure, be warm, polite, and follow the locals' lead." });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { spoken: raw, phrase: "" }; }
+    res.json({ spoken: p.spoken || raw, phrase: p.phrase || "" });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Etiquette hiccup — follow the locals' lead and you'll be fine." });
+  }
+});
+
+// --- Landmark look-up: what am I looking at? (text place OR image) ---
+app.post("/landmark", requireAuth, async (req, res) => {
+  const { place, image, mediaType, country } = req.body || {};
+  if (!place && !image) return res.status(400).json({ error: "place or image required" });
+  const askText =
+    `${place ? `Tell Shaun about this landmark/place: "${place}".` : "Identify the landmark or notable place in this image and tell Shaun about it."}` +
+    `${country ? ` (He's in ${country}.)` : ""} ` +
+    `Reply as compact JSON ONLY: "name" (what it is), ` +
+    `"spoken" (2-3 sentence friendly spoken blurb — what it is, why it matters, one interesting fact), ` +
+    `"tip" (a short visitor tip, or "").`;
+  const content = image
+    ? [{ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } }, { type: "text", text: askText }]
+    : askText;
+  const body = {
+    model: "claude-sonnet-4-6", // identification benefits from stronger vision
+    max_tokens: 320,
+    system: "You are Buddy, Shaun's knowledgeable, enthusiastic travel guide. When he looks at something, you tell him what it is and something genuinely interesting — like a great local guide would, briefly.",
+    messages: [{ role: "user", content }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "I couldn't make that out clearly — try a closer photo?" });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { name: "", spoken: raw, tip: "" }; }
+    res.json({ name: p.name || "", spoken: p.spoken || raw, tip: p.tip || "" });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Landmark look-up hiccup — try again." });
+  }
+});
+
+// --- Offline survival pack: generate key phrases + info to cache on device ---
+app.post("/survival", requireAuth, async (req, res) => {
+  const { country, language } = req.body || {};
+  if (!country && !language) return res.status(400).json({ error: "country or language required" });
+  const lang = language || `the local language of ${country}`;
+  const body = {
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 600,
+    system: "You are Buddy, preparing Shaun an offline survival phrase pack for travel. Give the most useful emergency and everyday phrases in the local language with pronunciation and English.",
+    messages: [{
+      role: "user",
+      content: `Make a compact survival phrase pack for ${country || lang} in ${lang}. ` +
+        `Reply as compact JSON ONLY: "phrases" (array of {en, local, say} where "say" is a simple pronunciation hint) covering: hello, thank you, yes, no, "how much?", "help!", "I need a doctor", "police", "I'm allergic to...", "where is the toilet?", "I don't understand", "call an ambulance". ` +
+        `Also "emergency" (the local emergency phone number if known, else ""), and "tip" (one safety tip).`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, phrases: [], tip: "Save your hotel address offline before heading out." });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { phrases: [], emergency: "", tip: "" }; }
+    res.json({ phrases: p.phrases || [], emergency: p.emergency || "", tip: p.tip || "" });
+  } catch (e) {
+    res.status(200).json({ fallback: true, phrases: [], tip: "Save your hotel address offline before heading out." });
+  }
+});
+
 // --- Chat: streaming voice-assistant turn. Pass through Claude's SSE stream. ---
 // --- Buddy's brain: persona + memory + smart model routing + live context ---
 // Body: { message, history?: [{role, content}], location?: {city|lat,lng}, model? }
@@ -189,6 +483,7 @@ function buddyPersona(ctx) {
     "When it's genuinely helpful, end with a short proactive offer — e.g. 'Want me to set a reminder?' or 'Shall I find one nearby?' — but only when it truly adds value. Never tack on a filler question.",
     ctx.time ? `The current time is ${ctx.time}.` : "",
     ctx.place ? `Shaun's rough location is ${ctx.place} — use it only if relevant.` : "",
+    ctx.profile ? `What you remember about Shaun (use naturally when relevant, don't recite it): ${ctx.profile}` : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -205,6 +500,135 @@ function pickModel(message, explicit) {
   return "claude-haiku-4-5-20251001"; // short & simple → fast, cheap
 }
 
+// --- SHARED ROOMS: pairing + location/pin/message sync between two Buddies ---
+// A "room" is a shared trip code (e.g. SHAUN-LILA). Two people who enter the same
+// code can see each other's location, dropped pins, and relayed messages.
+// NOTE: in-memory store — resets on redeploy. Fine for a live trip; a database is
+// the durable upgrade. This is also the exact backbone the glasses will use for
+// live "see what I see" + voice walkie-talkie once the native app can stream.
+const rooms = Object.create(null);
+function room(code) {
+  const k = String(code || "").trim().toUpperCase();
+  if (!k) return null;
+  if (!rooms[k]) rooms[k] = { members: {}, pins: [], messages: [], frames: {} };
+  return rooms[k];
+}
+
+// Join / announce presence in a room.
+app.post("/pair", requireAuth, (req, res) => {
+  const { code, name } = req.body || {};
+  const r = room(code);
+  if (!r) return res.status(400).json({ error: "code required" });
+  const who = (name || "me").trim();
+  r.members[who] = r.members[who] || { name: who, at: Date.now() };
+  r.members[who].joinedAt = Date.now();
+  res.json({ ok: true, code: String(code).toUpperCase(), members: Object.keys(r.members) });
+});
+
+// Push my current state to the room: location, a pin, a message, or a frame stub.
+app.post("/share", requireAuth, (req, res) => {
+  const { code, name, lat, lng, pin, message, frame } = req.body || {};
+  const r = room(code);
+  if (!r) return res.status(400).json({ error: "code required" });
+  const who = (name || "me").trim();
+  const m = (r.members[who] = r.members[who] || { name: who });
+  if (lat != null && lng != null) { m.lat = lat; m.lng = lng; m.at = Date.now(); }
+  if (pin && pin.lat != null) r.pins.unshift({ by: who, label: pin.label || "Pin", lat: pin.lat, lng: pin.lng, at: Date.now() });
+  if (message) r.messages.unshift({ by: who, text: String(message).slice(0, 500), at: Date.now() });
+  // frame = base64 image "what I'm seeing" — stored per member for the glasses era.
+  if (frame) r.frames[who] = { data: String(frame).slice(0, 400000), mediaType: req.body.mediaType || "image/jpeg", at: Date.now() };
+  r.pins = r.pins.slice(0, 20); r.messages = r.messages.slice(0, 50);
+  res.json({ ok: true });
+});
+
+// Read the room from my perspective: partner location/distance, pins, messages.
+app.post("/room", requireAuth, (req, res) => {
+  const { code, name, lat, lng } = req.body || {};
+  const r = room(code);
+  if (!r) return res.status(400).json({ error: "code required" });
+  const me = (name || "me").trim();
+  const others = Object.values(r.members).filter(m => m.name !== me);
+  // distance to each other member (haversine) if we have both positions
+  function dist(aLat, aLng, bLat, bLng) {
+    const R = 6371e3, toR = x => x * Math.PI / 180;
+    const dLat = toR(bLat - aLat), dLng = toR(bLng - aLng);
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(aLat)) * Math.cos(toR(bLat)) * Math.sin(dLng / 2) ** 2;
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s)));
+  }
+  const partners = others.map(o => {
+    let meters = null, bearing = null;
+    if (lat != null && o.lat != null) {
+      meters = dist(lat, lng, o.lat, o.lng);
+      const y = Math.sin((o.lng - lng) * Math.PI / 180) * Math.cos(o.lat * Math.PI / 180);
+      const x = Math.cos(lat * Math.PI / 180) * Math.sin(o.lat * Math.PI / 180) - Math.sin(lat * Math.PI / 180) * Math.cos(o.lat * Math.PI / 180) * Math.cos((o.lng - lng) * Math.PI / 180);
+      const compass = ["N","NE","E","SE","S","SW","W","NW"];
+      bearing = compass[Math.round((((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360) / 45) % 8];
+    }
+    return { name: o.name, lat: o.lat, lng: o.lng, meters, bearing, seenAt: o.at, hasFrame: !!r.frames[o.name] };
+  });
+  res.json({ partners, pins: r.pins, messages: r.messages });
+});
+
+// Fetch the latest "what I'm seeing" frame a partner shared (glasses-era; works now via photo).
+app.post("/frame", requireAuth, (req, res) => {
+  const { code, from } = req.body || {};
+  const r = room(code);
+  if (!r) return res.status(400).json({ error: "code required" });
+  const f = r.frames[(from || "").trim()];
+  if (!f) return res.status(404).json({ error: "no_frame" });
+  res.json({ frame: f.data, mediaType: f.mediaType, at: f.at });
+});
+
+// --- Router: classify a natural message → which Buddy skill + extracted args ---
+// This is what makes the single chat box feel agentic: you just talk, Buddy
+// figures out whether you want a price check, a day plan, a landmark, etc.
+app.post("/route", requireAuth, async (req, res) => {
+  const { message } = req.body || {};
+  if (!message) return res.status(400).json({ error: "message required" });
+  const body = {
+    model: "claude-haiku-4-5-20251001", // routing must be fast
+    max_tokens: 300,
+    system:
+      "You are the intent router for Buddy, a travel companion. Given what Shaun says, decide which ONE skill best answers it, and extract the arguments. " +
+      "Skills: " +
+      "\"chat\" (general talk/questions — the default), " +
+      "\"scamcheck\" (is a price fair? args: item, price, currency), " +
+      "\"gooddeal\" (is this good value/worth it? args: item, price, currency), " +
+      "\"planday\" (plan my day/itinerary; args: goal, city, budget, currency), " +
+      "\"landmark\" (what is this place/building? args: place), " +
+      "\"etiquette\" (local customs/politeness/tipping; args: question), " +
+      "\"converse\" (translate this / say this in X / what did they say; args: text, theirLang), " +
+      "\"weather\" (args: none), \"currency\" (convert money; args: from, to, amount), " +
+      "\"unlost\" (get me back / walk me to my spot; args: none), " +
+      "\"survival\" (emergency phrases/offline pack; args: country), " +
+      "\"whereis\" (where is my wife/partner/husband, find them; args: none), " +
+      "\"tellpartner\" (tell/message my wife/partner something; args: message), " +
+      "\"sharepin\" (send/share my location or a meet-here pin to my partner; args: label), " +
+      "\"music\" (play music/a song/artist/playlist/vibe; args: query), " +
+      "\"call\" (call/phone/ring a number; args: number), " +
+      "\"text\" (text/message/SMS a number; args: number, message). " +
+      "Pick the single best skill. If it's just conversation or doesn't fit a skill, use \"chat\".",
+    messages: [{
+      role: "user",
+      content:
+        `Shaun said: "${message}"\n` +
+        `Reply as compact JSON ONLY (no markdown): "skill" (one of the names above), ` +
+        `"args" (object with only the fields you could extract), ` +
+        `"confidence" (0-1).`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ skill: "chat", args: {}, confidence: 0 });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { skill: "chat", args: {}, confidence: 0 }; }
+    res.json({ skill: p.skill || "chat", args: p.args || {}, confidence: p.confidence ?? 0 });
+  } catch (e) {
+    res.status(200).json({ skill: "chat", args: {}, confidence: 0 });
+  }
+});
+
 app.post("/chat", requireAuth, async (req, res) => {
   try {
     const b = req.body || {};
@@ -213,6 +637,7 @@ app.post("/chat", requireAuth, async (req, res) => {
     const ctx = {
       time: new Date().toLocaleString("en-AU", { timeZone: "Australia/Brisbane" }),
       place,
+      profile: typeof b.profile === "string" ? b.profile.slice(0, 800) : "",
     };
 
     // Build the message list: prior history (trimmed) + this turn.
@@ -254,8 +679,15 @@ app.post("/chat", requireAuth, async (req, res) => {
     try {
       const j = JSON.parse(raw);
       reply = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
-    } catch {}
-    return res.status(200).json({ reply: reply || "…I didn't catch that, try again?" });
+      // If reply is empty, surface WHY (stop_reason / error / raw) so we can see it.
+      if (!reply) {
+        const why = j.error?.message || j.stop_reason || (raw ? raw.slice(0, 300) : "empty response");
+        return res.status(200).json({ reply: `Buddy's brain said: ${why}` });
+      }
+    } catch (e) {
+      return res.status(200).json({ reply: `Buddy's brain sent something odd: ${(raw||"").slice(0,300)}` });
+    }
+    return res.status(200).json({ reply });
   } catch (e) {
     res.setHeader("content-type", "application/json");
     res.status(200).json({
@@ -727,6 +1159,83 @@ app.post("/mail/read", requireAuth, async (req, res) => {
     res.json(result);
   } catch (e) {
     res.status(502).json({ error: "imap_failed", detail: String(e) });
+  }
+});
+
+// ---- SMS OVER EMAIL (TelTel) ----
+// Shaun's SMS arrive as emails from <number>@sms.teltel.com.au, and replying to
+// that email sends an SMS back. These endpoints detect SMS specifically and send
+// replies in the exact format TelTel needs (message first, then "Regards Shaun
+// Erlandsson", no double line-breaks — TelTel truncates after that sign-off).
+const SMS_DOMAIN = "sms.teltel.com.au";
+const SMS_SIGNOFF = process.env.SMS_SIGNOFF || "Regards Shaun Erlandsson";
+
+function smsNumberFrom(address = "") {
+  const m = String(address).match(/([\d+]{6,15})@sms\.teltel\.com\.au/i);
+  return m ? m[1] : null;
+}
+
+// List recent SMS specifically (separated from normal email).
+app.get("/sms/recent", requireAuth, async (req, res) => {
+  if (!mailReady()) return res.status(501).json({ error: "mail_disabled" });
+  try {
+    const out = await withInbox(async (client) => {
+      const items = [];
+      // pull recent messages, keep only SMS-format senders
+      const all = await client.search({ since: new Date(Date.now() - 7 * 864e5) });
+      const recent = all.slice(-40).reverse();
+      for await (const msg of client.fetch(recent, { envelope: true, internalDate: true, source: true })) {
+        const addr = msg.envelope?.from?.[0]?.address || "";
+        const num = smsNumberFrom(addr);
+        if (!num) continue;
+        const body = extractPlainText(msg.source?.toString("utf8") || "")
+          .replace(/reply directly to this email[\s\S]*/i, "").trim();
+        items.push({ uid: msg.uid, number: num, replyTo: addr, text: body.slice(0, 600), date: msg.internalDate });
+        if (items.length >= 15) break;
+      }
+      return items;
+    });
+    res.json({ count: out.length, messages: out });
+  } catch (e) {
+    res.status(502).json({ error: "imap_failed", detail: String(e) });
+  }
+});
+
+// Send an SMS reply (or new SMS) via SMTP → TelTel converts it to a text.
+let nodemailer;
+try { nodemailer = require("nodemailer"); } catch { /* installed at deploy */ }
+function mailer() {
+  return nodemailer.createTransport({
+    host: "smtp.mail.me.com", port: 587, secure: false,
+    auth: { user: ICLOUD_USER, pass: ICLOUD_APP_PW },
+  });
+}
+app.post("/sms/send", requireAuth, async (req, res) => {
+  if (!mailReady() || !nodemailer) return res.status(501).json({ error: "mail_disabled", hint: "Set ICLOUD_USER + ICLOUD_APP_PW and install nodemailer." });
+  let { number, message } = req.body || {};
+  if (!number || !message) return res.status(400).json({ error: "number and message required" });
+  const to = /@/.test(number) ? number : `${String(number).replace(/[^\d+]/g, "")}@${SMS_DOMAIN}`;
+  // TelTel format: message, blank line, sign-off. Avoid double line breaks mid-message.
+  const clean = String(message).replace(/\n{2,}/g, "\n").trim();
+  const bodyText = `${clean}\n${SMS_SIGNOFF}`;
+  try {
+    await mailer().sendMail({ from: ICLOUD_USER, to, subject: "SMS", text: bodyText });
+    res.json({ ok: true, to });
+  } catch (e) {
+    res.status(502).json({ error: "smtp_failed", detail: String(e) });
+  }
+});
+
+// Send a normal email reply (for actual emails, not SMS).
+app.post("/mail/send", requireAuth, async (req, res) => {
+  if (!mailReady() || !nodemailer) return res.status(501).json({ error: "mail_disabled" });
+  const { to, subject, message } = req.body || {};
+  if (!to || !message) return res.status(400).json({ error: "to and message required" });
+  try {
+    await mailer().sendMail({ from: ICLOUD_USER, to, subject: subject || "(no subject)", text: String(message) });
+    res.json({ ok: true, to });
+  } catch (e) {
+    res.status(502).json({ error: "smtp_failed", detail: String(e) });
   }
 });
 

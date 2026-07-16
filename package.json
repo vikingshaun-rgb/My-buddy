@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "imapflow": "^1.0.164"
+    "imapflow": "^1.0.164",
+    "nodemailer": "^6.9.14"
   },
   "engines": {
     "node": ">=18"

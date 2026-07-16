@@ -97,10 +97,14 @@
   .hero h1{font-family:'Archivo Expanded','Sora';font-weight:800;font-size:26px;line-height:1.05;letter-spacing:-.01em}
   .hero h1 span{color:var(--amber)}
   .hero p{color:var(--paper-dim);font-size:13.5px;margin-top:8px;max-width:36ch}
-  .group{margin:26px 2px 12px;display:flex;align-items:baseline;gap:10px}
+  .group{margin:22px 2px 10px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
   .group h2{font-family:'Chivo Mono';font-weight:500;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber)}
   .group .rule{flex:1;height:1px;background:var(--line)}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .group .chev{font-size:12px;color:var(--amber);transition:transform .25s;opacity:.8}
+  .group .cnt{font-family:'Chivo Mono';font-size:9px;color:var(--paper-dim);background:rgba(245,166,35,.1);border-radius:20px;padding:2px 8px}
+  .group.open .chev{transform:rotate(180deg)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;overflow:hidden;transition:max-height .3s ease,opacity .2s,margin .2s;max-height:0;opacity:0;margin:0}
+  .grid.open{max-height:2000px;opacity:1;margin:0 0 4px}
   .tile{position:relative;background:var(--tile);border:1px solid var(--line);border-radius:18px;padding:16px;min-height:104px;cursor:pointer;transition:transform .12s,border-color .2s;overflow:hidden}
   .tile:active{transform:scale(.97)}
   .tile:hover{border-color:rgba(245,166,35,.4)}
@@ -245,38 +249,83 @@
     </div>
   </div>
 
-  <div class="group"><h2>Look</h2><div class="rule"></div></div>
+  <div class="group" onclick="toggleCat(this)"><h2>Look &amp; Read</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="visionShot('identify')"><span class="badge live">live</span><div class="ic">👁️</div><h3>What am I seeing?</h3><p>Snap a photo — Buddy identifies it</p></div>
+    <div class="tile" onclick="landmarkLook()"><span class="badge live">live</span><div class="ic">🏛️</div><h3>What is this place?</h3><p>Landmark &amp; history</p></div>
     <div class="tile" onclick="visionShot('read')"><span class="badge live">live</span><div class="ic">🈳</div><h3>Read &amp; translate</h3><p>Menus, signs, labels</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
   </div>
 
-  <div class="group"><h2>Out &amp; about</h2><div class="rule"></div></div>
+  <div class="group" onclick="toggleCat(this)"><h2>Navigate</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="navigateTo()"><span class="badge live">live</span><div class="ic">🧭</div><h3>Navigate</h3><p>Spoken turn-by-turn</p></div>
     <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Ask Buddy for a rec</p></div>
     <div class="tile" onclick="weatherHere()"><span class="badge live">live</span><div class="ic">🌦️</div><h3>Weather</h3><p id="wxSub">Tap for conditions</p></div>
     <div class="tile" onclick="markSpot()"><span class="badge live">live</span><div class="ic">🅿️</div><h3>Mark a spot</h3><p>Walk-back pin for later</p></div>
+    <div class="tile" onclick="getUnlost()"><span class="badge live">live</span><div class="ic">🧵</div><h3>Get me un-lost</h3><p>Walk me back to my spot</p></div>
+    <div class="tile" onclick="planDay()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my day</h3><p>Buddy builds an itinerary</p></div>
   </div>
 
-  <div class="group"><h2>Money &amp; travel</h2><div class="rule"></div></div>
+  <div class="group" onclick="toggleCat(this)"><h2>Travel Safe</h2><div class="rule"></div><span class="chev">▾</span></div>
+  <div class="grid">
+    <div class="tile" onclick="scamCheck()"><span class="badge live">live</span><div class="ic">🛡️</div><h3>Fair price?</h3><p>Scam &amp; price-check guard</p></div>
+    <div class="tile" onclick="allergyCheck()"><span class="badge live">live</span><div class="ic">🥜</div><h3>Safe to eat?</h3><p>Allergy &amp; diet shield</p></div>
+    <div class="tile" onclick="conversationMode()"><span class="badge live">live</span><div class="ic">🗣️</div><h3>Conversation</h3><p>Two-way live translate</p></div>
+    <div class="tile" onclick="etiquetteWhisper()"><span class="badge live">live</span><div class="ic">🙏</div><h3>Etiquette</h3><p>How to be polite here</p></div>
+  </div>
+
+  <div class="group" onclick="toggleCat(this)"><h2>Money</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="convertDemo()"><span class="badge live">live</span><div class="ic">💱</div><h3>Currency</h3><p id="fxSub">Ask any conversion</p></div>
+    <div class="tile" onclick="goodDeal()"><span class="badge live">live</span><div class="ic">🏷️</div><h3>Good deal?</h3><p>Convert + is it worth it</p></div>
+    <div class="tile" onclick="spendTrack()"><span class="badge live">live</span><div class="ic">💰</div><h3>Spend tracker</h3><p id="spendSub">Log &amp; total your trip</p></div>
     <div class="tile" onclick="visaInfo()"><span class="badge live">live</span><div class="ic">🛂</div><h3>Entry &amp; visa</h3><p>Verify officially</p></div>
+    <div class="tile" onclick="splitBill()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Split the bill</h3><p>Divide + your currency</p></div>
+    <div class="tile" onclick="tipCalc()"><span class="badge live">live</span><div class="ic">🪙</div><h3>Tip calculator</h3><p>With local norms</p></div>
     <div class="tile wide" id="flightTile" onclick="checkFlight()"><span class="badge live">live</span><div class="ic">✈️</div><div class="txt"><h3 id="flightTitle">Track a flight</h3><p id="flightSub">Tap to add a flight number</p></div></div>
   </div>
 
-  <div class="group"><h2>My stuff</h2><div class="rule"></div></div>
+  <div class="group" onclick="toggleCat(this)"><h2>Messages &amp; Media</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="recallNote()"><span class="badge live">live</span><div class="ic">🔎</div><h3>Recall</h3><p>Remember &amp; find notes</p></div>
+    <div class="tile" onclick="travellerMemory()"><span class="badge live">live</span><div class="ic">🧠</div><h3>What Buddy knows</h3><p id="memSub">Hotel, diet, prefs</p></div>
     <div class="tile" onclick="mailBrief()"><span class="badge live">live</span><div class="ic">📧</div><h3>Email briefing</h3><p id="mailSub">Unread, spoken</p></div>
+    <div class="tile" onclick="readTexts()"><span class="badge live">live</span><div class="ic">💬</div><h3>Read my texts</h3><p id="smsSub">SMS, spoken</p></div>
+    <div class="tile" onclick="replyText()"><span class="badge live">live</span><div class="ic">↩️</div><h3>Reply to text</h3><p>Speak your reply</p></div>
     <div class="tile" onclick="localBrief()"><span class="badge live">live</span><div class="ic">📰</div><h3>Around me</h3><p id="localSub">Headlines, events, food</p></div>
-    <div class="tile" onclick="playMusic()"><span class="badge live">live</span><div class="ic">🎧</div><h3>Music</h3><p>Play in Apple Music</p></div>
+    <div class="tile" onclick="playMusic()"><span class="badge live">live</span><div class="ic">🎧</div><h3>Music</h3><p id="musicSub">Play in your music app</p></div>
+    <div class="tile" onclick="musicMoods()"><span class="badge live">live</span><div class="ic">🎚️</div><h3>Music moods</h3><p>Chill, focus, party…</p></div>
+    <div class="tile" onclick="openGrab()"><span class="badge live">live</span><div class="ic">🚗</div><h3>Grab</h3><p>Ride or food</p></div>
+    <div class="tile" onclick="openWhatsApp()"><span class="badge live">live</span><div class="ic">💬</div><h3>WhatsApp</h3><p>Start a message</p></div>
+    <div class="tile" onclick="offlinePack()"><span class="badge live">live</span><div class="ic">🆘</div><h3>Survival pack</h3><p id="sosSub">Key phrases &amp; SOS</p></div>
   </div>
 
-  <div class="group"><h2>System</h2><div class="rule"></div></div>
+  <div class="group" onclick="toggleCat(this)"><h2>Together</h2><div class="rule"></div><span class="chev">▾</span></div>
+  <div class="grid">
+    <div class="tile" onclick="pairSetup()"><span class="badge live">live</span><div class="ic">🔗</div><h3>Link with...</h3><p id="pairSub">Pair with your partner</p></div>
+    <div class="tile" onclick="whereIsPartner()"><span class="badge live">live</span><div class="ic">📡</div><h3>Where's she?</h3><p>Find each other</p></div>
+    <div class="tile" onclick="shareMyPin()"><span class="badge live">live</span><div class="ic">📌</div><h3>Meet me here</h3><p>Drop &amp; share a pin</p></div>
+    <div class="tile" onclick="relayMessage()"><span class="badge live">live</span><div class="ic">🗨️</div><h3>Message her</h3><p>Walkie-talkie note</p></div>
+    <div class="tile" onclick="checkPartner()"><span class="badge live">live</span><div class="ic">📥</div><h3>Any updates?</h3><p>Her messages &amp; pins</p></div>
+    <div class="tile" onclick="planTogether()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan our day</h3><p>Shared itinerary</p></div>
+    <div class="tile" onclick="shareMyView()"><span class="badge soon">glasses</span><div class="ic">👓</div><h3>Share my view</h3><p>What I'm seeing (photo now)</p></div>
+    <div class="tile" onclick="seeHerView()"><span class="badge soon">glasses</span><div class="ic">🔭</div><h3>See her view</h3><p>What she's seeing</p></div>
+  </div>
+
+  <div class="group" onclick="toggleCat(this)"><h2>Calls</h2><div class="rule"></div><span class="chev">▾</span></div>
+  <div class="grid">
+    <div class="tile" onclick="quickDial()"><span class="badge live">live</span><div class="ic">📇</div><h3>Quick dial</h3><p>Saved contacts</p></div>
+    <div class="tile" onclick="callSomeone()"><span class="badge live">live</span><div class="ic">📞</div><h3>Call</h3><p>Dial a number or name</p></div>
+    <div class="tile" onclick="faceTimeSomeone()"><span class="badge live">live</span><div class="ic">📹</div><h3>FaceTime</h3><p>Video call</p></div>
+    <div class="tile" onclick="textSomeone()"><span class="badge live">live</span><div class="ic">✉️</div><h3>Text</h3><p>Send a message</p></div>
+    <div class="tile" onclick="callEmergency()"><span class="badge live">live</span><div class="ic">🚨</div><h3>Emergency</h3><p>Local SOS number</p></div>
+    <div class="tile" onclick="answerCallsInfo()"><span class="badge soon">native</span><div class="ic">📲</div><h3>Answer calls</h3><p>How this works</p></div>
+    <div class="tile" onclick="callReceptionist()"><span class="badge soon">soon</span><div class="ic">🤖</div><h3>AI receptionist</h3><p>Toggle for later</p></div>
+  </div>
+
+  <div class="group" onclick="toggleCat(this)"><h2>Settings</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Settings</h3><p>Backend, themes &amp; more</p></div>
     <div class="tile" onclick="runHealth()"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
@@ -505,17 +554,309 @@
     }catch(e){ t.classList.remove('think'); t.textContent="Translation didn't go through — try again."; }
   }
 
-  // ---- Music: open Apple Music with a search (best a web app can do) ----
-  function playMusic(){
-    const q=prompt("What should I play? (song, artist, or playlist)");
-    if(!q) return;
-    // Apple Music web search — opens the app on iPhone.
-    const url='https://music.apple.com/search?term='+encodeURIComponent(q);
-    say(`Opening ${q} in Apple Music.`);
+  // ---- Music & Calls modules are defined further below ----
+
+  // ---- Grab: deep-link to the app (ride or food) ----
+  function openGrab(){
+    const what=prompt("Grab a ride or food? Type a destination (ride) or leave blank to just open Grab","")||'';
+    // Grab has no public consumer API — best we can do is deep-link/open the app or site.
+    let url='https://grab.onelink.me/2695613898'; // Grab universal open link
+    if(what){ url='https://www.grab.com/'; toast('Opening Grab — set your destination in the app'); }
+    say(what?`Opening Grab — pop in ${what} as your destination.`:'Opening Grab.');
     window.open(url,'_blank');
   }
 
+  // ---- WhatsApp: start a message (deep-link only; iOS can't read/reply hands-free) ----
+  function openWhatsApp(){
+    const num=prompt("Phone number to message? (with country code, digits only — or leave blank to just open WhatsApp)","")||'';
+    const msg=prompt("Message to pre-fill? (optional)","")||'';
+    let url='https://wa.me/';
+    if(num) url+=num.replace(/\D/g,'');
+    if(msg) url+='?text='+encodeURIComponent(msg);
+    say('Opening WhatsApp.');
+    window.open(url,'_blank');
+  }
+
+  // ---- Offline survival pack: generate + cache key phrases for no-signal use ----
+  async function offlinePack(){
+    const cached=localStorage.getItem('buddy_survival');
+    const country=prompt("Which country/language for your survival pack?", localStorage.getItem('buddy_country')||'')||'';
+    if(country) localStorage.setItem('buddy_country',country);
+    openChat();
+    if(!country && cached){ showSurvival(JSON.parse(cached)); return; }
+    addMsg('me','🆘 Survival pack'+(country?` — ${country}`:''));
+    const t=addMsg('buddy','Building your offline pack…','think');
+    try{
+      const {data}=await api('/survival',{country});
+      t.remove();
+      localStorage.setItem('buddy_survival',JSON.stringify(data)); // cached for offline
+      document.getElementById('sosSub').textContent='Saved ✓ works offline';
+      showSurvival(data);
+      toast('Saved — this pack now works with no signal');
+    }catch(e){
+      t.classList.remove('think');
+      if(cached){ t.textContent='Offline — showing your saved pack.'; showSurvival(JSON.parse(cached)); }
+      else t.textContent="Couldn't build it — try again when you have signal.";
+    }
+  }
+  function showSurvival(data){
+    if(data.emergency) addMsg('buddy',`🚨 Emergency number: ${data.emergency}`);
+    (data.phrases||[]).forEach(p=>addMsg('buddy',`${p.en}\n${p.local}  (${p.say||''})`));
+    if(data.tip) addMsg('buddy',`💡 ${data.tip}`);
+    const home=localStorage.getItem('buddy_profile');
+    if(home) addMsg('buddy','🏨 Your saved details: '+home);
+  }
+
   // ---- Mark a spot: save current location to walk back to ----
+  // ================= TOGETHER: shared/couples features =================
+  // Pairing: both partners enter the same trip code to link.
+  function pairCode(){ return localStorage.getItem('buddy_paircode')||''; }
+  function myName(){ return localStorage.getItem('buddy_myname')||'me'; }
+  async function pairSetup(){
+    if(pairCode()){
+      if(confirm(`Linked to trip ${pairCode()}. OK to change/relink, or Cancel to leave the trip.`)===false){ unlinkTrip(); return; }
+    }
+    const name=prompt("Your name (so your partner sees who's who):", myName())||'me';
+    localStorage.setItem('buddy_myname',name.trim());
+    const code=prompt("Enter a shared trip code — you BOTH type the same one\n(e.g. SHAUN-LILA-2026):", pairCode())||'';
+    if(!code){ return; }
+    localStorage.setItem('buddy_paircode',code.trim().toUpperCase());
+    try{
+      const {data}=await api('/pair',{code:pairCode(),name:myName()});
+      document.getElementById('pairSub').textContent='Linked ✓ '+pairCode();
+      say(`Linked up on trip code ${pairCode()}. Have your partner enter the same code.`);
+    }catch(e){ say("Couldn't link right now — check your connection."); }
+  }
+  // helper: push my current GPS into the room, then run a callback with the room
+  function withRoom(cb){
+    const code=pairCode();
+    if(!code){ say("Link with your partner first — tap 'Link with...'."); return; }
+    if(!navigator.geolocation){ cb(code,null); return; }
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const lat=pos.coords.latitude,lng=pos.coords.longitude;
+      api('/share',{code,name:myName(),lat,lng}).catch(()=>{});
+      cb(code,{lat,lng});
+    }, ()=>cb(code,null));
+  }
+  async function whereIsPartner(){
+    withRoom(async (code,me)=>{
+      openChat(); addMsg('me','📡 Where is everyone?');
+      const t=addMsg('buddy','Checking…','think');
+      try{
+        const {data}=await api('/room',{code,name:myName(),lat:me?.lat,lng:me?.lng});
+        t.remove();
+        const ps=(data.partners||[]);
+        if(!ps.length){ addMsg('buddy','No one else has joined this trip code yet — have your partner link with the same code.'); return; }
+        ps.forEach(p=>{
+          if(p.meters!=null){
+            const dist=p.meters>1000?`${(p.meters/1000).toFixed(1)} km`:`${p.meters} m`;
+            const line=`${p.name} is about ${dist} ${p.bearing||''} of you.`;
+            addMsg('buddy',line); say(line);
+            if(p.lat!=null){ const m=addMsg('buddy','📍 Tap to open in Maps'); m.style.cursor='pointer';
+              m.onclick=()=>window.open(`https://maps.google.com/?q=${p.lat},${p.lng}`,'_blank'); }
+          } else if(p.lat!=null){
+            addMsg('buddy',`${p.name}'s last spot:`); const m=addMsg('buddy','📍 Open in Maps'); m.style.cursor='pointer';
+            m.onclick=()=>window.open(`https://maps.google.com/?q=${p.lat},${p.lng}`,'_blank');
+          } else addMsg('buddy',`${p.name} is linked but hasn't shared a location yet.`);
+        });
+        (data.messages||[]).slice(0,3).forEach(msg=>{ if(msg.by!==myName()) addMsg('buddy',`🗨️ ${msg.by}: ${msg.text}`); });
+      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check right now."; }
+    });
+  }
+  function shareMyPin(){
+    const label=prompt("Name this spot for your partner (e.g. 'this cafe', 'the fountain'):","Meet me here")||'Meet me here';
+    withRoom(async (code,me)=>{
+      if(!me){ say("Need your location to drop a pin."); return; }
+      try{ await api('/share',{code,name:myName(),pin:{label,lat:me.lat,lng:me.lng}});
+        say(`Sent your partner a pin: ${label}.`);
+        openChat(); addMsg('me',`📌 ${label}`); addMsg('buddy',`Pin shared with your trip. They'll see "${label}" and can open it in Maps.`);
+      }catch(e){ say("Couldn't share the pin right now."); }
+    });
+  }
+  async function relayMessage(){
+    const code=pairCode(); if(!code){ say("Link with your partner first."); return; }
+    const msg=prompt("Message to send to your partner's Buddy:"); if(!msg) return;
+    try{ await api('/share',{code,name:myName(),message:msg});
+      openChat(); addMsg('me',`🗨️ ${msg}`); addMsg('buddy','Sent ✓ — it\'ll show on their Buddy when they check.');
+      say('Message sent.');
+    }catch(e){ say("Couldn't send right now."); }
+  }
+  // Glasses-era (works now via a photo): share "what I'm seeing".
+  async function shareMyView(){
+    const code=pairCode(); if(!code){ say("Link with your partner first."); return; }
+    say('Snap what you want to share…');
+    const img=await pickImage().catch(()=>null); if(!img) return;
+    try{ await api('/share',{code,name:myName(),frame:img.data,mediaType:img.type});
+      openChat(); addMsg('me','👓 Shared my view'); addMsg('buddy','Your view is shared — your partner can pull it up under "See her view". (On the glasses this becomes a live feed.)');
+      say('Shared what you\'re seeing.');
+    }catch(e){ say("Couldn't share your view right now."); }
+  }
+  async function seeHerView(){
+    const code=pairCode(); if(!code){ say("Link with your partner first."); return; }
+    const from=prompt("Whose view? (their name)", "")||'';
+    if(!from) return;
+    openChat(); addMsg('me',`🔭 See ${from}'s view`);
+    const t=addMsg('buddy','Fetching their view…','think');
+    try{
+      const {status,data}=await api('/frame',{code,from});
+      if(status===404){ t.classList.remove('think'); t.textContent=`${from} hasn't shared a view yet.`; return; }
+      t.remove();
+      const img=document.createElement('img'); img.src=`data:${data.mediaType};base64,${data.frame}`;
+      img.style.cssText='max-width:100%;border-radius:12px;margin:6px 0';
+      const wrap=addMsg('buddy',`${from}'s view:`); wrap.appendChild(img);
+      say(`Here's what ${from} is seeing.`);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't fetch their view right now."; }
+  }
+
+  // Plan a day together — builds an itinerary AND shares it to the trip room.
+  async function planTogether(){
+    const code=pairCode();
+    const city=prompt("Which city/area for your day together?", localStorage.getItem('buddy_city')||'')||'';
+    if(city) localStorage.setItem('buddy_city',city);
+    const goal=prompt("What do you both want? (e.g. food + markets, relaxed, sightseeing)","explore together")||'explore';
+    openChat(); addMsg('me',`🗺️ Plan our day in ${city||'here'} — ${goal}`);
+    const t=addMsg('buddy','Planning your day together…','think');
+    try{
+      const {data}=await api('/planday',{goal:goal+' (for a couple travelling together)',city,profile:(localStorage.getItem('buddy_profile')||''),date:new Date().toDateString()});
+      t.classList.remove('think'); t.textContent=data.spoken||'Here\'s a plan for you both.'; say(data.spoken||'');
+      (data.stops||[]).forEach(s=>addMsg('buddy',`${s.time||''}  ${s.name}${s.approxCost?' · '+s.approxCost:''}\n${s.what||''}`.trim()));
+      if(data.tip) addMsg('buddy',`💡 ${data.tip}`);
+      // share a summary to the partner as a message so both have it
+      if(code){ const summary=`Our plan for ${city}: `+(data.stops||[]).map(s=>s.name).join(' → ');
+        api('/share',{code,name:myName(),message:summary}).catch(()=>{}); addMsg('buddy','📤 Shared this plan with your partner.'); }
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't plan that — try again."; }
+  }
+
+  // Check for anything my partner sent (messages + pins) since I last looked.
+  async function checkPartner(){
+    const code=pairCode(); if(!code){ say("Link with your partner first."); return; }
+    openChat();
+    const t=addMsg('buddy','Checking for updates…','think');
+    try{
+      const {data}=await api('/room',{code,name:myName()});
+      t.remove();
+      const msgs=(data.messages||[]).filter(m=>m.by!==myName());
+      const pins=(data.pins||[]).filter(p=>p.by!==myName());
+      if(!msgs.length && !pins.length){ addMsg('buddy','Nothing new from your partner yet.'); return; }
+      msgs.slice(0,5).forEach(m=>addMsg('buddy',`🗨️ ${m.by}: ${m.text}`));
+      pins.slice(0,5).forEach(p=>{ const el=addMsg('buddy',`📌 ${p.by} shared: ${p.label} — tap for Maps`); el.style.cursor='pointer';
+        el.onclick=()=>window.open(`https://maps.google.com/?q=${p.lat},${p.lng}`,'_blank'); });
+      if(msgs[0]) say(`${msgs[0].by} says: ${msgs[0].text}`);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check right now."; }
+  }
+
+  // Unlink from the shared trip.
+  function unlinkTrip(){
+    if(!pairCode()){ say("You're not linked to a trip."); return; }
+    if(confirm('Leave this shared trip? You can re-link with the code anytime.')){
+      localStorage.removeItem('buddy_paircode');
+      document.getElementById('pairSub').textContent='Pair with your partner';
+      say('Left the shared trip.');
+    }
+  }
+
+  // ================= MUSIC: multi-service launcher =================
+  function musicService(){ return localStorage.getItem('buddy_music')||'apple'; }
+  function setMusicService(){
+    const s=(prompt("Preferred music app? Type: apple / spotify / youtube", musicService())||'').trim().toLowerCase();
+    if(['apple','spotify','youtube'].includes(s)){ localStorage.setItem('buddy_music',s); say(`Music set to ${s}.`); }
+    else say("Pick apple, spotify, or youtube.");
+  }
+  function musicURL(q){
+    const t=encodeURIComponent(q);
+    switch(musicService()){
+      case 'spotify': return 'https://open.spotify.com/search/'+t;
+      case 'youtube': return 'https://music.youtube.com/search?q='+t;
+      default: return 'https://music.apple.com/search?term='+t;
+    }
+  }
+  function playMusic(){
+    const q=prompt("What should I play? (song, artist, playlist, or vibe like 'chill beach')");
+    if(!q) return;
+    openMusicSearch(q);
+  }
+  function openMusicSearch(q){
+    const svc=musicService();
+    say(`Opening ${q} in ${svc==='apple'?'Apple Music':svc==='spotify'?'Spotify':'YouTube Music'}.`);
+    window.open(musicURL(q),'_blank');
+    try{ document.getElementById('musicSub').textContent='Using '+svc+' · tap moods to change'; }catch(e){}
+  }
+  // quick mood buttons in chat
+  function musicMoods(){
+    openChat();
+    addMsg('buddy','🎧 What's the mood? Tap one, or use the Music tile to search:');
+    const moods=['Chill','Focus','Party','Workout','Sleep','Roadtrip','Cafe jazz','Feel good'];
+    moods.forEach(m=>{ const el=addMsg('buddy','▶︎ '+m); el.style.cursor='pointer';
+      el.onclick=()=>openMusicSearch(m+' playlist'); });
+    const chg=addMsg('buddy','⚙︎ Change music app (Apple / Spotify / YouTube)'); chg.style.cursor='pointer';
+    chg.onclick=()=>setMusicService();
+  }
+
+  // ================= PHONE: place calls / FaceTime / text + quick-dial =================
+  // HONEST LIMIT: a web app can't ANSWER or screen incoming calls (no Safari access
+  // to the phone system) and can't read your contacts. It CAN place calls/FaceTime/
+  // texts via native links, and keep its own quick-dial list. True call-answering =
+  // native app (CallKit) or a forwarded VoIP number — noted as a future build.
+  function contactsGet(){ try{return JSON.parse(localStorage.getItem('buddy_contacts')||'[]');}catch{return[];} }
+  function contactsSave(a){ localStorage.setItem('buddy_contacts',JSON.stringify(a)); }
+  function addContact(){
+    const name=(prompt("Contact name?")||'').trim(); if(!name) return;
+    const num=(prompt(`Number for ${name}? (with country code for intl)`)||'').replace(/[^\d+]/g,''); if(!num) return;
+    const a=contactsGet(); a.unshift({name,num}); contactsSave(a.slice(0,30));
+    say(`Saved ${name}.`); quickDial();
+  }
+  function quickDial(){
+    openChat();
+    const a=contactsGet();
+    addMsg('buddy','📇 Quick dial — tap to call, or add someone:');
+    if(!a.length) addMsg('buddy','(no saved contacts yet)');
+    a.forEach(c=>{
+      const el=addMsg('buddy',`📞 ${c.name} — ${c.num}`); el.style.cursor='pointer';
+      el.onclick=()=>{ say(`Calling ${c.name}…`); window.location.href='tel:'+c.num; };
+    });
+    const add=addMsg('buddy','➕ Add a contact'); add.style.cursor='pointer'; add.onclick=()=>addContact();
+    const ft=addMsg('buddy','📹 FaceTime someone'); ft.style.cursor='pointer'; ft.onclick=()=>faceTimeSomeone();
+    const tx=addMsg('buddy','✉️ Send a text'); tx.style.cursor='pointer'; tx.onclick=()=>textSomeone();
+  }
+  function callSomeone(){
+    const a=contactsGet();
+    const raw=prompt(a.length?`Number to call — or type a saved name (${a.map(c=>c.name).join(', ')}):`:"Number to call? (with country code for intl)")||'';
+    if(!raw) return;
+    const hit=a.find(c=>c.name.toLowerCase()===raw.trim().toLowerCase());
+    const num=(hit?hit.num:raw).replace(/[^\d+]/g,'');
+    if(!num) return;
+    say(hit?`Calling ${hit.name}…`:'Calling…'); window.location.href='tel:'+num;
+  }
+  function faceTimeSomeone(){
+    const who=(prompt("FaceTime who? (phone number or Apple ID email)")||'').trim();
+    if(!who) return;
+    say('Starting FaceTime…'); window.location.href='facetime:'+encodeURIComponent(who);
+  }
+  function textSomeone(){
+    const a=contactsGet();
+    const raw=prompt(a.length?`Text which number — or a saved name (${a.map(c=>c.name).join(', ')}):`:"Text which number? (digits)")||'';
+    if(!raw) return;
+    const hit=a.find(c=>c.name.toLowerCase()===raw.trim().toLowerCase());
+    const num=(hit?hit.num:raw).replace(/[^\d+]/g,''); if(!num) return;
+    const msg=prompt("Message? (optional)")||'';
+    say('Opening Messages…');
+    window.location.href='sms:'+num+(msg?('&body='+encodeURIComponent(msg)):'');
+  }
+  // Emergency: dial local emergency number (from survival pack if cached)
+  function callEmergency(){
+    let num='';
+    try{ num=(JSON.parse(localStorage.getItem('buddy_survival')||'{}').emergency||'').replace(/[^\d+]/g,''); }catch(e){}
+    if(!num){ num=(prompt("Local emergency number? (I'll remember it via Survival pack)")||'').replace(/[^\d+]/g,''); }
+    if(!num){ say("Set up your Survival pack so I know the local emergency number."); return; }
+    if(confirm(`Call emergency services on ${num}?`)){ window.location.href='tel:'+num; }
+  }
+  // Answering calls = native only. Explain honestly when asked.
+  function answerCallsInfo(){
+    openChat();
+    addMsg('buddy','📵 Heads up: answering or screening incoming calls isn\'t possible in the web app — iPhone only lets the built-in Phone app handle live calls. Two ways to get "Buddy answers for me" later: (1) the native glasses/iOS app using CallKit, or (2) a dedicated Buddy phone number that forwards calls to the AI (a separate build with a telephony provider). For now I can place calls, FaceTime, and texts for you.');
+    say("Answering calls needs the native app or a forwarding number — for now I can place calls and texts for you.");
+  }
+
   function markSpot(){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     say('Marking this spot…');
@@ -525,6 +866,209 @@
       toast('📍 Spot saved — tap again to walk back');
       say("Got it, I'll remember this spot. Tap again anytime to walk back.");
     }, ()=>say('Location permission needed.'));
+  }
+
+  // ---- Get me un-lost: walk back to the saved spot with spoken directions ----
+  function getUnlost(){
+    const raw=localStorage.getItem('buddy_spot');
+    if(!raw){ say("No spot saved yet — tap Mark a spot first when you're somewhere you'll want to return to."); return; }
+    const spot=JSON.parse(raw);
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    say('Finding your way back…');
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try{
+        const {status,data}=await api('/unlost',{fromLat:pos.coords.latitude,fromLng:pos.coords.longitude,toLat:spot.lat,toLng:spot.lng,label:'your saved spot'});
+        if(status===501){ say(data.spoken||"Add a Google Maps key and I can walk you back."); return; }
+        openChat(); addMsg('me','🧵 Get me back to my spot');
+        const line=data.spoken||"Head roughly toward your spot and I'll retry.";
+        addMsg('buddy',line); say(line);
+        if(data.steps&&data.steps.length){ data.steps.slice(0,8).forEach((s,i)=>addMsg('buddy',(i+1)+'. '+s)); }
+      }catch(e){}
+    }, ()=>say('Location permission needed.'));
+  }
+
+  // ---- Conversation mode: two-way, auto-detect, tone-aware translate (great with BT headphones) ----
+  async function conversationMode(){
+    const theirLang=localStorage.getItem('buddy_theirlang')||prompt("Who are you talking with — what language? (e.g. Vietnamese, Thai)","")||'';
+    if(theirLang) localStorage.setItem('buddy_theirlang',theirLang);
+    const myLang=localStorage.getItem('buddy_mylang')||'English';
+    openChat();
+    addMsg('buddy',`🗣️ Conversation mode with ${theirLang||'them'}. Tap 🎤 and speak (either language) — I'll translate each line. Say a line now:`);
+    const text=prompt(`Speak or type the line (either ${myLang} or ${theirLang}):`); if(!text) return;
+    await converseTurn(text,myLang,theirLang);
+  }
+  async function converseTurn(text,myLang,theirLang){
+    addMsg('me',text);
+    const t=addMsg('buddy','Translating…','think');
+    try{
+      const {data}=await api('/converse',{text,myLang,theirLang});
+      const dir=data.direction==='to-me'?`(${data.detected}→${myLang})`:`(→${theirLang})`;
+      const tone=data.tone?`  · tone: ${data.tone}`:'';
+      const note=data.note?`\n${data.note}`:'';
+      t.classList.remove('think'); t.textContent=`${data.translation} ${dir}${tone}${note}`;
+      say(data.translation);
+      // offer to continue the back-and-forth
+      const more=addMsg('buddy','— tap to add the next line —'); more.style.cursor='pointer';
+      more.onclick=async()=>{ const n=prompt('Next line:'); if(n){ more.remove(); await converseTurn(n,myLang,theirLang);} };
+    }catch(e){ t.classList.remove('think'); t.textContent="Didn't catch that — try again."; }
+  }
+
+  // ---- Etiquette whisper: local customs coaching ----
+  async function etiquetteWhisper(){
+    const q=prompt("What do you want to know? (e.g. how much to tip, is it rude to point, how to greet)"); if(!q) return;
+    const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
+    openChat(); addMsg('me','🙏 '+q);
+    const t=addMsg('buddy','Checking local customs…','think');
+    try{
+      const {data}=await api('/etiquette',{question:q,country});
+      const phrase=data.phrase?`\n🗣️ ${data.phrase}`:'';
+      t.classList.remove('think'); t.textContent=(data.spoken||'Follow the locals\' lead and you\'ll be fine.')+phrase;
+      say(data.spoken||'');
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check that — be warm and polite and you'll be fine."; }
+  }
+
+  // ---- Landmark look-up: what is this place? (photo or name) ----
+  async function landmarkLook(){
+    const name=prompt("Name the place, or leave blank to photograph it")||'';
+    const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
+    if(!name){
+      say('Point your camera at it…');
+      const img=await pickImage().catch(()=>null); if(!img) return;
+      openChat(); addMsg('me','🏛️ What is this place?');
+      const t=addMsg('buddy','Looking it up…','think');
+      try{ const {data}=await api('/landmark',{image:img.data,mediaType:img.type,country}); renderLandmark(t,data); }
+      catch(e){ t.classList.remove('think'); t.textContent="Couldn't make it out — try a closer photo?"; }
+      return;
+    }
+    openChat(); addMsg('me','🏛️ '+name);
+    const t=addMsg('buddy','Looking it up…','think');
+    try{ const {data}=await api('/landmark',{place:name,country}); renderLandmark(t,data); }
+    catch(e){ t.classList.remove('think'); t.textContent="Couldn't look that up — try again."; }
+  }
+  function renderLandmark(t,data){
+    const tip=data.tip?`\n💡 ${data.tip}`:'';
+    t.classList.remove('think'); t.textContent=(data.spoken||'Not sure about that one.')+tip; say(data.spoken||'');
+  }
+
+  // ---- Split the bill (client-side; optional convert to home currency) ----
+  function splitBill(){
+    const total=Number(prompt("Total bill amount? (number)")); if(!total) return;
+    const people=Number(prompt("Split between how many people?","2")); if(!people||people<1) return;
+    const per=total/people;
+    const home=localStorage.getItem('buddy_home')||'';
+    const cur=prompt("Currency of the bill? (optional, for a home-currency estimate)","")||'';
+    let line=`Each person pays ${per.toFixed(2)}${cur?' '+cur.toUpperCase():''} (${people} way split of ${total}).`;
+    say(line); openChat(); addMsg('me',`🧾 Split ${total}${cur?' '+cur:''} ÷ ${people}`); addMsg('buddy',line);
+    if(cur && home && cur.toUpperCase()!==home){
+      api('/currency',{from:cur,to:home,amount:per}).then(({data})=>{ if(data.converted) addMsg('buddy',`≈ ${Number(data.converted).toFixed(2)} ${home} each`); }).catch(()=>{});
+    }
+  }
+
+  // ---- Tip calculator with local norms ----
+  async function tipCalc(){
+    const bill=Number(prompt("Bill amount? (number)")); if(!bill) return;
+    const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
+    openChat(); addMsg('me',`🪙 Tip on ${bill}?`);
+    const t=addMsg('buddy','Checking local tipping norms…','think');
+    try{
+      const {data}=await api('/etiquette',{question:`I have a restaurant bill of ${bill}. How much should I tip here, and is tipping even expected? Give me a specific amount or percentage.`,country});
+      t.classList.remove('think'); t.textContent=data.spoken||`A 10% tip would be ${(bill*0.1).toFixed(2)}.`; say(data.spoken||'');
+    }catch(e){ t.classList.remove('think'); t.textContent=`If in doubt, ~10% is ${(bill*0.1).toFixed(2)}.`; }
+  }
+
+  // ---- Plan my day: agentic itinerary builder ----
+  async function planDay(){
+    const city=prompt("Which city/area?", localStorage.getItem('buddy_city')||'')||'';
+    if(city) localStorage.setItem('buddy_city',city);
+    const goal=prompt("What's the vibe? (e.g. food + temples, chilled, nightlife)","explore the highlights")||'explore';
+    const budget=prompt("Budget for the day? (number, optional)","")||'';
+    const currency=prompt("Currency? (optional)", localStorage.getItem('buddy_localcur')||'')||'';
+    openChat(); addMsg('me',`🗺️ Plan my day in ${city||'here'} — ${goal}`);
+    const t=addMsg('buddy','Planning your day…','think');
+    try{
+      const {data}=await api('/planday',{goal,city,budget,currency,profile:(localStorage.getItem('buddy_profile')||''),date:new Date().toDateString()});
+      t.classList.remove('think');
+      t.textContent=data.spoken||'Here\'s a plan.'; say(data.spoken||'Here is a plan for your day.');
+      if(data.stops&&data.stops.length){
+        data.stops.forEach(s=>{
+          const cost=s.approxCost?` · ${s.approxCost}`:'';
+          addMsg('buddy',`${s.time||''}  ${s.name}${cost}\n${s.what||''}`.trim());
+        });
+      }
+      if(data.totalCost) addMsg('buddy',`Rough total: ${data.totalCost}`);
+      if(data.tip) addMsg('buddy',`💡 ${data.tip}`);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't plan that — try again in a sec."; }
+  }
+
+  // ---- What Buddy knows: persistent traveller memory ----
+  function travellerMemory(){
+    const cur=localStorage.getItem('buddy_profile')||'';
+    const next=prompt(
+      "🧠 What should Buddy always remember about you?\n(hotel, dietary needs, home currency, favourite spots, etc.)\n\nEdit below — this is used in every chat.",
+      cur);
+    if(next===null) return;
+    const clean=next.trim();
+    localStorage.setItem('buddy_profile',clean);
+    const homeM=clean.match(/home currency[:\s]+([A-Za-z]{3})/i); if(homeM) localStorage.setItem('buddy_home',homeM[1].toUpperCase());
+    const avoidM=clean.match(/(?:avoid|allerg[a-z]*)[:\s]+([^.;\n]+)/i); if(avoidM) localStorage.setItem('buddy_avoid',avoidM[1].trim());
+    document.getElementById('memSub').textContent = clean ? 'Buddy remembers you ✓' : 'Hotel, diet, prefs';
+    say(clean ? "Got it — I'll remember that from now on." : "Cleared what I remembered.");
+  }
+
+  // ---- Fair price? scam & price-check guard ----
+  async function scamCheck(){
+    const item=prompt("What are you buying? (e.g. tuk-tuk to airport, bowl of pho, SIM card)"); if(!item) return;
+    const price=prompt("What price are they asking? (just the number)"); if(!price) return;
+    const currency=prompt("Which currency? (e.g. VND, THB, AUD)","")||"";
+    openChat(); addMsg('me',`🛡️ ${item} — ${price} ${currency}`);
+    const t=addMsg('buddy','Checking local prices…','think');
+    try{
+      const {data}=await api('/scamcheck',{item,price:Number(price)||price,currency,country:localStorage.getItem('buddy_country')||''});
+      const v=data.verdict?` (${data.verdict})`:''; const range=data.fairRange?`  Fair: ${data.fairRange}`:'';
+      const line=(data.spoken||"Trust your gut and haggle a little.")+range;
+      t.classList.remove('think'); t.textContent=line+v; say(data.spoken||line);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't price-check — haggle a little and trust your gut."; }
+  }
+
+  // ---- Safe to eat? allergy & diet shield (text or photo) ----
+  async function allergyCheck(){
+    let avoid=localStorage.getItem('buddy_avoid')||'';
+    if(!avoid){ avoid=prompt("What must you avoid? (e.g. peanuts, shellfish, pork) — I'll remember it")||''; if(avoid) localStorage.setItem('buddy_avoid',avoid); }
+    if(!avoid) return;
+    const dish=prompt(`Avoiding: ${avoid}\n\nWhat's the dish? (name it, or leave blank to photograph it)`)||'';
+    const country=localStorage.getItem('buddy_country')||'';
+    if(!dish){ // photo path
+      say('Point your camera at the food…');
+      const img=await pickImage().catch(()=>null);
+      if(!img) return;
+      openChat(); addMsg('me','🥜 Is this safe to eat?');
+      const t=addMsg('buddy','Checking ingredients…','think');
+      try{ const {data}=await api('/allergy',{avoid,country,image:img.data,mediaType:img.type});
+        renderAllergy(t,data);
+      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check clearly — ask the vendor before eating."; }
+      return;
+    }
+    openChat(); addMsg('me',`🥜 ${dish} — safe with ${avoid}?`);
+    const t=addMsg('buddy','Checking ingredients…','think');
+    try{ const {data}=await api('/allergy',{dish,avoid,country});
+      renderAllergy(t,data);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check clearly — ask the vendor before eating."; }
+  }
+  function renderAllergy(t,data){
+    const icon={safe:'✅',caution:'⚠️',avoid:'⛔',unsure:'❓'}[data.risk]||'';
+    const ask=data.askVendor?`\n\nShow the vendor: ${data.askVendor}`:'';
+    const line=(icon?icon+' ':'')+(data.spoken||"When unsure, confirm with the vendor before eating.")+ask;
+    t.classList.remove('think'); t.textContent=line; say(data.spoken||line);
+  }
+  // reuse the vision photo picker if present, else a minimal file input
+  function pickImage(){
+    return new Promise((resolve,reject)=>{
+      const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+      inp.onchange=()=>{ const f=inp.files[0]; if(!f) return reject();
+        const r=new FileReader(); r.onload=()=>{ const d=String(r.result).split(',')[1]; resolve({data:d,type:f.type||'image/jpeg'}); };
+        r.onerror=reject; r.readAsDataURL(f); };
+      inp.click();
+    });
   }
 
   // ---- Entry & visa: honest advisory via the brain (always verify officially) ----
@@ -548,6 +1092,25 @@
     else { document.body.style.filter=''; toast('Low power off'); say('Back to normal.'); }
   }
 
+  // ---- Accordion categories: tap a heading → its tiles show, others collapse ----
+  function toggleCat(hdr){
+    const grid=hdr.nextElementSibling; // the .grid right after this header
+    if(!grid||!grid.classList.contains('grid')) return;
+    const isOpen=grid.classList.contains('open');
+    // close all
+    document.querySelectorAll('.grid.open').forEach(g=>g.classList.remove('open'));
+    document.querySelectorAll('.group.open').forEach(h=>h.classList.remove('open'));
+    if(!isOpen){ grid.classList.add('open'); hdr.classList.add('open');
+      // smooth scroll the header into comfortable view
+      setTimeout(()=>hdr.scrollIntoView({behavior:'smooth',block:'start'}),80);
+    }
+  }
+  // Open the first category by default so the page never looks empty.
+  function initAccordion(){
+    const firstHdr=document.querySelector('.group');
+    if(firstHdr){ const g=firstHdr.nextElementSibling; if(g&&g.classList.contains('grid')){ g.classList.add('open'); firstHdr.classList.add('open'); } }
+  }
+
   // ---- Chat panel: talk to Buddy's genius brain (with memory + streaming) ----
   let chatHistory = [];   // {role, content} — gives the brain conversation memory
   function openChat(){
@@ -563,6 +1126,70 @@
     d.textContent=text; log.appendChild(d); log.scrollTop=log.scrollHeight;
     return d;
   }
+  // ---- Router dispatch: run the chosen skill inline in the chat, speak result ----
+  async function dispatchSkill(skill, a, original){
+    const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
+    const home=localStorage.getItem('buddy_home')||'AUD';
+    try{
+      if(skill==='scamcheck' && a.price!=null){
+        const t=addMsg('buddy','Checking local prices…','think');
+        const {data}=await api('/scamcheck',{item:a.item||original,price:Number(a.price)||a.price,currency:a.currency||'',country});
+        const v=data.verdict?` (${data.verdict})`:''; const rg=data.fairRange?`  Fair: ${data.fairRange}`:'';
+        t.classList.remove('think'); t.textContent=(data.spoken||'')+rg+v; say(data.spoken||''); return true;
+      }
+      if(skill==='gooddeal' && a.price!=null){
+        const t=addMsg('buddy','Checking value…','think');
+        const {data}=await api('/gooddeal',{item:a.item||'',price:Number(a.price)||a.price,currency:a.currency||'',home,country});
+        const conv=data.convertedLine?`\n${data.convertedLine}`:''; const v=data.verdict?` (${data.verdict})`:'';
+        t.classList.remove('think'); t.textContent=(data.spoken||'')+conv+v; say(data.spoken||''); return true;
+      }
+      if(skill==='planday'){
+        const t=addMsg('buddy','Planning your day…','think');
+        const {data}=await api('/planday',{goal:a.goal||original,city:a.city||localStorage.getItem('buddy_city')||'',budget:a.budget||'',currency:a.currency||'',profile:(localStorage.getItem('buddy_profile')||''),date:new Date().toDateString()});
+        t.classList.remove('think'); t.textContent=data.spoken||'Here\'s a plan.'; say(data.spoken||'');
+        (data.stops||[]).forEach(s=>addMsg('buddy',`${s.time||''}  ${s.name}${s.approxCost?' · '+s.approxCost:''}\n${s.what||''}`.trim()));
+        if(data.totalCost) addMsg('buddy',`Rough total: ${data.totalCost}`);
+        if(data.tip) addMsg('buddy',`💡 ${data.tip}`); return true;
+      }
+      if(skill==='landmark'){
+        const t=addMsg('buddy','Looking it up…','think');
+        const {data}=await api('/landmark',{place:a.place||original,country});
+        renderLandmark(t,data); return true;
+      }
+      if(skill==='etiquette'){
+        const t=addMsg('buddy','Checking local customs…','think');
+        const {data}=await api('/etiquette',{question:a.question||original,country});
+        const ph=data.phrase?`\n🗣️ ${data.phrase}`:''; t.classList.remove('think'); t.textContent=(data.spoken||'')+ph; say(data.spoken||''); return true;
+      }
+      if(skill==='converse' && (a.text||original)){
+        const myLang=localStorage.getItem('buddy_mylang')||'English';
+        const theirLang=a.theirLang||localStorage.getItem('buddy_theirlang')||'';
+        await converseTurn(a.text||original, myLang, theirLang); return true;
+      }
+      if(skill==='currency' && a.from && a.to){
+        const t=addMsg('buddy','Converting…','think');
+        const {data}=await api('/currency',{from:a.from,to:a.to,amount:a.amount||1});
+        t.classList.remove('think'); t.textContent=data.spoken||`${a.amount||1} ${a.from} → ${a.to}`; say(data.spoken||''); return true;
+      }
+      if(skill==='weather'){ weatherHere(); return true; }
+      if(skill==='unlost'){ getUnlost(); return true; }
+      if(skill==='survival'){ offlinePack(); return true; }
+      if(skill==='whereis'){ whereIsPartner(); return true; }
+      if(skill==='tellpartner'){
+        const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return true; }
+        const msg=a.message||original;
+        try{ await api('/share',{code,name:myName(),message:msg}); addMsg('buddy',`Sent to your partner: "${msg}" ✓`); say('Message sent.'); }
+        catch(e){ addMsg('buddy',"Couldn't send right now."); }
+        return true;
+      }
+      if(skill==='sharepin'){ shareMyPin(); return true; }
+      if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
+      if(skill==='call' && a.number){ say('Calling…'); window.location.href='tel:'+String(a.number).replace(/[^\d+]/g,''); return true; }
+      if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
+    }catch(e){ /* fall back to chat */ }
+    return false;
+  }
+
   async function sendChat(){
     const box=document.getElementById('chatText');
     const text=(box.value||'').trim();
@@ -571,6 +1198,14 @@
     box.value='';
     addMsg('me', text);
     chatHistory.push({role:'user', content:text});
+    // ---- Intelligent router: dispatch to a specific skill first (agentic feel) ----
+    try{
+      const rt=await api('/route',{message:text});
+      if(rt.data && rt.data.skill && rt.data.skill!=='chat' && (rt.data.confidence??0)>=0.55){
+        const handled=await dispatchSkill(rt.data.skill, rt.data.args||{}, text);
+        if(handled) return;
+      }
+    }catch(e){ /* routing best-effort → fall through to normal chat */ }
     const thinking=addMsg('buddy','Buddy is thinking…','think');
 
     try{
@@ -581,7 +1216,7 @@
         method:'POST',
         headers:{'Authorization':'Bearer '+cfg.tok,'Content-Type':'application/json'},
         signal:ctrl.signal,
-        body:JSON.stringify({ message:text, history:chatHistory.slice(0,-1) }),
+        body:JSON.stringify({ message:text, history:chatHistory.slice(0,-1), profile:(localStorage.getItem('buddy_profile')||'') }),
       });
       clearTimeout(slow); clearTimeout(kill);
 
@@ -697,6 +1332,52 @@
     }catch(e){} finally{ busy('fxSub',false); }
   }
 
+  // ---- Good deal? convert a price + judge if it's worth it ----
+  async function goodDeal(){
+    const item=prompt("What is it? (e.g. silk scarf, massage, cocktail)","")||"";
+    const price=prompt("Price they're asking? (number)"); if(!price) return;
+    const currency=prompt("Currency? (e.g. THB, VND)","")||""; if(!currency) return;
+    const home=localStorage.getItem('buddy_home')||'AUD';
+    openChat(); addMsg('me',`🏷️ ${item||'this'} — ${price} ${currency}`);
+    const t=addMsg('buddy','Checking value…','think');
+    try{
+      const {data}=await api('/gooddeal',{item,price:Number(price)||price,currency,home,country:localStorage.getItem('buddy_country')||''});
+      const v=data.verdict?` (${data.verdict})`:''; const conv=data.convertedLine?`\n${data.convertedLine}`:'';
+      const line=(data.spoken||'Couldn\'t judge that one.')+conv+v;
+      t.classList.remove('think'); t.textContent=line; say(data.spoken||line);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check that deal — try again."; }
+  }
+
+  // ---- Spend tracker: client-side running total for the trip ----
+  function spendGet(){ try{return JSON.parse(localStorage.getItem('buddy_spend')||'[]');}catch{return[];} }
+  function spendSave(a){ localStorage.setItem('buddy_spend',JSON.stringify(a)); }
+  function spendTrack(){
+    const a=spendGet();
+    const totalNow=a.reduce((s,e)=>s+e.amt,0);
+    const home=localStorage.getItem('buddy_home')||'AUD';
+    const choice=prompt(
+      `💰 Trip spend so far: ${totalNow.toFixed(2)} ${home} over ${a.length} item(s).\n\n`+
+      `Type an entry to ADD (e.g. "12 lunch")\n`+
+      `or type "total" for a summary\n`+
+      `or "reset" to clear.`);
+    if(!choice) return;
+    const c=choice.trim().toLowerCase();
+    if(c==='total'){
+      const days=new Set(a.map(e=>new Date(e.at).toDateString())).size||1;
+      const line=`You've spent ${totalNow.toFixed(2)} ${home} across ${a.length} item(s) — about ${(totalNow/days).toFixed(2)} ${home} a day.`;
+      say(line); document.getElementById('spendSub').textContent=`${totalNow.toFixed(2)} ${home} so far`; return;
+    }
+    if(c==='reset'){ if(confirm('Clear all trip spending?')){ spendSave([]); say('Spend tracker cleared.'); document.getElementById('spendSub').textContent='Log & total your trip'; } return; }
+    // parse "<amount> <note>"
+    const m=choice.match(/([\d.]+)\s*(.*)/);
+    if(!m){ say("Try it like: 12 lunch"); return; }
+    const amt=Number(m[1])||0, note=(m[2]||'').trim()||'item';
+    a.push({amt,note,at:Date.now()}); spendSave(a);
+    const total=a.reduce((s,e)=>s+e.amt,0);
+    const line=`Added ${amt} for ${note}. Trip total: ${total.toFixed(2)} ${home}.`;
+    say(line); document.getElementById('spendSub').textContent=`${total.toFixed(2)} ${home} so far`;
+  }
+
   // ---- live: weather (uses browser geolocation) ----
   function weatherHere(){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
@@ -800,6 +1481,67 @@
     finally{ busy('mailSub',false); }
   }
 
+  // ---- SMS over email (TelTel): read texts aloud + verbal reply ----
+  let lastTexts=[];
+  async function readTexts(){
+    try{
+      busy('smsSub',true); smsSub.textContent='Checking…';
+      const {status,data}=await api('/sms/recent');
+      if(status===501){ smsSub.textContent='Set up in backend'; say('Texts aren\'t set up yet.'); return; }
+      lastTexts=data.messages||[];
+      smsSub.textContent=(data.count||0)+' recent';
+      openChat(); addMsg('me','💬 Read my texts');
+      if(!lastTexts.length){ addMsg('buddy','No recent texts.'); say('No recent texts.'); return; }
+      // Buddy reads the latest few aloud, numbered so you can say "reply to 1".
+      lastTexts.slice(0,6).forEach((m,i)=>{
+        addMsg('buddy',`${i+1}. From ${m.number}: ${m.text}`);
+      });
+      const first=lastTexts[0];
+      const spoken=`You've got ${lastTexts.length} recent text${lastTexts.length===1?'':'s'}. Latest, from ${first.number}: ${first.text}`;
+      say(spoken);
+      addMsg('buddy','— tap "Reply to text" to answer any of these —');
+    }catch(e){ smsSub.textContent='Add backend in settings'; }
+    finally{ busy('smsSub',false); }
+  }
+  async function replyText(){
+    if(!lastTexts.length){ // fetch first if not loaded
+      const {status,data}=await api('/sms/recent').catch(()=>({status:0,data:{}}));
+      if(status===501){ say('Texts aren\'t set up yet.'); return; }
+      lastTexts=(data&&data.messages)||[];
+    }
+    if(!lastTexts.length){ say("No texts to reply to. Or type a number to send a new one."); }
+    const list=lastTexts.slice(0,6).map((m,i)=>`${i+1}. ${m.number}: ${m.text.slice(0,40)}`).join('\n');
+    const pick=prompt(`Which text to reply to? Type a number (1-${Math.min(6,lastTexts.length)||1})\n\n${list}\n\n(or type a full phone number to send a new SMS)`);
+    if(!pick) return;
+    let number;
+    if(/^\d{1,2}$/.test(pick.trim()) && lastTexts[Number(pick)-1]) number=lastTexts[Number(pick)-1].number;
+    else number=pick.replace(/[^\d+]/g,'');
+    if(!number){ say("Didn't catch which number."); return; }
+    const message=prompt(`Your reply to ${number}:\n(speak it, or type — Buddy adds your sign-off)`);
+    if(!message) return;
+    openChat(); addMsg('me',`↩️ To ${number}: ${message}`);
+    const t=addMsg('buddy','Sending your text…','think');
+    try{
+      const {status,data}=await api('/sms/send',{number,message});
+      t.classList.remove('think');
+      if(status===200 && data.ok){ t.textContent=`Sent to ${number} ✓`; say('Text sent.'); }
+      else if(status===501){ t.textContent='Texts aren\'t set up in the backend yet.'; }
+      else t.textContent='Couldn\'t send — try again.';
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't send — try again."; }
+  }
+
+  // ---- Call receptionist: OFF by default, toggle for later (needs TelTel routing) ----
+  function callReceptionist(){
+    const on=localStorage.getItem('buddy_receptionist')==='on';
+    const msg=on
+      ? "Buddy's call receptionist is currently ON (for when it's fully wired to TelTel). Turn it OFF?"
+      : "Turn ON Buddy's call receptionist?\n\nNote: this is a placeholder toggle. Actually answering live calls needs TelTel call-routing wired to Buddy (a bigger setup we scoped). For now this just saves your preference.";
+    if(confirm(msg)){
+      localStorage.setItem('buddy_receptionist', on?'off':'on');
+      say(on?'Call receptionist turned off.':'Call receptionist turned on — I\'ll answer once TelTel routing is wired.');
+    }
+  }
+
   // ---- battery indicator + voice alarm (reads real value once wired to native) ----
   let alarmed={20:false,10:false};
   function setBattery(v){
@@ -820,6 +1562,7 @@
   // ---- splash fade + first-run empty state ----
   window.addEventListener('load', ()=>{
     setTimeout(()=>{ const s=document.getElementById('splash'); if(s) s.classList.add('gone'); }, 900);
+    initAccordion();
   });
   // Show the "not set up yet" banner when there's no backend configured.
   if(!(cfg.url&&cfg.tok)){
