@@ -787,7 +787,7 @@
   // quick mood buttons in chat
   function musicMoods(){
     openChat();
-    addMsg('buddy','🎧 What's the mood? Tap one, or use the Music tile to search:');
+    addMsg('buddy',"🎧 What's the mood? Tap one, or use the Music tile to search:");
     const moods=['Chill','Focus','Party','Workout','Sleep','Roadtrip','Cafe jazz','Feel good'];
     moods.forEach(m=>{ const el=addMsg('buddy','▶︎ '+m); el.style.cursor='pointer';
       el.onclick=()=>openMusicSearch(m+' playlist'); });
