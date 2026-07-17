@@ -263,6 +263,7 @@
   <div class="grid">
     <div class="tile" onclick="navigateTo()"><span class="badge live">live</span><div class="ic">🧭</div><h3>Navigate</h3><p>Spoken turn-by-turn</p></div>
     <div class="tile" onclick="savedPlaces()"><span class="badge live">live</span><div class="ic">📍</div><h3>Saved places</h3><p>Home, gym, hotel…</p></div>
+    <div class="tile" onclick="transitTo()"><span class="badge live">live</span><div class="ic">🚆</div><h3>Trains &amp; buses</h3><p>Public transport route</p></div>
     <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Ask Buddy for a rec</p></div>
     <div class="tile" onclick="weatherHere()"><span class="badge live">live</span><div class="ic">🌦️</div><h3>Weather</h3><p id="wxSub">Tap for conditions</p></div>
     <div class="tile" onclick="markSpot()"><span class="badge live">live</span><div class="ic">🅿️</div><h3>Mark a spot</h3><p>Walk-back pin for later</p></div>
@@ -1288,7 +1289,7 @@
       if(skill==='sharepin'){ shareMyPin(); return true; }
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
-      if(skill==='navigate' && a.destination){ const saved=placesGet(); const k=String(a.destination).trim().toLowerCase(); navigateWith(saved[k]||a.destination,'walking'); return true; }
+      if(skill==='navigate' && a.destination){ const saved=placesGet(); const k=String(a.destination).trim().toLowerCase(); const m=/train|bus|transit|metro|subway|public transport/i.test(original)?'transit':'walking'; navigateWith(saved[k]||a.destination,m); return true; }
       if(skill==='itinerary'){ tripItinerary(); return true; }
       if(skill==='status'){ statusBriefing(); return true; }
       if(skill==='orderupdate'){ orderUpdate(); return true; }
@@ -1551,6 +1552,16 @@
     const mode=(prompt("Walk, drive, transit, or bike?","walking")||"walking").toLowerCase();
     navigateWith(realDest, mode);
   }
+  // Trains & buses: jump straight to transit mode (no mode prompt), read line + platform.
+  function transitTo(){
+    const saved=placesGet(); const names=Object.keys(saved);
+    const hint=names.length?` (or a saved place: ${names.join(', ')})`:'';
+    const dest=prompt(`Where to by train or bus?${hint}`);
+    if(!dest) return;
+    const key=dest.trim().toLowerCase();
+    navigateWith(saved[key]||dest, 'transit');
+  }
+
   function navigateWith(dest, mode){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     say('Finding the way…');
