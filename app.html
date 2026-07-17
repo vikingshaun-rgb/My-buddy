@@ -254,9 +254,7 @@
 
   <div class="group" onclick="toggleCat(this)"><h2>Look &amp; Read</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
-    <div class="tile" onclick="visionShot('identify')"><span class="badge live">live</span><div class="ic">👁️</div><h3>What am I seeing?</h3><p>Snap a photo — Buddy identifies it</p></div>
     <div class="tile" onclick="landmarkLook()"><span class="badge live">live</span><div class="ic">🏛️</div><h3>What is this place?</h3><p>Landmark &amp; history</p></div>
-    <div class="tile" onclick="visionShot('read')"><span class="badge live">live</span><div class="ic">🈳</div><h3>Read &amp; translate</h3><p>Menus, signs, labels</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
   </div>
@@ -264,11 +262,13 @@
   <div class="group" onclick="toggleCat(this)"><h2>Navigate</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="navigateTo()"><span class="badge live">live</span><div class="ic">🧭</div><h3>Navigate</h3><p>Spoken turn-by-turn</p></div>
+    <div class="tile" onclick="savedPlaces()"><span class="badge live">live</span><div class="ic">📍</div><h3>Saved places</h3><p>Home, gym, hotel…</p></div>
     <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Ask Buddy for a rec</p></div>
     <div class="tile" onclick="weatherHere()"><span class="badge live">live</span><div class="ic">🌦️</div><h3>Weather</h3><p id="wxSub">Tap for conditions</p></div>
     <div class="tile" onclick="markSpot()"><span class="badge live">live</span><div class="ic">🅿️</div><h3>Mark a spot</h3><p>Walk-back pin for later</p></div>
     <div class="tile" onclick="getUnlost()"><span class="badge live">live</span><div class="ic">🧵</div><h3>Get me un-lost</h3><p>Walk me back to my spot</p></div>
     <div class="tile" onclick="planDay()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my day</h3><p>Buddy builds an itinerary</p></div>
+    <div class="tile" onclick="findFood()"><span class="badge live">live</span><div class="ic">🍔</div><h3>Find food</h3><p>Order via Grab</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Travel Safe</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -277,6 +277,8 @@
     <div class="tile" onclick="allergyCheck()"><span class="badge live">live</span><div class="ic">🥜</div><h3>Safe to eat?</h3><p>Allergy &amp; diet shield</p></div>
     <div class="tile" onclick="conversationMode()"><span class="badge live">live</span><div class="ic">🗣️</div><h3>Conversation</h3><p>Two-way live translate</p></div>
     <div class="tile" onclick="etiquetteWhisper()"><span class="badge live">live</span><div class="ic">🙏</div><h3>Etiquette</h3><p>How to be polite here</p></div>
+    <div class="tile" onclick="callEmergency()"><span class="badge live">live</span><div class="ic">🚨</div><h3>Emergency</h3><p>Local SOS number</p></div>
+    <div class="tile" onclick="safetyHeadsUp()"><span class="badge live">live</span><div class="ic">🛟</div><h3>Safety heads-up</h3><p>Local scam &amp; tip</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Money</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -284,6 +286,8 @@
     <div class="tile" onclick="convertDemo()"><span class="badge live">live</span><div class="ic">💱</div><h3>Currency</h3><p id="fxSub">Ask any conversion</p></div>
     <div class="tile" onclick="goodDeal()"><span class="badge live">live</span><div class="ic">🏷️</div><h3>Good deal?</h3><p>Convert + is it worth it</p></div>
     <div class="tile" onclick="spendTrack()"><span class="badge live">live</span><div class="ic">💰</div><h3>Spend tracker</h3><p id="spendSub">Log &amp; total your trip</p></div>
+    <div class="tile" onclick="statusBriefing()"><span class="badge live">live</span><div class="ic">📋</div><h3>My status</h3><p>Spend, texts, partner</p></div>
+    <div class="tile" onclick="dayDebrief()"><span class="badge live">live</span><div class="ic">🌙</div><h3>Day wrap-up</h3><p>End-of-day summary</p></div>
     <div class="tile" onclick="visaInfo()"><span class="badge live">live</span><div class="ic">🛂</div><h3>Entry &amp; visa</h3><p>Verify officially</p></div>
     <div class="tile" onclick="splitBill()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Split the bill</h3><p>Divide + your currency</p></div>
     <div class="tile" onclick="tipCalc()"><span class="badge live">live</span><div class="ic">🪙</div><h3>Tip calculator</h3><p>With local norms</p></div>
@@ -298,10 +302,9 @@
     <div class="tile" onclick="readTexts()"><span class="badge live">live</span><div class="ic">💬</div><h3>Read my texts</h3><p id="smsSub">SMS, spoken</p></div>
     <div class="tile" onclick="replyText()"><span class="badge live">live</span><div class="ic">↩️</div><h3>Reply to text</h3><p>Speak your reply</p></div>
     <div class="tile" onclick="localBrief()"><span class="badge live">live</span><div class="ic">📰</div><h3>Around me</h3><p id="localSub">Headlines, events, food</p></div>
-    <div class="tile" onclick="playMusic()"><span class="badge live">live</span><div class="ic">🎧</div><h3>Music</h3><p id="musicSub">Play in your music app</p></div>
-    <div class="tile" onclick="musicMoods()"><span class="badge live">live</span><div class="ic">🎚️</div><h3>Music moods</h3><p>Chill, focus, party…</p></div>
+    <div class="tile" onclick="tripItinerary()"><span class="badge live">live</span><div class="ic">🧳</div><h3>My itinerary</h3><p>Bookings from your inbox</p></div>
+    <div class="tile" onclick="orderUpdate()"><span class="badge live">live</span><div class="ic">📦</div><h3>Order update</h3><p>Track Grab/deliveries</p></div>
     <div class="tile" onclick="openGrab()"><span class="badge live">live</span><div class="ic">🚗</div><h3>Grab</h3><p>Ride or food</p></div>
-    <div class="tile" onclick="openWhatsApp()"><span class="badge live">live</span><div class="ic">💬</div><h3>WhatsApp</h3><p>Start a message</p></div>
     <div class="tile" onclick="offlinePack()"><span class="badge live">live</span><div class="ic">🆘</div><h3>Survival pack</h3><p id="sosSub">Key phrases &amp; SOS</p></div>
   </div>
 
@@ -315,17 +318,6 @@
     <div class="tile" onclick="planTogether()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan our day</h3><p>Shared itinerary</p></div>
     <div class="tile" onclick="shareMyView()"><span class="badge soon">glasses</span><div class="ic">👓</div><h3>Share my view</h3><p>What I'm seeing (photo now)</p></div>
     <div class="tile" onclick="seeHerView()"><span class="badge soon">glasses</span><div class="ic">🔭</div><h3>See her view</h3><p>What she's seeing</p></div>
-  </div>
-
-  <div class="group" onclick="toggleCat(this)"><h2>Calls</h2><div class="rule"></div><span class="chev">▾</span></div>
-  <div class="grid">
-    <div class="tile" onclick="quickDial()"><span class="badge live">live</span><div class="ic">📇</div><h3>Quick dial</h3><p>Saved contacts</p></div>
-    <div class="tile" onclick="callSomeone()"><span class="badge live">live</span><div class="ic">📞</div><h3>Call</h3><p>Dial a number or name</p></div>
-    <div class="tile" onclick="faceTimeSomeone()"><span class="badge live">live</span><div class="ic">📹</div><h3>FaceTime</h3><p>Video call</p></div>
-    <div class="tile" onclick="textSomeone()"><span class="badge live">live</span><div class="ic">✉️</div><h3>Text</h3><p>Send a message</p></div>
-    <div class="tile" onclick="callEmergency()"><span class="badge live">live</span><div class="ic">🚨</div><h3>Emergency</h3><p>Local SOS number</p></div>
-    <div class="tile" onclick="answerCallsInfo()"><span class="badge soon">native</span><div class="ic">📲</div><h3>Answer calls</h3><p>How this works</p></div>
-    <div class="tile" onclick="callReceptionist()"><span class="badge soon">soon</span><div class="ic">🤖</div><h3>AI receptionist</h3><p>Toggle for later</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Settings</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -979,6 +971,113 @@
     }catch(e){ t.classList.remove('think'); t.textContent=`If in doubt, ~10% is ${(bill*0.1).toFixed(2)}.`; }
   }
 
+  // ---- Find food: concierge — search, read price/rating/ETA, hand off to Grab ----
+  async function findFood(){
+    const craving=prompt("What are you hungry for? (e.g. steak sandwich, pad thai, pizza)"); if(!craving) return;
+    findFoodWith(craving);
+  }
+  async function findFoodWith(craving){
+    if(!craving) return;
+    let city=localStorage.getItem('buddy_city')||'';
+    openChat(); addMsg('me',`🍔 Find me: ${craving}`);
+    const t=addMsg('buddy','Looking for options…','think');
+    try{
+      const home=localStorage.getItem('buddy_home')||'';
+      const {data}=await api('/findfood',{craving,city,budget:'',currency:home});
+      t.classList.remove('think'); t.textContent=data.spoken||'Here\'s what I found.'; say(data.spoken||'');
+      (data.options||[]).forEach((o,i)=>{
+        const line=`${i+1}. ${o.name} — ${o.dish}\n${o.price?o.price+' '+(o.currency||''):''}  ⭐${o.rating||'?'}  ~${o.etaMins||'?'} min${o.note?'\n'+o.note:''}`;
+        addMsg('buddy',line.trim());
+      });
+      const go=addMsg('buddy','✅ Tap to open Grab and order'); go.style.cursor='pointer';
+      go.onclick=()=>{ say('Opening Grab — pick your order and pay there.'); window.open('https://food.grab.com/','_blank'); };
+      addMsg('buddy','After you order, say "any update on my order?" and I\'ll read Grab\'s texts/emails.');
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't find food right now — try again."; }
+  }
+
+  // ---- Order update: read Grab's confirmation texts/emails from the inbox ----
+  // ---- ENHANCEMENT 1: Trip itinerary from inbox bookings ----
+  async function tripItinerary(){
+    openChat(); addMsg('me','🧳 My itinerary');
+    const t=addMsg('buddy','Reading your bookings…','think');
+    try{
+      const {status,data}=await api('/itinerary');
+      if(status===501){ t.classList.remove('think'); t.textContent='Connect your inbox first (Email needs setup).'; return; }
+      t.remove();
+      addMsg('buddy',data.spoken||'Here\'s your trip.'); say(data.spoken||'');
+      (data.items||[]).forEach(it=>addMsg('buddy',`${it.type==='flight'?'✈️':it.type==='hotel'?'🏨':it.type==='train'?'🚆':'📍'} ${it.what||''}\n${it.when||''}${it.where?' · '+it.where:''}`.trim()));
+      if(!(data.items||[]).length) addMsg('buddy','No bookings found in your inbox.');
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't read your itinerary right now."; }
+  }
+
+  // ---- ENHANCEMENT 2: End-of-day debrief ----
+  async function dayDebrief(){
+    openChat(); addMsg('me','🌙 Wrap up my day');
+    // Pull spend total (client-side) + speak a friendly summary.
+    let spend=[]; try{ spend=JSON.parse(localStorage.getItem('buddy_spend')||'[]'); }catch{}
+    const today=new Date().toDateString();
+    const todaySpend=spend.filter(s=>new Date(s.at).toDateString()===today);
+    const total=todaySpend.reduce((a,b)=>a+(+b.amt||0),0);
+    const home=localStorage.getItem('buddy_home')||'';
+    let line=`Today you logged ${todaySpend.length} expense${todaySpend.length===1?'':'s'}`;
+    if(total) line+=`, about ${total.toFixed(2)} ${home}`;
+    line+='.';
+    addMsg('buddy',line); say(line);
+    // Offer tomorrow's plan
+    const plan=addMsg('buddy','🗺️ Want a plan for tomorrow? Tap here'); plan.style.cursor='pointer';
+    plan.onclick=()=>planDay();
+  }
+
+  // ---- ENHANCEMENT 3: Proactive safety heads-up ----
+  async function safetyHeadsUp(){
+    openChat(); addMsg('me','🛟 Safety heads-up');
+    const country=localStorage.getItem('buddy_country')||'';
+    let emergency=''; try{ emergency=(JSON.parse(localStorage.getItem('buddy_survival')||'{}').emergency||''); }catch{}
+    if(emergency) addMsg('buddy',`🚨 Local emergency number: ${emergency}`);
+    const t=addMsg('buddy','Checking local safety…','think');
+    try{
+      const {data}=await api('/etiquette',{question:`one key safety tip and the most common tourist scam to avoid right now`,country});
+      t.classList.remove('think'); t.textContent=data.spoken||'Stay aware and keep your things close.'; say(data.spoken||'');
+    }catch(e){ t.classList.remove('think'); t.textContent='Keep your valuables close and hotel address saved offline.'; }
+  }
+
+  // ---- ENHANCEMENT 4: One-shot status briefing ----
+  async function statusBriefing(){
+    openChat(); addMsg('me','📋 My status');
+    // spend today
+    let spend=[]; try{ spend=JSON.parse(localStorage.getItem('buddy_spend')||'[]'); }catch{}
+    const today=new Date().toDateString();
+    const total=spend.filter(s=>new Date(s.at).toDateString()===today).reduce((a,b)=>a+(+b.amt||0),0);
+    const home=localStorage.getItem('buddy_home')||'';
+    const bits=[];
+    bits.push(total?`Spent about ${total.toFixed(2)} ${home} today`:'No spending logged today');
+    // partner updates
+    const code=pairCode();
+    if(code){ try{ const {data}=await api('/room',{code,name:myName()}); const msgs=(data.messages||[]).filter(m=>m.by!==myName());
+      if(msgs.length) bits.push(`${msgs.length} update${msgs.length===1?'':'s'} from your partner`); }catch{} }
+    // unread texts
+    try{ const {data}=await api('/sms/recent'); if(data.count) bits.push(`${data.count} recent text${data.count===1?'':'s'}`); }catch{}
+    const line=bits.join('. ')+'.';
+    addMsg('buddy',line); say(line);
+  }
+
+  async function orderUpdate(){
+    openChat(); addMsg('me','📦 Any update on my order?');
+    const t=addMsg('buddy','Checking your messages…','think');
+    try{
+      // Grab updates arrive as SMS (via TelTel) or email — scan both.
+      let found=[];
+      const sms=await api('/sms/recent').catch(()=>({data:{}}));
+      (sms.data&&sms.data.messages||[]).forEach(m=>{ if(/grab|driver|order|delivery|arriv/i.test(m.text)) found.push(`${m.text}`); });
+      const mail=await api('/mail/unread').catch(()=>({data:{}}));
+      if(mail.data&&mail.data.briefing&&/grab|driver|order|delivery|arriv/i.test(mail.data.briefing)) found.push(mail.data.briefing);
+      t.remove();
+      if(!found.length){ addMsg('buddy','No order updates in your messages yet.'); say('No order updates yet.'); return; }
+      found.slice(0,4).forEach(f=>addMsg('buddy','📦 '+f));
+      say(found[0]);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check updates — is your inbox connected?"; }
+  }
+
   // ---- Plan my day: agentic itinerary builder ----
   async function planDay(){
     const city=prompt("Which city/area?", localStorage.getItem('buddy_city')||'')||'';
@@ -1181,14 +1280,20 @@
       if(skill==='tellpartner'){
         const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return true; }
         const msg=a.message||original;
+        if(!confirm(`Send to your partner: "${msg}"?`)){ addMsg('buddy','Okay, not sent.'); say('Okay, cancelled.'); return true; }
         try{ await api('/share',{code,name:myName(),message:msg}); addMsg('buddy',`Sent to your partner: "${msg}" ✓`); say('Message sent.'); }
         catch(e){ addMsg('buddy',"Couldn't send right now."); }
         return true;
       }
       if(skill==='sharepin'){ shareMyPin(); return true; }
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
-      if(skill==='call' && a.number){ say('Calling…'); window.location.href='tel:'+String(a.number).replace(/[^\d+]/g,''); return true; }
-      if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
+      if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
+      if(skill==='navigate' && a.destination){ const saved=placesGet(); const k=String(a.destination).trim().toLowerCase(); navigateWith(saved[k]||a.destination,'walking'); return true; }
+      if(skill==='itinerary'){ tripItinerary(); return true; }
+      if(skill==='status'){ statusBriefing(); return true; }
+      if(skill==='orderupdate'){ orderUpdate(); return true; }
+      if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
+      if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
     }catch(e){ /* fall back to chat */ }
     return false;
   }
@@ -1410,11 +1515,44 @@
   }
 
   // ---- Navigate: type a destination, Buddy speaks the guide ----
+  // ---- Saved places: name your regular spots (home, gym, hotel) ----
+  function placesGet(){ try{return JSON.parse(localStorage.getItem('buddy_places')||'{}');}catch{return{};} }
+  function placesSave(o){ localStorage.setItem('buddy_places',JSON.stringify(o)); }
+  function savedPlaces(){
+    const p=placesGet(); const names=Object.keys(p);
+    openChat(); addMsg('me','📍 Saved places');
+    if(names.length) names.forEach(n=>{ const el=addMsg('buddy',`📍 ${n} — tap to go`); el.style.cursor='pointer'; el.onclick=()=>navigateToPlace(n); });
+    else addMsg('buddy','No saved places yet.');
+    const add=addMsg('buddy','➕ Add a place (home, gym, hotel…)'); add.style.cursor='pointer';
+    add.onclick=()=>{ const name=(prompt("Name this place (e.g. home, gym, hotel):")||'').trim().toLowerCase(); if(!name) return;
+      const addr=prompt(`Address or place name for "${name}":`); if(!addr) return;
+      const o=placesGet(); o[name]=addr; placesSave(o); say(`Saved ${name}.`); savedPlaces(); };
+  }
+  function navigateToPlace(name){
+    const p=placesGet(); const dest=p[name]; if(!dest){ say(`I don't have ${name} saved.`); return; }
+    navigateWith(dest, 'walking');
+  }
+  // Open a route in the user's choice of Google or Apple Maps.
+  function openMaps(dest){
+    const d=encodeURIComponent(dest);
+    const which=(prompt("Open in: type 'google' or 'apple'","google")||'google').toLowerCase();
+    if(which.includes('app')) window.open(`https://maps.apple.com/?daddr=${d}`,'_blank');
+    else window.open(`https://www.google.com/maps/dir/?api=1&destination=${d}`,'_blank');
+  }
+
   function navigateTo(){
-    if(!navigator.geolocation){ say('Location unavailable.'); return; }
-    const dest=prompt("Where to? (e.g. the hotel, Central Station, a café name)");
+    const saved=placesGet(); const names=Object.keys(saved);
+    const hint=names.length?` (or a saved place: ${names.join(', ')})`:'';
+    const dest=prompt(`Where to?${hint}`);
     if(!dest) return;
+    // If they typed a saved place name, use its address.
+    const key=dest.trim().toLowerCase();
+    const realDest=saved[key]||dest;
     const mode=(prompt("Walk, drive, transit, or bike?","walking")||"walking").toLowerCase();
+    navigateWith(realDest, mode);
+  }
+  function navigateWith(dest, mode){
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
     say('Finding the way…');
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{
@@ -1422,15 +1560,17 @@
           originLat:pos.coords.latitude, originLng:pos.coords.longitude,
           destination:dest, mode:mode.includes('driv')?'driving':mode.includes('trans')?'transit':mode.includes('bik')||mode.includes('cyc')?'bicycling':'walking'
         });
-        if(status===501){ say("Maps aren't set up yet — add your Google Maps key to switch this on."); return; }
+        if(status===501){ say("Maps aren't set up yet — add your Google Maps key to switch this on."); 
+          openChat(); addMsg('buddy','🗺️ Directions need a Google Maps key. For now, tap to open in Maps:');
+          const el=addMsg('buddy','📍 Open in Maps'); el.style.cursor='pointer'; el.onclick=()=>openMaps(dest); return; }
         if(!ok||!data.steps){ say("I couldn't find a route there, Shaun."); return; }
         const line=data.spoken||`${data.durationText}, ${data.distanceText}.`;
         say(line);
         openChat(); addMsg('me','🧭 Navigate to: '+dest);
         addMsg('buddy', line);
-        // Show the first few steps too, so it's usable on screen.
         const steps=(data.steps||[]).slice(0,6).map((s,i)=>`${i+1}. ${s.text}`).join('\n');
         if(steps) addMsg('buddy', steps);
+        const el=addMsg('buddy','🗺️ Open turn-by-turn in Maps'); el.style.cursor='pointer'; el.onclick=()=>openMaps(dest);
       }catch(e){ say("Something went wrong finding that route."); }
     }, ()=>say('Location permission needed.'));
   }

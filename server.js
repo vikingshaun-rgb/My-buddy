@@ -579,6 +579,82 @@ app.post("/frame", requireAuth, (req, res) => {
   res.json({ frame: f.data, mediaType: f.mediaType, at: f.at });
 });
 
+// --- Food concierge: find a dish, rank by rating/price/ETA, return Grab deep-link ---
+// Pre-built brain for the glasses flow: "Buddy, find me a steak sandwich" →
+// options read aloud with price+rating+ETA → you confirm → deep-link into Grab to pay.
+app.post("/findfood", requireAuth, async (req, res) => {
+  const { craving, city, budget, currency } = req.body || {};
+  if (!craving) return res.status(400).json({ error: "craving required" });
+  const body = {
+    model: "claude-sonnet-4-6",
+    max_tokens: 700,
+    system: "You are Buddy, Shaun's food concierge abroad. Given what he's craving and where he is, suggest realistic nearby options a delivery app like Grab would have, with plausible price, rating, and delivery ETA. Be realistic for the city; don't invent famous names — describe the kind of place. Rank best-value first.",
+    messages: [{
+      role: "user",
+      content:
+        `Shaun wants: "${craving}".${city ? ` He's in ${city}.` : ""}${budget ? ` Budget around ${budget} ${currency || ""}.` : ""} ` +
+        `Reply as compact JSON ONLY (no markdown): "spoken" (one short friendly spoken line — your top pick and why), ` +
+        `"options" (array of 3 {name, dish, price, currency, rating, etaMins, note}), ` +
+        `"searchTerm" (a short string to search the delivery app for this).`,
+    }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "I couldn't look up food just now — try again in a moment." });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { spoken: raw, options: [], searchTerm: craving }; }
+    res.json({
+      spoken: p.spoken || "Here's what I found.",
+      options: Array.isArray(p.options) ? p.options : [],
+      searchTerm: p.searchTerm || craving,
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Food-finder hiccup — give it another go." });
+  }
+});
+
+// --- Trip itinerary: scan inbox for booking confirmations, build a timeline ---
+// Uses the inbox Buddy already reads. TripIt-style, but hands-free + spoken.
+app.post("/itinerary", requireAuth, async (req, res) => {
+  if (!mailReady()) return res.status(501).json({ error: "mail_disabled" });
+  try {
+    const raw = await withInbox(async (client) => {
+      const out = [];
+      const all = await client.search({ since: new Date(Date.now() - 60 * 864e5) });
+      const recent = all.slice(-60).reverse();
+      for await (const msg of client.fetch(recent, { envelope: true, source: true })) {
+        const subj = msg.envelope?.subject || "";
+        const from = msg.envelope?.from?.[0]?.address || "";
+        // keep likely booking confirmations
+        if (/booking|confirmation|itinerary|reservation|e-?ticket|flight|hotel|check-?in|boarding/i.test(subj + from)) {
+          out.push({ subject: subj, from, body: extractPlainText(msg.source?.toString("utf8") || "").slice(0, 800) });
+        }
+        if (out.length >= 12) break;
+      }
+      return out;
+    });
+    if (!raw.length) return res.json({ spoken: "I couldn't find any bookings in your inbox.", items: [] });
+    // Let Claude turn the raw confirmations into a clean timeline.
+    const body = {
+      model: "claude-sonnet-4-6",
+      max_tokens: 900,
+      system: "You are Buddy, building Shaun a clean trip timeline from his booking-confirmation emails. Extract flights, hotels, trains, and reservations with dates/times/locations. Ignore marketing.",
+      messages: [{ role: "user", content:
+        `Here are booking-related emails:\n${raw.map(r => `SUBJECT: ${r.subject}\n${r.body}`).join("\n---\n")}\n\n` +
+        `Reply as compact JSON ONLY: "spoken" (one friendly line — the next upcoming item), ` +
+        `"items" (array of {type flight|hotel|train|reservation|other, what, when, where}, sorted by date).` }],
+    };
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.json({ spoken: "I found bookings but couldn't summarise them.", items: [] });
+    const txt = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { spoken: "Here's what I found.", items: [] }; }
+    res.json({ spoken: p.spoken || "Here's your itinerary.", items: p.items || [] });
+  } catch (e) {
+    res.status(502).json({ error: "itinerary_failed", detail: String(e) });
+  }
+});
+
 // --- Router: classify a natural message → which Buddy skill + extracted args ---
 // This is what makes the single chat box feel agentic: you just talk, Buddy
 // figures out whether you want a price check, a day plan, a landmark, etc.
@@ -605,6 +681,11 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"tellpartner\" (tell/message my wife/partner something; args: message), " +
       "\"sharepin\" (send/share my location or a meet-here pin to my partner; args: label), " +
       "\"music\" (play music/a song/artist/playlist/vibe; args: query), " +
+      "\"findfood\" (find/order food, hungry, I want a <dish>, food delivery; args: craving), " +
+      "\"navigate\" (directions/take me to/how do I get to/route to a place; args: destination), " +
+      "\"itinerary\" (my trip/bookings/flights/what's next/my schedule; args: none), " +
+      "\"status\" (my status/briefing/how am I doing/catch me up; args: none), " +
+      "\"orderupdate\" (any update on my order/where's my food/my delivery; args: none), " +
       "\"call\" (call/phone/ring a number; args: number), " +
       "\"text\" (text/message/SMS a number; args: number, message). " +
       "Pick the single best skill. If it's just conversation or doesn't fit a skill, use \"chat\".",
