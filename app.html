@@ -1568,11 +1568,13 @@
     if(window.caches){ caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))).catch(()=>{}); }
   }
 
-  // ---- splash fade + first-run empty state ----
-  window.addEventListener('load', ()=>{
-    setTimeout(()=>{ const s=document.getElementById('splash'); if(s) s.classList.add('gone'); }, 900);
-    initAccordion();
-  });
+  // ---- splash fade + first-run empty state (bulletproof: never hang on splash) ----
+  function dismissSplash(){ const s=document.getElementById('splash'); if(s) s.classList.add('gone'); }
+  // Fire on multiple triggers so a slow/hung resource can never trap us on the splash.
+  document.addEventListener('DOMContentLoaded', ()=>{ initAccordion(); });
+  window.addEventListener('load', ()=>{ setTimeout(dismissSplash, 400); initAccordion(); });
+  // Hard fallback: whatever happens, lift the splash within 2s.
+  setTimeout(dismissSplash, 2000);
   // Show the "not set up yet" banner when there's no backend configured.
   if(!(cfg.url&&cfg.tok)){
     const fr=document.getElementById('firstrun'); if(fr) fr.classList.add('show');
