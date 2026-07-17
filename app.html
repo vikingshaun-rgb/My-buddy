@@ -1560,7 +1560,13 @@
   window.setBattery=setBattery;
 
   // ---- register service worker for installability ----
-  if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+  // Service worker removed — it was breaking standalone/PWA launch. Actively
+  // unregister any previously-installed one and clear its caches so old shells
+  // stop being served to the browser tab and the Home Screen icon.
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
+    if(window.caches){ caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))).catch(()=>{}); }
+  }
 
   // ---- splash fade + first-run empty state ----
   window.addEventListener('load', ()=>{

@@ -1,31 +1,15 @@
-// sw.js — minimal service worker so the app is installable and the shell loads offline.
-const CACHE = "buddy-v2";
-const SHELL = ["/app.html", "/icon-180.png", "/icon-512.png", "/manifest.json"];
-
-self.addEventListener("install", (e) => {
-  // Cache the shell, but don't fail install if one item is missing.
-  e.waitUntil(
-    caches.open(CACHE).then((c) =>
-      Promise.allSettled(SHELL.map((u) => c.add(u)))
-    ).then(() => self.skipWaiting())
-  );
-});
-
+// sw.js — SELF-DESTRUCTING. The previous service worker broke standalone launch.
+// This version unregisters itself and deletes all caches, then gets out of the way.
+// Any phone with the old SW cached will fetch this, which cleans everything up.
+self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll();
+    clients.forEach((c) => c.navigate(c.url)); // reload open tabs with the fresh app
+  })());
 });
-
-// Cache-first for the shell; always network for API calls (never cache proxy responses).
-self.addEventListener("fetch", (e) => {
-  const url = new URL(e.request.url);
-  // Never intercept cross-origin (the brain/proxy) or API-style paths.
-  if (url.origin !== self.location.origin) return;
-  if (url.pathname.match(/\/(vision|chat|translate|directions|places|flight|weather|currency|health|summarize|route|scamcheck|allergy|unlost|gooddeal|planday|converse|etiquette|landmark|survival|pair|share|room|frame|sms|mail)/)) {
-    return; // let API calls hit the network directly
-  }
-  e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
-});
+// Pass everything straight to the network — never serve a cached shell.
+self.addEventListener("fetch", () => {});
