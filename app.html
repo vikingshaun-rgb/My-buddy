@@ -7,11 +7,11 @@
 <link rel="manifest" href="/manifest.json" />
 <link rel="apple-touch-icon" href="/icon-180.png" />
 <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
-<meta name="apple-mobile-web-app-title" content="My Buddy" />
+<meta name="apple-mobile-web-app-title" content="My Vision" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<title>My Buddy</title>
+<title>My Vision</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chivo+Mono:wght@400;500;700&family=Sora:wght@400;600;700;800&family=Archivo+Expanded:wght@600;700;800&display=swap" rel="stylesheet">
@@ -165,7 +165,7 @@
     animation:shimmer 1.2s infinite}
   @keyframes shimmer{100%{transform:translateX(100%)}}
 
-  /* Chat panel — talk to Buddy's genius brain */
+  /* Chat panel — talk to Vision's genius brain */
   #chat{position:fixed;inset:0;z-index:90;background:rgba(11,16,38,.6);
     backdrop-filter:blur(6px);display:none;flex-direction:column;justify-content:flex-end}
   #chat.open{display:flex}
@@ -197,12 +197,12 @@
       <circle cx="50" cy="50" r="15" fill="#F5A623"/>
       <path d="M50 6 A44 44 0 0 1 94 50" stroke="#3DD6B0" stroke-width="4" stroke-linecap="round"/>
     </svg>
-    <div class="word">My Buddy</div>
+    <div class="word">My Vision</div>
   </div>
 
   <div class="ribbon">
     <div class="ribbon-row">
-      <div class="brand">My<b>Buddy</b></div>
+      <div class="brand">My<b>Vision</b></div>
       <div class="ribbon-spacer"></div>
       <span class="chip" onclick="openSettings()"><span class="dot warn" id="sysDot"></span><span id="sysTxt">Set up</span></span>
     </div>
@@ -220,18 +220,18 @@
   </div>
 
   <div class="firstrun" id="firstrun">
-    <h3>Buddy isn't set up yet 👋</h3>
-    <p>Connect Buddy's brain to switch everything on. It takes a few minutes and the guide walks you through every step.</p>
+    <h3>Vision isn't set up yet 👋</h3>
+    <p>Connect Vision's brain to switch everything on. It takes a few minutes and the guide walks you through every step.</p>
     <button onclick="location.href='./setup-wizard.html'">Open the setup guide →</button>
   </div>
 
   <div style="display:flex;gap:14px;font-family:'Chivo Mono';font-size:10px;color:var(--paper-dim);margin:0 2px 14px">
     <span><b style="color:var(--teal)">● live</b> works on tap</span>
-    <span><b style="color:var(--amber)">◆ say</b> speak it to Buddy</span>
+    <span><b style="color:var(--amber)">◆ say</b> speak it to Vision</span>
     <span><b style="color:var(--paper-dim)">○ glasses</b> needs camera</span>
   </div>
 
-  <button class="talk" onclick="openChat()"><span class="pulse"></span> Talk to Buddy</button>
+  <button class="talk" onclick="openChat()"><span class="pulse"></span> Talk to Vision</button>
 
   <input type="file" id="visionFile" accept="image/*" capture="environment" style="display:none" />
 
@@ -239,12 +239,13 @@
     <div class="chat-sheet">
       <div class="chat-head">
         <span class="dot-live"></span>
-        <h3>Buddy</h3>
+        <h3>Vision</h3>
         <button class="x" onclick="closeChat()">Close</button>
       </div>
       <div class="chat-log" id="chatLog"></div>
+      <div id="micState" style="font-size:12px;opacity:0;padding:2px 12px;color:var(--accent,#f0a);transition:opacity .2s"></div>
       <div class="chat-input">
-        <input id="chatText" placeholder="Ask Buddy anything…" autocomplete="off"
+        <input id="chatText" placeholder="Ask Vision anything…" autocomplete="off"
           onkeydown="if(event.key==='Enter')sendChat()" />
         <button id="micBtn" onclick="micDictate()" title="Tap to speak">🎤</button>
         <button onclick="sendChat()">Send</button>
@@ -258,6 +259,7 @@
   <div class="group" onclick="toggleCat(this)"><h2>Look &amp; Read</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="landmarkLook()"><span class="badge live">live</span><div class="ic">🏛️</div><h3>What is this place?</h3><p>Landmark &amp; history</p></div>
+    <div class="tile" onclick="liveLook()"><span class="badge live">live</span><div class="ic">👁️</div><h3>Live look</h3><p>Vision narrates the scene</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
     <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>Translate offline</h3><p>No signal — opens Google</p></div>
@@ -268,12 +270,12 @@
     <div class="tile" onclick="navigateTo()"><span class="badge live">live</span><div class="ic">🧭</div><h3>Navigate</h3><p>Spoken turn-by-turn</p></div>
     <div class="tile" onclick="savedPlaces()"><span class="badge live">live</span><div class="ic">📍</div><h3>Saved places</h3><p>Home, gym, hotel…</p></div>
     <div class="tile" onclick="transitTo()"><span class="badge live">live</span><div class="ic">🚆</div><h3>Trains &amp; buses</h3><p>Public transport route</p></div>
-    <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Ask Buddy for a rec</p></div>
+    <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Ask Vision for a rec</p></div>
     <div class="tile" onclick="rememberSpot()"><span class="badge live">live</span><div class="ic">📌</div><h3>Remember this spot</h3><p>Parked car, hotel, that stall</p></div>
     <div class="tile" onclick="weatherHere()"><span class="badge live">live</span><div class="ic">🌦️</div><h3>Weather</h3><p id="wxSub">Tap for conditions</p></div>
     <div class="tile" onclick="markSpot()"><span class="badge live">live</span><div class="ic">🅿️</div><h3>Mark a spot</h3><p>Walk-back pin for later</p></div>
     <div class="tile" onclick="getUnlost()"><span class="badge live">live</span><div class="ic">🧵</div><h3>Get me un-lost</h3><p>Walk me back to my spot</p></div>
-    <div class="tile" onclick="planDay()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my day</h3><p>Buddy builds an itinerary</p></div>
+    <div class="tile" onclick="planDay()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my day</h3><p>Vision builds an itinerary</p></div>
     <div class="tile" onclick="findFood()"><span class="badge live">live</span><div class="ic">🍔</div><h3>Find food</h3><p>Order via Grab</p></div>
   </div>
 
@@ -287,6 +289,18 @@
     <div class="tile" onclick="etiquetteWhisper()"><span class="badge live">live</span><div class="ic">🙏</div><h3>Etiquette</h3><p>How to be polite here</p></div>
     <div class="tile" onclick="callEmergency()"><span class="badge live">live</span><div class="ic">🚨</div><h3>Emergency</h3><p>Local SOS number</p></div>
     <div class="tile" onclick="safetyHeadsUp()"><span class="badge live">live</span><div class="ic">🛟</div><h3>Safety heads-up</h3><p>Local scam &amp; tip</p></div>
+  </div>
+
+  <div class="group" onclick="toggleCat(this)"><h2>Plan &amp; book</h2><div class="rule"></div><span class="chev">▾</span></div>
+  <div class="grid">
+    <div class="tile" onclick="findFlights()"><span class="badge live">live</span><div class="ic">✈️</div><h3>Find flights</h3><p>Fares + Vision's tips</p></div>
+    <div class="tile" onclick="findStay()"><span class="badge live">live</span><div class="ic">🏨</div><h3>Find a stay</h3><p>Rated picks + book</p></div>
+    <div class="tile" onclick="thingsToDo()"><span class="badge live">live</span><div class="ic">🎟️</div><h3>Things to do</h3><p>Live local ideas</p></div>
+    <div class="tile" onclick="planTrip()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my trip</h3><p>Day-by-day, saved</p></div>
+    <div class="tile" onclick="tripDay()"><span class="badge live">live</span><div class="ic">📅</div><h3>My trip plan</h3><p>What's on each day</p></div>
+    <div class="tile" onclick="packList()"><span class="badge live">live</span><div class="ic">🎒</div><h3>Packing list</h3><p>Climate-smart</p></div>
+    <div class="tile" onclick="tripBudget()"><span class="badge live">live</span><div class="ic">💵</div><h3>Trip budget</h3><p>What it'll cost</p></div>
+    <div class="tile" onclick="esimInfo()"><span class="badge live">live</span><div class="ic">📶</div><h3>Data &amp; eSIM</h3><p>Get connected</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Money</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -305,7 +319,7 @@
   <div class="group" onclick="toggleCat(this)"><h2>Messages &amp; Media</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="recallNote()"><span class="badge live">live</span><div class="ic">🔎</div><h3>Recall</h3><p>Remember &amp; find notes</p></div>
-    <div class="tile" onclick="travellerMemory()"><span class="badge live">live</span><div class="ic">🧠</div><h3>What Buddy knows</h3><p id="memSub">Hotel, diet, prefs</p></div>
+    <div class="tile" onclick="travellerMemory()"><span class="badge live">live</span><div class="ic">🧠</div><h3>What Vision knows</h3><p id="memSub">Hotel, diet, prefs</p></div>
     <div class="tile" onclick="mailBrief()"><span class="badge live">live</span><div class="ic">📧</div><h3>Email briefing</h3><p id="mailSub">Unread, spoken</p></div>
     <div class="tile" onclick="readTexts()"><span class="badge live">live</span><div class="ic">💬</div><h3>Read my texts</h3><p id="smsSub">SMS, spoken</p></div>
     <div class="tile" onclick="replyText()"><span class="badge live">live</span><div class="ic">↩️</div><h3>Reply to text</h3><p>Speak your reply</p></div>
@@ -423,7 +437,7 @@
     closeSettings(); runHealth();
   }
 
-  // ---- Vision: snap a photo, Buddy tells you what it is (phone-camera test) ----
+  // ---- Vision: snap a photo, Vision tells you what it is (phone-camera test) ----
   let visionMode='identify';
   function visionShot(mode){
     if(!cfg.url||!cfg.tok){ openSettings(); return; }
@@ -447,14 +461,14 @@
         const line=data.summary || (data.merchant? `Logged ${data.currency||''}${data.total||''} at ${data.merchant}.` : "Couldn't read that receipt — try a clearer photo?");
         t.classList.remove('think'); t.textContent=line; say(line);
         if(data.merchant){ const ex=JSON.parse(localStorage.getItem('buddy_expenses')||'[]'); ex.push(data); localStorage.setItem('buddy_expenses',JSON.stringify(ex.slice(-200))); }
-      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't reach Buddy to log that — try again."; }
+      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't reach Vision to log that — try again."; }
       return;
     }
     addMsg('me', visionMode==='read'?'📷 Read this for me':'📷 What is this?');
-    const thinking=addMsg('buddy','Buddy is looking…','think');
+    const thinking=addMsg('buddy','Vision is looking…','think');
     try{
       const ctrl=new AbortController();
-      const slow=setTimeout(()=>{thinking.textContent='Waking Buddy up…';},3500);
+      const slow=setTimeout(()=>{thinking.textContent='Waking Vision up…';},3500);
       const kill=setTimeout(()=>ctrl.abort(),45000);
       const r=await fetch(cfg.url+'/vision',{
         method:'POST',
@@ -469,9 +483,84 @@
       chatHistory.push({role:'assistant',content:ans});
     }catch(err){
       thinking.classList.remove('think');
-      thinking.textContent="Couldn't reach Buddy's eyes just now — try again in a moment.";
+      thinking.textContent="Couldn't reach Vision's eyes just now — try again in a moment.";
     }
   });
+  // ---- 👁️ LIVE LOOK (batch 36): the Astra-style middle path. Not a true
+  // stream (Apple wall) — a serial loop: capture a frame, Vision describes it,
+  // wait, capture again. Narrates CHANGES, stays quiet when the scene's the
+  // same. Honest costs: screen on, camera on, each frame is an API call.
+  let lookOn=false, lookStream=null, lastScene='';
+  async function liveLook(){
+    if(lookOn){ stopLook(); return; }
+    if(!cfg.url||!cfg.tok){ openSettings(); return; }
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      say("Live look needs camera access this browser can't give — snap a photo with What-is-this instead."); return;
+    }
+    try{
+      lookStream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' }, audio:false });
+    }catch(e){
+      say('I need camera permission for live look. Allow the camera for this site in Safari settings, then try again.'); return;
+    }
+    lookOn=true; keepAwakeSafe();
+    // Overlay: live preview + stop button
+    const ov=document.createElement('div'); ov.id='lookOverlay';
+    ov.style.cssText='position:fixed;inset:0;background:#000;z-index:999;display:flex;flex-direction:column';
+    const v=document.createElement('video'); v.autoplay=true; v.playsInline=true; v.muted=true;
+    v.style.cssText='flex:1;object-fit:cover;width:100%'; v.srcObject=lookStream;
+    const bar=document.createElement('div');
+    bar.style.cssText='padding:14px;display:flex;gap:10px;justify-content:center;background:#000';
+    const st=document.createElement('div'); st.id='lookStatus';
+    st.style.cssText='color:#fff;opacity:.8;flex:1;align-self:center;font-size:14px'; st.textContent='👁️ Watching…';
+    const btn=document.createElement('button'); btn.textContent='Stop looking';
+    btn.style.cssText='padding:10px 18px;border-radius:10px;border:0;background:#e33;color:#fff;font-size:15px';
+    btn.onclick=stopLook;
+    bar.appendChild(st); bar.appendChild(btn); ov.appendChild(v); ov.appendChild(bar);
+    document.body.appendChild(ov);
+    say("Live look on — I'll tell you what I'm seeing as it changes.");
+    lookLoop(v);
+  }
+  function stopLook(){
+    lookOn=false; lastScene='';
+    try{ lookStream&&lookStream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    lookStream=null;
+    const ov=document.getElementById('lookOverlay'); if(ov) ov.remove();
+    releaseAwakeSafe();
+    say('Live look off.');
+  }
+  async function lookLoop(v){
+    // Serial: one frame in flight at a time. No timer pileups, no double bills.
+    while(lookOn){
+      try{
+        if(v.readyState>=2){
+          const c=document.createElement('canvas');
+          const scale=Math.min(1, 768/Math.max(v.videoWidth||768, v.videoHeight||768));
+          c.width=Math.round((v.videoWidth||768)*scale); c.height=Math.round((v.videoHeight||768)*scale);
+          c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+          const base64=c.toDataURL('image/jpeg',0.7).split(',')[1];
+          const q= lastScene
+            ? `You are watching a live scene through repeated frames. Last time you saw: "${lastScene}". In ONE short spoken sentence, say what's NEW or different now. If it's essentially the same scene, reply exactly: Same scene.`
+            : 'One short spoken sentence: what is Shaun looking at right now?';
+          const {ok,data}=await api('/vision',{ image:base64, mode:'describe', question:q, mediaType:'image/jpeg' });
+          const ans=(data&&(data.answer||data.reply))||'';
+          const st=document.getElementById('lookStatus');
+          if(ok&&ans){
+            if(!/^same scene\.?$/i.test(ans.trim())){
+              lastScene=ans; if(st) st.textContent='👁️ '+ans;
+              say(ans);
+              // wait for speech to finish before the next frame
+              while(buddySpeaking&&lookOn){ await new Promise(r=>setTimeout(r,200)); }
+            } else if(st){ st.textContent='👁️ Same scene…'; }
+          }
+        }
+      }catch(e){ /* one bad frame never kills the loop */ }
+      await new Promise(r=>setTimeout(r,4500));
+    }
+  }
+  // Wake-lock helpers exist for live location; reuse if present, no-op if not.
+  function keepAwakeSafe(){ try{ if(typeof keepAwake==='function') keepAwake(); }catch(e){} }
+  function releaseAwakeSafe(){ try{ if(typeof releaseAwake==='function') releaseAwake(); }catch(e){} }
+
   // Shrink an image file to maxPx on its longest side, return a JPEG data URL.
   function shrinkImage(file, maxPx){
     return new Promise((resolve)=>{
@@ -490,7 +579,7 @@
     });
   }
 
-  // ---- Recall: save short notes (per-device) + ask Buddy to find them ----
+  // ---- Recall: save short notes (per-device) + ask Vision to find them ----
   function getNotes(){ try{return JSON.parse(localStorage.getItem('buddy_notes')||'[]')}catch(e){return[]} }
   function saveNotes(a){ localStorage.setItem('buddy_notes', JSON.stringify(a.slice(-100))); }
   function recallNote(){
@@ -522,7 +611,7 @@
     return hit? `You noted: "${hit.text}".` : "I couldn't find anything about that in your notes.";
   }
 
-  // ---- Log receipt: snap a photo, Buddy extracts the expense ----
+  // ---- Log receipt: snap a photo, Vision extracts the expense ----
   function logReceipt(){
     if(!cfg.url||!cfg.tok){ openSettings(); return; }
     visionMode='__receipt__';
@@ -530,16 +619,43 @@
   }
 
   // iOS Safari blocks speech until a user-gesture speak "unlocks" it — prime once on first tap.
+  // Declared up here (before unlockVoice touches them) so the auto-arm is safe.
+  let handsFree=false, rec=null, buddySpeaking=false;
   let voiceUnlocked=false;
   function unlockVoice(){
     if(voiceUnlocked) return; voiceUnlocked=true;
     try{ const u=new SpeechSynthesisUtterance(' '); u.volume=0; speechSynthesis.speak(u); }catch(e){}
+    // Auto-arm hands-free on the first tap. iOS forbids a zero-tap mic start, so
+    // this first gesture is the earliest legal moment. handsFree is set FIRST so
+    // the greeting's onend can hand straight over to the listening loop.
+    const wantMic = (localStorage.buddy_autohandsfree || 'on') !== 'off';
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(wantMic && SR && !handsFree){
+      handsFree=true;
+      const btn=document.getElementById('micBtn'); if(btn) btn.textContent='🔴';
+      micState('armed');
+    }
+    // Startup greeting — doubles as a systems check: hearing it proves speech,
+    // speaker and app are all alive.
+    const h=new Date().getHours();
+    const partOfDay = h<12 ? 'morning' : (h<18 ? 'arvo' : 'evening');
+    say(`G'day Shaun — Vision online this ${partOfDay}. ` +
+        (wantMic && SR ? "Mic's live, just talk." : 'Tap the mic when you need me.'));
+    // Failsafe: if iOS silently drops the greeting, onend never fires and the mic
+    // would never start. Kick it off anyway once the greeting should have finished.
+    if(wantMic && SR) setTimeout(()=>{ if(handsFree && !buddySpeaking) startListening(); }, 4000);
+  }
+  // Visible mic state so it's never a guess: armed / listening / off.
+  function micState(s){
+    const el=document.getElementById('micState'); if(!el) return;
+    el.textContent = s==='listening' ? '🎙️ listening' : (s==='armed' ? '🔴 mic on' : '');
+    el.style.opacity = s==='off' ? '0' : '1';
   }
   document.addEventListener('touchend', unlockVoice, {once:true});
   document.addEventListener('click', unlockVoice, {once:true});
   function say(text){
     try{
-      buddySpeaking=true; pauseListening();   // don't let the mic hear Buddy talking
+      buddySpeaking=true; pauseListening();   // don't let the mic hear Vision talking
       speechSynthesis.resume();   // iOS gets stuck in a paused state
       speechSynthesis.cancel();   // clear any queued speech
       const u=new SpeechSynthesisUtterance(text);
@@ -551,15 +667,18 @@
     toast(text);
   }
 
-  // ---- Hands-free conversation: tap 🎤 once, talk naturally; Buddy pauses the mic
+  // ---- Hands-free conversation: tap 🎤 once, talk naturally; Vision pauses the mic
   // while it speaks (so it doesn't hear itself) and resumes after. Tap again to stop.
-  let handsFree=false, rec=null, buddySpeaking=false;
   function micDictate(){
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if(!SR){ toast("Voice input isn't supported in this browser — type instead, or it'll work on the glasses."); return; }
     const btn=document.getElementById('micBtn');
-    if(handsFree){ handsFree=false; try{rec&&rec.stop();}catch(e){} btn.textContent='🎤'; toast('Hands-free off.'); return; }
-    handsFree=true; btn.textContent='🔴'; toast('Hands-free on — just talk. Tap again to stop.');
+    if(handsFree){ handsFree=false; try{rec&&rec.stop();}catch(e){} btn.textContent='🎤';
+      localStorage.buddy_autohandsfree='off'; micState('off');
+      toast("Hands-free off — I'll stay off until you tap the mic again."); return; }
+    handsFree=true; btn.textContent='🔴';
+    localStorage.buddy_autohandsfree='on'; micState('armed');
+    toast('Hands-free on — just talk. Tap again to stop.');
     startListening();
   }
   function startListening(){
@@ -568,20 +687,20 @@
     rec = new SR();
     rec.lang='en-AU'; rec.interimResults=false; rec.maxAlternatives=1;
     rec.onresult=(e)=>{ const t=e.results[0][0].transcript;
-      if(/^\s*(hey|ok)\s+meta\b/i.test(t)) return; // that one's for the glasses — Buddy stays quiet
+      if(/^\s*(hey|ok)\s+meta\b/i.test(t)) return; // that one's for the glasses — Vision stays quiet
       const box=document.getElementById('chatText'); box.value=t; sendChat(); };
-    rec.onerror=()=>{};
-    rec.onend=()=>{ if(handsFree&&!buddySpeaking) setTimeout(startListening, 250); };
-    try{ rec.start(); }catch(e){}
+    rec.onerror=()=>{ micState(handsFree?'armed':'off'); };
+    rec.onend=()=>{ micState(handsFree?'armed':'off'); if(handsFree&&!buddySpeaking) setTimeout(startListening, 250); };
+    try{ rec.start(); micState('listening'); }catch(e){}
   }
   function pauseListening(){ try{ rec&&rec.stop(); }catch(e){} }
 
-  // ---- Live translate: pick a language, speak/type a phrase, Buddy translates ----
-  // Offline translation: Buddy's own translate needs signal (server brain).
+  // ---- Live translate: pick a language, speak/type a phrase, Vision translates ----
+  // Offline translation: Vision's own translate needs signal (server brain).
   // For no-signal moments, hand off to Google Translate, which has offline packs.
   function offlineTranslate(){
     openChat(); addMsg('me','📴 Translate offline');
-    addMsg('buddy','Buddy translates online. For no-signal spots, Google Translate works offline once you\'ve downloaded the language pack (do it on wifi first).');
+    addMsg('buddy','Vision translates online. For no-signal spots, Google Translate works offline once you\'ve downloaded the language pack (do it on wifi first).');
     say('Opening Google Translate. Download your language pack on wifi so it works offline.');
     const el=addMsg('buddy','🌐 Open Google Translate'); el.style.cursor='pointer';
     el.onclick=()=>{
@@ -730,9 +849,9 @@
   }
   async function relayMessage(){
     const code=pairCode(); if(!code){ say("Link with your partner first."); return; }
-    const msg=prompt("Message to send to your partner's Buddy:"); if(!msg) return;
+    const msg=prompt("Message to send to your partner's Vision:"); if(!msg) return;
     try{ await api('/share',{code,name:myName(),message:msg});
-      openChat(); addMsg('me',`🗨️ ${msg}`); addMsg('buddy','Sent ✓ — it\'ll show on their Buddy when they check.');
+      openChat(); addMsg('me',`🗨️ ${msg}`); addMsg('buddy','Sent ✓ — it\'ll show on their Vision when they check.');
       say('Message sent.');
     }catch(e){ say("Couldn't send right now."); }
   }
@@ -764,10 +883,152 @@
   }
 
   // Plan a day together — builds an itinerary AND shares it to the trip room.
-  // ---- 🧠 PREFERENCE LEARNING (lite): Buddy quietly learns your picks ----
+  // ---- 🧠 PREFERENCE LEARNING (lite): Vision quietly learns your picks ----
   function prefsGet(){ try{return JSON.parse(localStorage.getItem('buddy_prefs')||'{}');}catch{return{};} }
   function prefRecord(kind,val){ if(!val) return; const p=prefsGet(); p[kind]=p[kind]||{}; p[kind][val]=(p[kind][val]||0)+1; localStorage.setItem('buddy_prefs',JSON.stringify(p)); }
   function prefTop(kind){ const p=prefsGet()[kind]||{}; let best=null,n=0; for(const k in p){ if(p[k]>n){ n=p[k]; best=k; } } return n>=2?best:null; }
+
+  // ==== TRAVEL DESK (batch 35): search, stay, plan, pack, budget, data ====
+
+  // ✈️ Find flights — Vision's advice + a prefilled Google Flights link.
+  // Honest: no free live-fare API exists, so the numbers come from the link.
+  function findFlights(a){
+    a=a||{};
+    const to=a.to||prompt('Flights to where?'); if(!to) return;
+    const from=a.from||prompt('Flying from?','Brisbane')||'Brisbane';
+    const when=a.when||'';
+    openChat(); addMsg('me',`✈️ Flights ${from} → ${to}${when?' '+when:''}`);
+    const line=`Opening live fares ${from} to ${to}${when?' for '+when:''}. Tip: for ${to}, midweek flights usually run cheaper — check a day either side.`;
+    addMsg('buddy',line); say(line);
+    const q=encodeURIComponent(`Flights to ${to} from ${from}${when?' in '+when:''}`);
+    const el=addMsg('buddy','🔎 Open Google Flights'); el.style.cursor='pointer';
+    el.onclick=()=>window.open('https://www.google.com/travel/flights?q='+q,'_blank');
+    brain.suggest(`Plan a trip to ${to}`, ()=>{ document.getElementById('chatText').value=`plan my trip to ${to}`; sendChat(); });
+  }
+
+  // 🏨 Find a stay — Places lodging shortlist + Vision's pick + booking link.
+  async function findStay(a){
+    a=a||{};
+    openChat();
+    const area=a.area|| (localStorage.getItem('buddy_city')||'') || prompt('Stay where? (city or area)');
+    addMsg('me',`🏨 Somewhere to stay${area?' in '+area:''}`);
+    const t=addMsg('buddy','Looking at places to stay…','think');
+    let payload={ area, what:a.what||'' };
+    if(!area){ t.remove(); return; }
+    try{
+      const {ok,status,data}=await api('/stay',payload);
+      t.remove();
+      if(status===501){ const m='Stays need the Google Maps key set up on the brain.'; addMsg('buddy',m); say(m); return; }
+      if(!ok||!data.places||!data.places.length){ const m=`Couldn't find stays in ${area} — try a bigger area name?`; addMsg('buddy',m); say(m); return; }
+      addMsg('buddy',data.spoken); say(data.spoken);
+      data.places.slice(0,4).forEach(p=>{ const r=p.rating?` ★${p.rating}`:''; addMsg('buddy',`• ${p.name}${r} — ${p.address}`); });
+      if(data.places[0]) brain.setPlace(data.places[0].name, data.places[0].address);
+      const el=addMsg('buddy','🛏️ Check prices & book'); el.style.cursor='pointer';
+      el.onclick=()=>window.open(data.bookLink,'_blank');
+      brain.suggest('Directions to '+data.places[0].name, ()=>{ document.getElementById('chatText').value='take me to '+data.places[0].name; sendChat(); });
+    }catch(e){ t.remove(); const m='Stay search hiccuped — try again?'; addMsg('buddy',m); say(m); }
+  }
+
+  // 🎟️ Things to do — live-informed ideas.
+  async function thingsToDo(a){
+    a=a||{};
+    openChat(); addMsg('me','🎟️ Things to do');
+    const t=addMsg('buddy','Digging up the good stuff…','think');
+    try{
+      const {ok,data}=await api('/activities',{ city:localStorage.getItem('buddy_city')||'', country:localStorage.getItem('buddy_country')||'', interests:a.interests||'' });
+      t.remove();
+      if(!ok||!data.spoken){ const m="Couldn't pull ideas just now — tell me the city and I'll try again."; addMsg('buddy',m); say(m); return; }
+      addMsg('buddy',data.spoken); say(data.spoken);
+      (data.items||[]).forEach(i=>addMsg('buddy','• '+i));
+      brain.suggest('Plan my day around these', ()=>{ document.getElementById('chatText').value='plan my day'; sendChat(); });
+    }catch(e){ t.remove(); addMsg('buddy','Ideas hiccuped — try again?'); }
+  }
+
+  // 🗺️ Plan my trip — builds AND SAVES a day-by-day plan (buddy_trip).
+  async function planTrip(a){
+    a=a||{};
+    const destination=a.destination||prompt('Plan a trip where?'); if(!destination) return;
+    const days=a.days||prompt('How many days?','5');
+    openChat(); addMsg('me',`🗺️ Plan ${days} days in ${destination}`);
+    const t=addMsg('buddy','Building your trip — give me a moment…','think');
+    try{
+      const {ok,data}=await api('/tripplan',{ destination, days, budget:a.budget||'', interests:a.interests||'' });
+      t.remove();
+      if(!ok||!data.plan||!data.plan.days.length){ const m="Trip builder hiccuped — try again?"; addMsg('buddy',m); say(m); return; }
+      localStorage.setItem('buddy_trip', JSON.stringify(data.plan));
+      addMsg('buddy',data.spoken); say(data.spoken);
+      const d1=data.plan.days[0];
+      addMsg('buddy',`Day 1 — ${d1.title}`);
+      (d1.items||[]).forEach(i=>addMsg('buddy',`• ${i.when}: ${i.what}`));
+      addMsg('buddy',`(${data.plan.days.length} days saved — ask "what's on day 2" anytime.)`);
+      brain.suggest("What's on day 2?", ()=>tripDay(2));
+      brain.suggest('What will this cost?', ()=>{ document.getElementById('chatText').value=`what will ${days} days in ${destination} cost`; sendChat(); });
+    }catch(e){ t.remove(); addMsg('buddy','Trip builder hiccuped — try again?'); }
+  }
+
+  // 📅 What's on day N — reads the SAVED plan, no network.
+  function tripDay(day){
+    openChat();
+    let plan=null; try{ plan=JSON.parse(localStorage.getItem('buddy_trip')||'null'); }catch{}
+    if(!plan||!plan.days||!plan.days.length){ const m="No trip saved yet — say 'plan my trip to' somewhere and I'll build one."; addMsg('buddy',m); say(m); return; }
+    let n=Number(day);
+    if(!n||n<1){ n=1; }
+    if(n>plan.days.length){ const m=`Your ${plan.destination} plan is ${plan.days.length} days — day ${n} isn't on it.`; addMsg('buddy',m); say(m); return; }
+    const d=plan.days[n-1];
+    addMsg('me',`📅 Day ${n} of ${plan.destination}`);
+    const spoken=`Day ${n} — ${d.title}.`;
+    addMsg('buddy',spoken); say(spoken);
+    (d.items||[]).forEach(i=>addMsg('buddy',`• ${i.when}: ${i.what}`));
+    if(n<plan.days.length) brain.suggest(`Day ${n+1}?`, ()=>tripDay(n+1));
+  }
+
+  // 🎒 Packing list
+  async function packList(a){
+    a=a||{};
+    let plan=null; try{ plan=JSON.parse(localStorage.getItem('buddy_trip')||'null'); }catch{}
+    const destination=a.destination||plan?.destination||prompt('Packing for where?'); if(!destination) return;
+    openChat(); addMsg('me','🎒 Packing list — '+destination);
+    const t=addMsg('buddy','Thinking about what you\'ll actually need…','think');
+    try{
+      const {ok,data}=await api('/packlist',{ destination, days:a.days||plan?.days?.length||'', month:a.month||'' });
+      t.remove();
+      if(!ok||!data.spoken){ addMsg('buddy','Packing list hiccuped — try again?'); return; }
+      addMsg('buddy',data.spoken); say(data.spoken);
+      (data.items||[]).forEach(i=>addMsg('buddy','☐ '+i));
+    }catch(e){ t.remove(); addMsg('buddy','Packing list hiccuped — try again?'); }
+  }
+
+  // 💵 Trip budget
+  async function tripBudget(a){
+    a=a||{};
+    const destination=a.destination||prompt('Budget for where?'); if(!destination) return;
+    const days=a.days||prompt('How many days?','7');
+    openChat(); addMsg('me',`💵 Budget — ${days} days in ${destination}`);
+    const t=addMsg('buddy','Running the numbers…','think');
+    try{
+      const {ok,data}=await api('/tripbudget',{ destination, days, style:a.style||'' });
+      t.remove();
+      if(!ok||!data.spoken){ addMsg('buddy','Budget check hiccuped — try again?'); return; }
+      addMsg('buddy',data.spoken); say(data.spoken);
+      if(data.perDay) addMsg('buddy',`≈ ${data.perDay} ${data.currency}/day → ${data.total} ${data.currency} total (before accommodation)`);
+      brain.suggest('Start tracking my spend', ()=>{ document.getElementById('chatText').value='log '; document.getElementById('chatText').focus(); });
+    }catch(e){ t.remove(); addMsg('buddy','Budget check hiccuped — try again?'); }
+  }
+
+  // 📶 Data & eSIM
+  async function esimInfo(a){
+    a=a||{};
+    const country=a.country||localStorage.getItem('buddy_country')||prompt('Data for which country?'); if(!country) return;
+    openChat(); addMsg('me','📶 Data & eSIM — '+country);
+    const t=addMsg('buddy','Checking current options…','think');
+    try{
+      const {ok,data}=await api('/esim',{ country });
+      t.remove();
+      if(!ok||!data.spoken){ addMsg('buddy','Data check hiccuped — try again?'); return; }
+      addMsg('buddy',data.spoken); say(data.spoken);
+      (data.options||[]).forEach(o=>addMsg('buddy','• '+o));
+    }catch(e){ t.remove(); addMsg('buddy','Data check hiccuped — try again?'); }
+  }
 
   // ---- 🛬 ARRIVAL AUTOPILOT: one command when you land ----
   async function arrivalAutopilot(){
@@ -853,7 +1114,7 @@
     a.forEach(p=>{ const el=addMsg('buddy',`🗣️ ${p.orig} → ${p.trans}${p.ph?'\n('+p.ph+')':''}`); el.style.cursor='pointer'; el.onclick=()=>speakIn(p.trans,p.lang); });
   }
 
-  // ---- COUPLES: live location (Meta-style) — pings your spot to the trip room while Buddy's open ----
+  // ---- COUPLES: live location (Meta-style) — pings your spot to the trip room while Vision's open ----
   let liveLocTimer=null, liveLocUntil=0, wakeLock=null;
   // Screen Wake Lock: keeps the screen awake while live location runs (iOS 16.4+).
   async function keepAwake(){ try{ if('wakeLock' in navigator){ wakeLock=await navigator.wakeLock.request('screen'); } }catch(e){} }
@@ -876,8 +1137,8 @@
     ping(); liveLocTimer=setInterval(ping, 60000); keepAwake();
     api('/share',{code,name:myName(),message:`Sharing my live location for ${m} minutes — check "Where's he?" anytime.`}).catch(()=>{});
     say(('wakeLock' in navigator)
-      ? `Live location on for ${m} minutes — I'll keep your screen awake while Buddy's open. Tap again to stop.`
-      : `Live location on for ${m} minutes — keep Buddy open and your screen on. Tap again to stop.`);
+      ? `Live location on for ${m} minutes — I'll keep your screen awake while Vision's open. Tap again to stop.`
+      : `Live location on for ${m} minutes — keep Vision open and your screen on. Tap again to stop.`);
     brain.lastTopic='livelocation';
   }
   // ---- COUPLES: Meet in the middle — a spot halfway between you two ----
@@ -1101,7 +1362,7 @@
   // Answering calls = native only. Explain honestly when asked.
   function answerCallsInfo(){
     openChat();
-    addMsg('buddy','📵 Heads up: answering or screening incoming calls isn\'t possible in the web app — iPhone only lets the built-in Phone app handle live calls. Two ways to get "Buddy answers for me" later: (1) the native glasses/iOS app using CallKit, or (2) a dedicated Buddy phone number that forwards calls to the AI (a separate build with a telephony provider). For now I can place calls, FaceTime, and texts for you.');
+    addMsg('buddy','📵 Heads up: answering or screening incoming calls isn\'t possible in the web app — iPhone only lets the built-in Phone app handle live calls. Two ways to get "Vision answers for me" later: (1) the native glasses/iOS app using CallKit, or (2) a dedicated Vision phone number that forwards calls to the AI (a separate build with a telephony provider). For now I can place calls, FaceTime, and texts for you.');
     say("Answering calls needs the native app or a forwarding number — for now I can place calls and texts for you.");
   }
 
@@ -1359,18 +1620,18 @@
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't plan that — try again in a sec."; }
   }
 
-  // ---- What Buddy knows: persistent traveller memory ----
+  // ---- What Vision knows: persistent traveller memory ----
   function travellerMemory(){
     const cur=localStorage.getItem('buddy_profile')||'';
     const next=prompt(
-      "🧠 What should Buddy always remember about you?\n(hotel, dietary needs, home currency, favourite spots, etc.)\n\nEdit below — this is used in every chat.",
+      "🧠 What should Vision always remember about you?\n(hotel, dietary needs, home currency, favourite spots, etc.)\n\nEdit below — this is used in every chat.",
       cur);
     if(next===null) return;
     const clean=next.trim();
     localStorage.setItem('buddy_profile',clean);
     const homeM=clean.match(/home currency[:\s]+([A-Za-z]{3})/i); if(homeM) localStorage.setItem('buddy_home',homeM[1].toUpperCase());
     const avoidM=clean.match(/(?:avoid|allerg[a-z]*)[:\s]+([^.;\n]+)/i); if(avoidM) localStorage.setItem('buddy_avoid',avoidM[1].trim());
-    document.getElementById('memSub').textContent = clean ? 'Buddy remembers you ✓' : 'Hotel, diet, prefs';
+    document.getElementById('memSub').textContent = clean ? 'Vision remembers you ✓' : 'Hotel, diet, prefs';
     say(clean ? "Got it — I'll remember that from now on." : "Cleared what I remembered.");
   }
 
@@ -1506,7 +1767,7 @@
     if(firstHdr){ const g=firstHdr.nextElementSibling; if(g&&g.classList.contains('grid')){ g.classList.add('open'); firstHdr.classList.add('open'); } }
   }
 
-  // ---- Chat panel: talk to Buddy's genius brain (with memory + streaming) ----
+  // ---- Chat panel: talk to Vision's genius brain (with memory + streaming) ----
   let chatHistory = [];   // {role, content} — gives the brain conversation memory
   // ---- BUDDY BRAIN: shared working memory across all skills (the "smart" layer) ----
   // Every skill reads from + writes to this, so follow-ups like "take me there",
@@ -1516,17 +1777,85 @@
     lastDestination: null,// last navigation target
     lastTopic: null,      // last skill used
     lastList: null,       // last list of options shown (for "the first one" / "the closest")
-    save(){ try{ localStorage.setItem('buddy_brain', JSON.stringify({lastPlace:this.lastPlace,lastDestination:this.lastDestination,lastTopic:this.lastTopic})); }catch{} },
+    lastAsked: null,      // what he asked most recently (raw text)
+    save(){ try{ localStorage.setItem('buddy_brain', JSON.stringify({lastPlace:this.lastPlace,lastDestination:this.lastDestination,lastTopic:this.lastTopic,lastAsked:this.lastAsked})); }catch{} },
     load(){ try{ Object.assign(this, JSON.parse(localStorage.getItem('buddy_brain')||'{}')); }catch{} },
     setPlace(name, addr){ this.lastPlace={name,addr:addr||name}; this.lastDestination=addr||name; this.save(); },
     // proactively offer a logical next step as a tappable line
-    suggest(label, fn){ const el=addMsg('buddy','→ '+label); el.style.cursor='pointer'; el.style.opacity='.85'; el.onclick=fn; return el; }
+    suggest(label, fn){ const el=addMsg('buddy','→ '+label); el.style.cursor='pointer'; el.style.opacity='.85'; el.onclick=fn; return el; },
+
+    // ---- TRIP STATE ----------------------------------------------------
+    // Everything Vision knows about Shaun's situation, gathered from the
+    // localStorage keys the individual skills already write to. This is what
+    // gets sent to Claude so the brain answers as someone who knows the trip,
+    // not as a stranger meeting him for the first time every message.
+    state(){
+      const g=k=>{ try{ return localStorage.getItem(k)||''; }catch{ return ''; } };
+      const j=(k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)||JSON.stringify(d)); }catch{ return d; } };
+      const spend=j('buddy_spend',[]);
+      const today=new Date().toDateString();
+      const todaySpend=spend.filter(s=>s.at&&new Date(s.at).toDateString()===today)
+                            .reduce((n,s)=>n+(Number(s.amt)||0),0);
+      const total=spend.reduce((n,s)=>n+(Number(s.amt)||0),0);
+      return {
+        name: g('buddy_myname')||'Shaun',
+        country: g('buddy_country'), city: g('buddy_city'),
+        homeCurrency: g('buddy_home')||'AUD', localCurrency: g('buddy_localcur')||g('buddy_currency'),
+        avoid: g('buddy_avoid'),
+        flight: j('buddy_flight',null),
+        spendToday: todaySpend, spendTotal: total, spendCount: spend.length,
+        spots: j('buddy_spots',[]).map(s=>s.label).filter(Boolean).slice(-8),
+        phrases: j('buddy_phrases',[]).length,
+        paired: !!g('buddy_paircode'),
+        profile: g('buddy_profile'),
+        lastPlace: this.lastPlace, lastDestination: this.lastDestination, lastTopic: this.lastTopic,
+      };
+    },
+    // Compact plain-English brief for the model. Kept short on purpose —
+    // this rides along on EVERY call, so it must be cheap.
+    brief(){
+      const s=this.state(); const bits=[];
+      if(s.city||s.country) bits.push(`He's in ${[s.city,s.country].filter(Boolean).join(', ')}`);
+      if(s.localCurrency&&s.localCurrency!==s.homeCurrency) bits.push(`local currency ${s.localCurrency}, home currency ${s.homeCurrency}`);
+      else bits.push(`home currency ${s.homeCurrency}`);
+      if(s.avoid) bits.push(`MUST AVOID (allergy/diet): ${s.avoid}`);
+      if(s.flight&&s.flight.number) bits.push(`tracking flight ${s.flight.number}`);
+      if(s.spendCount) bits.push(`spent ${s.spendToday.toFixed(2)} today, ${s.spendTotal.toFixed(2)} this trip`);
+      if(s.spots.length) bits.push(`saved spots: ${s.spots.join(', ')}`);
+      if(s.paired) bits.push(`travelling with a partner (shared Vision room)`);
+      if(this.lastPlace&&this.lastPlace.name) bits.push(`last place discussed: ${this.lastPlace.name}`);
+      if(this.lastTopic) bits.push(`last thing he did: ${this.lastTopic}`);
+      if(s.profile) bits.push(`profile notes: ${s.profile.slice(0,300)}`);
+      return bits.length? bits.join('. ')+'.' : '';
+    },
+    // Record that a skill ran — every skill should call this.
+    used(skill, extra){
+      this.lastTopic=skill;
+      if(extra&&extra.place) this.setPlace(extra.place.name||extra.place, extra.place.addr);
+      prefRecord('skill', skill);
+      this.save();
+    }
   };
   brain.load();
   function openChat(){
     document.getElementById('chat').classList.add('open');
-    if(chatHistory.length===0){ addMsg('buddy',"Hey Shaun! What can I do for you?"); }
+    if(chatHistory.length===0){ addMsg('buddy', openingBrief()); }
     setTimeout(()=>document.getElementById('chatText').focus(), 150);
+  }
+  // Lead with what actually matters right now instead of a generic greeting.
+  // Everything here is local state — no network call, so it's instant.
+  function openingBrief(){
+    const s=brain.state(); const h=new Date().getHours();
+    const hi = h<12?'Morning':(h<18?'Arvo':'Evening');
+    const lines=[];
+    if(s.city||s.country) lines.push(`${hi} Shaun — you're in ${[s.city,s.country].filter(Boolean).join(', ')}.`);
+    else lines.push(`${hi} Shaun.`);
+    if(s.spendToday>0) lines.push(`Spent ${s.spendToday.toFixed(2)} today.`);
+    if(s.flight&&s.flight.number) lines.push(`Flight ${s.flight.number} saved — ask me how it's looking.`);
+    if(s.avoid) lines.push(`Still avoiding ${s.avoid}.`);
+    if(brain.lastPlace&&brain.lastPlace.name) lines.push(`Last we looked at ${brain.lastPlace.name}.`);
+    lines.push('What do you need?');
+    return lines.join(' ');
   }
   function closeChat(){ document.getElementById('chat').classList.remove('open'); }
   function addMsg(who, text, cls){
@@ -1536,8 +1865,26 @@
     d.textContent=text; log.appendChild(d); log.scrollTop=log.scrollHeight;
     return d;
   }
+  // Image bubble (place photos, burst-vision frames)
+  function addImg(src, alt){
+    const log=document.getElementById('chatLog');
+    const d=document.createElement('div'); d.className='msg buddy';
+    const im=document.createElement('img'); im.src=src; im.alt=alt||'';
+    im.style.cssText='max-width:100%;border-radius:10px;display:block';
+    d.appendChild(im); log.appendChild(d); log.scrollTop=log.scrollHeight;
+    return d;
+  }
   // ---- Router dispatch: run the chosen skill inline in the chat, speak result ----
+  // Wrapper: every skill that runs is recorded to the brain automatically, so all
+  // 39 contribute context and preference data — not just the handful that
+  // remember to call brain.used() themselves.
   async function dispatchSkill(skill, a, original){
+    brain.lastAsked = original || '';
+    const handled = await dispatchSkillInner(skill, a, original);
+    if(handled){ brain.lastTopic = skill; prefRecord('skill', skill); brain.save(); }
+    return handled;
+  }
+  async function dispatchSkillInner(skill, a, original){
     const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
     const home=localStorage.getItem('buddy_home')||'AUD';
     // BUDDY BRAIN: resolve vague follow-ups against what just happened.
@@ -1652,6 +1999,15 @@
       if(skill==='rememberspot'){ rememberSpot(a.label||''); return true; }
       if(skill==='backto'){ backToSpot(a.label||original); return true; }
       if(skill==='sayphrase'){ phraseSay(a.text||original); return true; }
+      if(skill==='flightsearch'){ findFlights(a); return true; }
+      if(skill==='stay'){ await findStay(a); return true; }
+      if(skill==='activities'){ await thingsToDo(a); return true; }
+      if(skill==='tripplan'){ await planTrip(a); return true; }
+      if(skill==='tripday'){ tripDay(a.day); return true; }
+      if(skill==='packlist'){ await packList(a); return true; }
+      if(skill==='tripbudget'){ await tripBudget(a); return true; }
+      if(skill==='esim'){ await esimInfo(a); return true; }
+      if(skill==='livelook'){ liveLook(); return true; }
       if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
       if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
     }catch(e){ /* fall back to chat */ }
@@ -1668,7 +2024,7 @@
     chatHistory.push({role:'user', content:text});
     // ---- Intelligent router: dispatch to a specific skill first (agentic feel) ----
     try{
-      const rt=await api('/route',{message:text, history:chatHistory.slice(-6)});
+      const rt=await api('/route',{message:text, history:chatHistory.slice(-6), brief:brain.brief()});
       if(rt.data && rt.data.skill && rt.data.skill!=='chat' && (rt.data.confidence??0)>=0.55){
         const handled=await dispatchSkill(rt.data.skill, rt.data.args||{}, text);
         if(handled){
@@ -1680,17 +2036,21 @@
         }
       }
     }catch(e){ /* routing best-effort → fall through to normal chat */ }
-    const thinking=addMsg('buddy','Buddy is thinking…','think');
+    const thinking=addMsg('buddy','Vision is thinking…','think');
+    // Kill the dead air: in hands-free, a silent 3-second wait feels like Vision
+    // died. A one-word ack right away = alive. (Skipped when typing — the
+    // "thinking…" line covers it visually.)
+    if(handsFree){ say(['On it.','Checking.','One sec.'][Math.floor(Math.random()*3)]); }
 
     try{
       const ctrl=new AbortController();
-      const slow=setTimeout(()=>{ thinking.textContent='Waking Buddy up…'; }, 3500);
+      const slow=setTimeout(()=>{ thinking.textContent='Waking Vision up…'; }, 3500);
       const kill=setTimeout(()=>ctrl.abort(), 45000);
       const r=await fetch(cfg.url+'/chat',{
         method:'POST',
         headers:{'Authorization':'Bearer '+cfg.tok,'Content-Type':'application/json'},
         signal:ctrl.signal,
-        body:JSON.stringify({ message:text, history:chatHistory.slice(0,-1), profile:(localStorage.getItem('buddy_profile')||'') }),
+        body:JSON.stringify({ message:text, history:chatHistory.slice(0,-1), profile:(localStorage.getItem('buddy_profile')||''), brief:brain.brief() }),
       });
       clearTimeout(slow); clearTimeout(kill);
 
@@ -1736,12 +2096,12 @@
       if(chatHistory.length>16) chatHistory=chatHistory.slice(-16); // keep memory bounded
     }catch(e){
       thinking.classList.remove('think');
-      thinking.textContent="Couldn't reach Buddy just now — check your connection and try again.";
+      thinking.textContent="Couldn't reach Vision just now — check your connection and try again.";
     }
   }
 
   // SAY / glasses tiles: teach the exact phrase instead of pretending to act.
-  function hint(phrase){ toast('🎙️  Say to Buddy:  “'+phrase+'”'); }
+  function hint(phrase){ toast('🎙️  Say to Vision:  “'+phrase+'”'); }
   let toastEl;
   function toast(msg){
     if(!toastEl){toastEl=document.createElement('div');
@@ -1760,7 +2120,7 @@
     // take ~30s to wake from idle, so warn the user rather than appear frozen.
     const ctrl = new AbortController();
     opts.signal = ctrl.signal;
-    const slow = setTimeout(()=>toast('Waking Buddy up… first request can take a moment'), 3500);
+    const slow = setTimeout(()=>toast('Waking Vision up… first request can take a moment'), 3500);
     const kill = setTimeout(()=>ctrl.abort(), 40000);
     try{
       const r=await fetch(cfg.url+path, opts);
@@ -1882,7 +2242,12 @@
         if(!list.length){ addMsg('buddy',`No ${q} found nearby.`); say(`I couldn't find ${q} nearby.`); return; }
         const line=data.recommendation||`Here are ${q} near you.`;
         addMsg('buddy',line); say(line);
-        list.forEach(p=>addMsg('buddy',`📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${p.vicinity?`\n${p.vicinity}`:''}`));
+        list.forEach(p=>{ const walk=p.walkMin?` · 🚶${p.walkMin} min`:''; addMsg('buddy',`📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${walk}${p.address?`\n${p.address}`:(p.vicinity?`\n${p.vicinity}`:'')}`); });
+        // MAPS DEPTH: the top pick arrives enriched — photo, today's hours, phone.
+        const top0=list[0];
+        if(top0&&top0.photo) addImg(top0.photo, top0.name);
+        if(top0&&top0.hoursToday) addMsg('buddy','🕐 '+top0.hoursToday);
+        if(top0&&top0.phone){ const ph=addMsg('buddy','📞 '+top0.phone); ph.style.cursor='pointer'; ph.onclick=()=>{ if(confirm('Call '+top0.phone+'?')) window.location.href='tel:'+top0.phone.replace(/[^\d+]/g,''); }; }
         // BUDDY BRAIN: remember what we found + anticipate the next step
         brain.lastList=list; brain.lastTopic='nearby';
         const top=list[0]; if(top){ brain.setPlace(top.name, top.vicinity||top.name);
@@ -1900,13 +2265,13 @@
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{
         const {data}=await api('/places',{lat:pos.coords.latitude,lng:pos.coords.longitude,query:what,recommend:'auto'});
-        if(data.recommendation){ nearbySub.textContent='Buddy recommends'; say(data.recommendation); toast(data.recommendation); }
+        if(data.recommendation){ nearbySub.textContent='Vision recommends'; say(data.recommendation); toast(data.recommendation); }
         else { const first=data.places?.[0]; say(first?`Nearest: ${first.name}.`:'Nothing found nearby.'); }
       }catch(e){} finally{ busy('nearbySub',false); }
     }, ()=>{ busy('nearbySub',false); say('Location permission needed.'); });
   }
 
-  // ---- Navigate: type a destination, Buddy speaks the guide ----
+  // ---- Navigate: type a destination, Vision speaks the guide ----
   // ---- Saved places: name your regular spots (home, gym, hotel) ----
   function placesGet(){ try{return JSON.parse(localStorage.getItem('buddy_places')||'{}');}catch{return{};} }
   function placesSave(o){ localStorage.setItem('buddy_places',JSON.stringify(o)); }
@@ -2027,7 +2392,7 @@
   function addToCalendarReminder(label, iso){
     // Fallback: use a simple prompt-based reminder via the device.
     say('Set a reminder in your phone for '+label+'.');
-    openChat(); addMsg('buddy',`⏰ To get a leave-for-airport alert: add a reminder for ${label}${iso?(' at '+iso):''} in your phone's Reminders or Calendar. (Buddy can't push notifications itself — Apple limits that for web apps.)`);
+    openChat(); addMsg('buddy',`⏰ To get a leave-for-airport alert: add a reminder for ${label}${iso?(' at '+iso):''} in your phone's Reminders or Calendar. (Vision can't push notifications itself — Apple limits that for web apps.)`);
   }
 
   // ---- live: local briefing (headlines/events/food) ----
@@ -2056,7 +2421,7 @@
       const n=data.count||0;
       mailSub.textContent = n+' unread';
       if(n===0){ say(data.briefing||'No new emails.'); return; }
-      // Buddy's smart spoken triage (falls back to a simple line if absent).
+      // Vision's smart spoken triage (falls back to a simple line if absent).
       const line = data.briefing || (`${n} new email${n===1?'':'s'}.`);
       openChat(); addMsg('me','📧 Email briefing'); addMsg('buddy', line);
       say(line);
@@ -2075,7 +2440,7 @@
       smsSub.textContent=(data.count||0)+' recent';
       openChat(); addMsg('me','💬 Read my texts');
       if(!lastTexts.length){ addMsg('buddy','No recent texts.'); say('No recent texts.'); return; }
-      // Buddy reads the latest few aloud, numbered so you can say "reply to 1".
+      // Vision reads the latest few aloud, numbered so you can say "reply to 1".
       lastTexts.slice(0,6).forEach((m,i)=>{
         addMsg('buddy',`${i+1}. From ${m.number}: ${m.text}`);
       });
@@ -2100,7 +2465,7 @@
     if(/^\d{1,2}$/.test(pick.trim()) && lastTexts[Number(pick)-1]) number=lastTexts[Number(pick)-1].number;
     else number=pick.replace(/[^\d+]/g,'');
     if(!number){ say("Didn't catch which number."); return; }
-    const message=prompt(`Your reply to ${number}:\n(speak it, or type — Buddy adds your sign-off)`);
+    const message=prompt(`Your reply to ${number}:\n(speak it, or type — Vision adds your sign-off)`);
     if(!message) return;
     openChat(); addMsg('me',`↩️ To ${number}: ${message}`);
     const t=addMsg('buddy','Sending your text…','think');
@@ -2117,8 +2482,8 @@
   function callReceptionist(){
     const on=localStorage.getItem('buddy_receptionist')==='on';
     const msg=on
-      ? "Buddy's call receptionist is currently ON (for when it's fully wired to TelTel). Turn it OFF?"
-      : "Turn ON Buddy's call receptionist?\n\nNote: this is a placeholder toggle. Actually answering live calls needs TelTel call-routing wired to Buddy (a bigger setup we scoped). For now this just saves your preference.";
+      ? "Vision's call receptionist is currently ON (for when it's fully wired to TelTel). Turn it OFF?"
+      : "Turn ON Vision's call receptionist?\n\nNote: this is a placeholder toggle. Actually answering live calls needs TelTel call-routing wired to Vision (a bigger setup we scoped). For now this just saves your preference.";
     if(confirm(msg)){
       localStorage.setItem('buddy_receptionist', on?'off':'on');
       say(on?'Call receptionist turned off.':'Call receptionist turned on — I\'ll answer once TelTel routing is wired.');

@@ -1,6 +1,6 @@
 {
-  "name": "My Buddy — AI companion for your glasses",
-  "short_name": "My Buddy",
+  "name": "Vision — AI companion for your glasses",
+  "short_name": "Vision",
   "description": "Your friendly AI companion: see, translate, navigate, remember.",
   "start_url": "/app.html",
   "scope": "/",
