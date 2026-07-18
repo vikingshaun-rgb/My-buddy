@@ -257,6 +257,7 @@
     <div class="tile" onclick="landmarkLook()"><span class="badge live">live</span><div class="ic">🏛️</div><h3>What is this place?</h3><p>Landmark &amp; history</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
+    <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>Translate offline</h3><p>No signal — opens Google</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Navigate</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -535,6 +536,23 @@
   }
 
   // ---- Live translate: pick a language, speak/type a phrase, Buddy translates ----
+  // Offline translation: Buddy's own translate needs signal (server brain).
+  // For no-signal moments, hand off to Google Translate, which has offline packs.
+  function offlineTranslate(){
+    openChat(); addMsg('me','📴 Translate offline');
+    addMsg('buddy','Buddy translates online. For no-signal spots, Google Translate works offline once you\'ve downloaded the language pack (do it on wifi first).');
+    say('Opening Google Translate. Download your language pack on wifi so it works offline.');
+    const el=addMsg('buddy','🌐 Open Google Translate'); el.style.cursor='pointer';
+    el.onclick=()=>{
+      // Try the app first, fall back to the web version.
+      const t=Date.now();
+      window.location.href='googletranslate://';
+      setTimeout(()=>{ if(Date.now()-t<1500) window.open('https://translate.google.com','_blank'); }, 700);
+    };
+    const tip=addMsg('buddy','💡 In Google Translate: tap your language → the ⬇️ download icon → get the offline pack.');
+    tip.style.opacity='.8';
+  }
+
   async function liveTranslate(){
     const lang=prompt("Translate INTO which language? (e.g. Spanish, Japanese, French)","Spanish");
     if(!lang) return;
@@ -1293,6 +1311,7 @@
       if(skill==='itinerary'){ tripItinerary(); return true; }
       if(skill==='status'){ statusBriefing(); return true; }
       if(skill==='orderupdate'){ orderUpdate(); return true; }
+      if(skill==='flight'){ if(a.flightNumber){ trackFlight(String(a.flightNumber).toUpperCase().replace(/\s/g,'')); } else { myFlight(); } return true; }
       if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
       if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
     }catch(e){ /* fall back to chat */ }
@@ -1589,16 +1608,38 @@
   // ---- live: flight ----
   async function checkFlight(){
     const code=prompt('Flight number (e.g. BA292)'); if(!code) return;
-    try{ const {status,data}=await api('/flight',{flightIata:code.toUpperCase()});
-      if(status===501){ say("Flight tracking isn't switched on — add your flight API key to enable it."); return; }
+    await trackFlight(code.toUpperCase());
+  }
+  // Save a flight so "how's my flight?" works anytime, and offer a reminder.
+  async function trackFlight(fc){
+    try{ const {status,data}=await api('/flight',{flightIata:fc});
+      if(status===501){ say("Flight tracking isn't switched on — add your flight API key to enable it."); 
+        openChat(); addMsg('buddy','✈️ Flight tracking needs the AviationStack key in Settings/env to show live data.'); return; }
       if(data.found){
-        flightTitle.textContent=`${code.toUpperCase()} — ${data.status||'tracked'}`;
+        localStorage.setItem('buddy_flight', JSON.stringify({code:fc, at:Date.now()}));
+        flightTitle.textContent=`${fc} — ${data.status||'tracked'}`;
         const bits=[]; if(data.depGate)bits.push('Gate '+data.depGate);
         if(data.delayMin>0)bits.push(data.delayMin+' min late'); else bits.push('on time');
+        if(data.depTime)bits.push('dep '+data.depTime);
         flightSub.textContent=bits.join(' · ');
-        say(data.spoken || `${data.airline||'Flight'} ${code}: ${bits.join(', ')}.`);
-      } else { say(data.spoken||`No live data for ${code}.`); }
-    }catch(e){}
+        const line=data.spoken || `${data.airline||'Flight'} ${fc}: ${bits.join(', ')}.`;
+        say(line); openChat(); addMsg('me','✈️ Track '+fc); addMsg('buddy',line);
+        // offer a reminder
+        if(data.depTime){ const r=addMsg('buddy','⏰ Tap to set a "leave for airport" reminder'); r.style.cursor='pointer';
+          r.onclick=()=>{ addToCalendarReminder(fc, data.depTimeISO||''); }; }
+      } else { say(data.spoken||`No live data for ${fc}.`); openChat(); addMsg('buddy',`No live data for ${fc} yet.`); }
+    }catch(e){ say("Couldn't check that flight right now."); }
+  }
+  async function myFlight(){
+    let f=null; try{ f=JSON.parse(localStorage.getItem('buddy_flight')||'null'); }catch{}
+    if(!f){ say("You haven't tracked a flight yet. Tap Track a flight to add one."); openChat(); addMsg('buddy','No flight saved yet — tap ✈️ Track a flight.'); return; }
+    await trackFlight(f.code);
+  }
+  // Build a calendar reminder link (opens the phone's calendar/reminder).
+  function addToCalendarReminder(label, iso){
+    // Fallback: use a simple prompt-based reminder via the device.
+    say('Set a reminder in your phone for '+label+'.');
+    openChat(); addMsg('buddy',`⏰ To get a leave-for-airport alert: add a reminder for ${label}${iso?(' at '+iso):''} in your phone's Reminders or Calendar. (Buddy can't push notifications itself — Apple limits that for web apps.)`);
   }
 
   // ---- live: local briefing (headlines/events/food) ----

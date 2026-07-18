@@ -686,6 +686,7 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"itinerary\" (my trip/bookings/flights/what's next/my schedule; args: none), " +
       "\"status\" (my status/briefing/how am I doing/catch me up; args: none), " +
       "\"orderupdate\" (any update on my order/where's my food/my delivery; args: none), " +
+      "\"flight\" (track/check my flight, how's my flight, flight status; args: flightNumber optional), " +
       "\"call\" (call/phone/ring a number; args: number), " +
       "\"text\" (text/message/SMS a number; args: number, message). " +
       "Pick the single best skill. If it's just conversation or doesn't fit a skill, use \"chat\".",
