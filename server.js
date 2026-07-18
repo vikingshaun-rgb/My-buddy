@@ -633,6 +633,55 @@ app.post("/journal", requireAuth, async (req, res) => {
   } catch (e) { res.status(502).json({ error: "journal_failed" }); }
 });
 
+// --- Arrival Autopilot: one command when Shaun lands — detect country, set up, brief him ---
+app.post("/arrival", requireAuth, async (req, res) => {
+  const { lat, lng, country: manualCountry } = req.body || {};
+  let country = manualCountry || "", city = "";
+  if (!country && lat != null && GMAPS_KEY) {
+    try {
+      const gu = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+      gu.searchParams.set("latlng", `${lat},${lng}`);
+      gu.searchParams.set("key", GMAPS_KEY);
+      const gr = await fetch(gu); const gd = await gr.json();
+      const comps = gd.results?.[0]?.address_components || [];
+      country = comps.find(c => c.types.includes("country"))?.long_name || "";
+      city = (comps.find(c => c.types.includes("locality")) || comps.find(c => c.types.includes("administrative_area_level_1")))?.long_name || "";
+    } catch (e) {}
+  }
+  if (!country) return res.json({ needCountry: true, spoken: "Which country have you landed in?" });
+  try {
+    const body = {
+      model: "claude-sonnet-4-6",
+      max_tokens: 600,
+      system: "You are Buddy, Shaun's Aussie travel companion. He has JUST LANDED somewhere new. Give him the arrival essentials, warm and brief, spoken-style.",
+      messages: [{ role: "user", content: `Shaun just landed in ${city ? city + ", " : ""}${country}. Reply as compact JSON ONLY: "currency" (ISO code), "spoken" (warm 3-4 sentence arrival brief: emergency number, the #1 scam to dodge arriving here, tipping norm, rough AUD exchange rate), "emergency", "scam", "tipping", "rate" (each one short line).` }],
+    };
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "arrival_failed" });
+    const txt = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { spoken: txt }; }
+    res.json({ country, city, currency: p.currency || "", spoken: p.spoken || "", brief: { emergency: p.emergency || "", scam: p.scam || "", tipping: p.tipping || "", rate: p.rate || "" } });
+  } catch (e) { res.status(502).json({ error: "arrival_failed" }); }
+});
+
+// --- Phrasebook: translate a phrase into the local language + speakable lang code ---
+app.post("/phrase", requireAuth, async (req, res) => {
+  const { text, country } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+  try {
+    const body = {
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 200,
+      messages: [{ role: "user", content: `Translate into the main local language of ${country || "the country the traveller is in"}: "${text}". Reply as compact JSON ONLY: "translation", "lang" (BCP-47 code like th-TH), "phonetic" (simple pronunciation).` }],
+    };
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "phrase_failed" });
+    const txt = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { translation: txt, lang: "" }; }
+    res.json({ translation: p.translation || "", lang: p.lang || "", phonetic: p.phonetic || "" });
+  } catch (e) { res.status(502).json({ error: "phrase_failed" }); }
+});
+
 // Fetch the latest "what I'm seeing" frame a partner shared (glasses-era; works now via photo).
 app.post("/frame", requireAuth, (req, res) => {
   const { code, from } = req.body || {};
@@ -751,6 +800,7 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"sharepin\" (send/share my location or a meet-here pin to my partner; args: label), " +
       "\"meetmiddle\" (find somewhere halfway between us / meet in the middle; args: what — kind of place), " +
       "\"onmyway\" (tell my partner I'm on my way / how far am I from her; args: none), " +
+      "\"livelocation\" (share/stop my live location with my partner; args: minutes optional), " +
       "\"couplespend\" (our shared spend / who owes who / log shared expense; args: amount, note), " +
       "\"journal\" (trip journal / write up our trip / trip story; args: none), " +
       "\"music\" (play music/a song/artist/playlist/vibe; args: query), " +
@@ -767,6 +817,10 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"mailbrief\" (check/read my email/inbox; args: none), " +
       "\"debrief\" (wrap up my day / day summary / how did today go; args: none), " +
       "\"safety\" (safety heads-up / any scams here / is it safe around here; args: none), " +
+      "\"arrival\" (I just landed / arrival mode / set up new country; args: none), " +
+      "\"rememberspot\" (remember/pin this spot — where I parked, my hotel; args: label), " +
+      "\"backto\" (take me back to my car/hotel/a saved spot; args: label), " +
+      "\"sayphrase\" (how do I say X here / teach me a local phrase; args: text), " +
       "\"call\" (call/phone/ring a number; args: number), " +
       "\"text\" (text/message/SMS a number; args: number, message). " +
       "Pick the single best skill. Judge INTENT, not just keywords — infer what Shaun actually wants to happen. Use the recent conversation to resolve short follow-ups and fill in args. If he's acting on something just discussed (take me there, the closest, book it, yes), pick the skill that continues that thread. Only use \"chat\" when nothing else genuinely fits. Set confidence honestly: 0.8+ when intent is clear, lower when guessing.",
