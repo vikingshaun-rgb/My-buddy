@@ -1307,6 +1307,7 @@
       if(skill==='sharepin'){ shareMyPin(); return true; }
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
+      if(skill==='nearby'){ nearbyQuery(a.query||original); return true; }
       if(skill==='navigate' && a.destination){ const saved=placesGet(); const k=String(a.destination).trim().toLowerCase(); const m=/train|bus|transit|metro|subway|public transport/i.test(original)?'transit':'walking'; navigateWith(saved[k]||a.destination,m); return true; }
       if(skill==='itinerary'){ tripItinerary(); return true; }
       if(skill==='status'){ statusBriefing(); return true; }
@@ -1520,6 +1521,26 @@
   }
 
   // ---- live: nearby ----
+  // Voice/route version: search nearby directly with a given query (no prompt).
+  function nearbyQuery(what){
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    // strip filler so "find me local restaurants" → "restaurants"
+    const q=String(what||'').replace(/^(find|show|get|me|some|a|any|local|nearby|near me|closest|nearest|the)\s+/gi,'').replace(/\s+(near me|nearby|around here|around me|closest|nearest|to me)$/gi,'').trim()||'restaurants';
+    openChat(); addMsg('me','📍 Nearby: '+q); const t=addMsg('buddy','Looking around you…','think');
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try{
+        const {status,data}=await api('/places',{lat:pos.coords.latitude,lng:pos.coords.longitude,query:q,recommend:'auto'});
+        if(status===501){ t.classList.remove('think'); t.textContent='Nearby search needs the Google Maps key in Settings.'; return; }
+        t.remove();
+        const list=(data.places||[]).slice(0,5);
+        if(!list.length){ addMsg('buddy',`No ${q} found nearby.`); say(`I couldn't find ${q} nearby.`); return; }
+        const line=data.recommendation||`Here are ${q} near you.`;
+        addMsg('buddy',line); say(line);
+        list.forEach(p=>addMsg('buddy',`📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${p.vicinity?`\n${p.vicinity}`:''}`));
+      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't search nearby right now."; }
+    }, ()=>{ t.classList.remove('think'); t.textContent='I need location access. In Safari: tap the "aA" in the address bar → Website Settings → Location → Allow. Then try again.'; say('I need location access to look around you. Allow location for this site in Safari settings, then try again.'); });
+  }
+
   function findNearby(){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     const what=prompt("What are you after nearby? (e.g. coffee, ATM, pharmacy, ramen)","coffee");

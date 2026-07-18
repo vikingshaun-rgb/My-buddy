@@ -681,7 +681,8 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"tellpartner\" (tell/message my wife/partner something; args: message), " +
       "\"sharepin\" (send/share my location or a meet-here pin to my partner; args: label), " +
       "\"music\" (play music/a song/artist/playlist/vibe; args: query), " +
-      "\"findfood\" (find/order food, hungry, I want a <dish>, food delivery; args: craving), " +
+      "\"findfood\" (ORDER food for delivery, I'm hungry order me a <dish>, food delivery — NOT finding places to go; args: craving), " +
+      "\"nearby\" (find/show restaurants/cafes/bars/banks/ATM/pharmacy/hospital/shops/petrol NEAR ME, closest X, local places to eat or go, what's around; args: query), " +
       "\"navigate\" (directions/take me to/how do I get to/route to a place; args: destination), " +
       "\"itinerary\" (my trip/bookings/flights/what's next/my schedule; args: none), " +
       "\"status\" (my status/briefing/how am I doing/catch me up; args: none), " +
