@@ -510,7 +510,7 @@ const rooms = Object.create(null);
 function room(code) {
   const k = String(code || "").trim().toUpperCase();
   if (!k) return null;
-  if (!rooms[k]) rooms[k] = { members: {}, pins: [], messages: [], frames: {} };
+  if (!rooms[k]) rooms[k] = { members: {}, pins: [], messages: [], frames: {}, spend: [] };
   return rooms[k];
 }
 
@@ -535,6 +535,12 @@ app.post("/share", requireAuth, (req, res) => {
   if (lat != null && lng != null) { m.lat = lat; m.lng = lng; m.at = Date.now(); }
   if (pin && pin.lat != null) r.pins.unshift({ by: who, label: pin.label || "Pin", lat: pin.lat, lng: pin.lng, at: Date.now() });
   if (message) r.messages.unshift({ by: who, text: String(message).slice(0, 500), at: Date.now() });
+  // shared trip spend: both partners log into one pot for split/who-owes-who
+  if (req.body.spend && isFinite(Number(req.body.spend.amt))) {
+    r.spend = r.spend || [];
+    r.spend.unshift({ by: who, amt: Number(req.body.spend.amt), note: String(req.body.spend.note || "").slice(0, 80), at: Date.now() });
+    r.spend = r.spend.slice(0, 200);
+  }
   // frame = base64 image "what I'm seeing" — stored per member for the glasses era.
   if (frame) r.frames[who] = { data: String(frame).slice(0, 400000), mediaType: req.body.mediaType || "image/jpeg", at: Date.now() };
   r.pins = r.pins.slice(0, 20); r.messages = r.messages.slice(0, 50);
@@ -566,7 +572,65 @@ app.post("/room", requireAuth, (req, res) => {
     }
     return { name: o.name, lat: o.lat, lng: o.lng, meters, bearing, seenAt: o.at, hasFrame: !!r.frames[o.name] };
   });
-  res.json({ partners, pins: r.pins, messages: r.messages });
+  res.json({ partners, pins: r.pins, messages: r.messages, spend: r.spend || [] });
+});
+
+// --- Meet in the middle: find a spot halfway between the two of you ---
+app.post("/meetmiddle", requireAuth, async (req, res) => {
+  const { code, name, lat, lng, what } = req.body || {};
+  const r = room(code);
+  if (!r) return res.status(400).json({ error: "code required" });
+  if (lat == null || lng == null) return res.status(400).json({ error: "lat and lng required" });
+  const who = (name || "me").trim();
+  const m = (r.members[who] = r.members[who] || { name: who });
+  m.lat = lat; m.lng = lng; m.at = Date.now();
+  const other = Object.values(r.members).find(o => o.name !== who && o.lat != null);
+  if (!other) return res.json({ found: false, spoken: "I don't have your partner's location yet — ask them to tap 'Where's he?' or share their spot first." });
+  if (!GMAPS_KEY) return res.status(501).json({ error: "google_places_disabled" });
+  const midLat = (lat + other.lat) / 2, midLng = (lng + other.lng) / 2;
+  try {
+    const url = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
+    url.searchParams.set("query", what || "cafe");
+    url.searchParams.set("location", `${midLat},${midLng}`);
+    url.searchParams.set("radius", "1200");
+    url.searchParams.set("key", GMAPS_KEY);
+    const gr = await fetch(url); const data = await gr.json();
+    const p = (data.results || [])[0];
+    if (!p) return res.json({ found: false, spoken: `Couldn't find a ${what || "cafe"} between you two — try a different type of place.` });
+    const place = { name: p.name, address: p.formatted_address || "", lat: p.geometry?.location?.lat, lng: p.geometry?.location?.lng, rating: p.rating || null };
+    // drop the meet pin to BOTH of you
+    r.pins.unshift({ by: "Buddy", label: `Meet: ${place.name}`, lat: place.lat, lng: place.lng, at: Date.now() });
+    r.pins = r.pins.slice(0, 20);
+    r.messages.unshift({ by: "Buddy", text: `Meet in the middle: ${place.name}${place.rating ? " ⭐" + place.rating : ""} — pin dropped for you both.`, at: Date.now() });
+    res.json({ found: true, place, spoken: `Halfway between you: ${place.name}${place.rating ? ", rated " + place.rating : ""}. I've dropped the pin for both of you.` });
+  } catch (e) { res.status(502).json({ error: "meetmiddle_failed" }); }
+});
+
+// --- Trip journal: weave the shared room (pins, messages, spend) into a story ---
+app.post("/journal", requireAuth, async (req, res) => {
+  const { code } = req.body || {};
+  const r = room(code);
+  if (!r) return res.status(400).json({ error: "code required" });
+  const raw = {
+    pins: (r.pins || []).slice(0, 20).map(p => ({ label: p.label, by: p.by, at: new Date(p.at).toLocaleString() })),
+    messages: (r.messages || []).slice(0, 30).map(m => ({ by: m.by, text: m.text, at: new Date(m.at).toLocaleString() })),
+    spend: (r.spend || []).slice(0, 50).map(s => ({ by: s.by, amt: s.amt, note: s.note, at: new Date(s.at).toLocaleString() })),
+  };
+  if (!raw.pins.length && !raw.messages.length && !raw.spend.length)
+    return res.json({ spoken: "Your trip journal is empty so far — pins, messages, and spending will build it as you go.", story: "" });
+  try {
+    const body = {
+      model: "claude-sonnet-4-6",
+      max_tokens: 700,
+      system: "You are Buddy, writing a warm, short day-by-day trip journal for Shaun and his wife from their shared trip data. Weave pins (places they met/marked), messages, and spending into a little story of their trip. Keep it personal and brief.",
+      messages: [{ role: "user", content: `Trip data:\n${JSON.stringify(raw)}\n\nReply as compact JSON ONLY: "spoken" (one warm summary line) and "story" (the short journal, a few paragraphs max, grouped by day where dates allow).` }],
+    };
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.json({ spoken: "Couldn't write the journal just now.", story: "" });
+    const txt = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { spoken: "Here's your trip so far.", story: txt }; }
+    res.json({ spoken: p.spoken || "Here's your trip so far.", story: p.story || "" });
+  } catch (e) { res.status(502).json({ error: "journal_failed" }); }
 });
 
 // Fetch the latest "what I'm seeing" frame a partner shared (glasses-era; works now via photo).
@@ -659,8 +723,13 @@ app.post("/itinerary", requireAuth, async (req, res) => {
 // This is what makes the single chat box feel agentic: you just talk, Buddy
 // figures out whether you want a price check, a day plan, a landmark, etc.
 app.post("/route", requireAuth, async (req, res) => {
-  const { message } = req.body || {};
+  const { message, history } = req.body || {};
   if (!message) return res.status(400).json({ error: "message required" });
+  const hist = Array.isArray(history) ? history.slice(-6) : [];
+  const contextNote = hist.length
+    ? "\n\nRecent conversation (use it to resolve follow-ups like 'that one', 'the closest', 'a bank instead', 'yes', 'do it' — infer what Shaun means from context):\n" +
+      hist.map(h => `${h.role === "user" ? "Shaun" : "Buddy"}: ${h.content}`).join("\n")
+    : "";
   const body = {
     model: "claude-haiku-4-5-20251001", // routing must be fast
     max_tokens: 300,
@@ -680,6 +749,10 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"whereis\" (where is my wife/partner/husband, find them; args: none), " +
       "\"tellpartner\" (tell/message my wife/partner something; args: message), " +
       "\"sharepin\" (send/share my location or a meet-here pin to my partner; args: label), " +
+      "\"meetmiddle\" (find somewhere halfway between us / meet in the middle; args: what — kind of place), " +
+      "\"onmyway\" (tell my partner I'm on my way / how far am I from her; args: none), " +
+      "\"couplespend\" (our shared spend / who owes who / log shared expense; args: amount, note), " +
+      "\"journal\" (trip journal / write up our trip / trip story; args: none), " +
       "\"music\" (play music/a song/artist/playlist/vibe; args: query), " +
       "\"findfood\" (ORDER food for delivery, I'm hungry order me a <dish>, food delivery — NOT finding places to go; args: craving), " +
       "\"nearby\" (find/show restaurants/cafes/bars/banks/ATM/pharmacy/hospital/shops/petrol NEAR ME, closest X, local places to eat or go, what's around; args: query), " +
@@ -688,15 +761,22 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"status\" (my status/briefing/how am I doing/catch me up; args: none), " +
       "\"orderupdate\" (any update on my order/where's my food/my delivery; args: none), " +
       "\"flight\" (track/check my flight, how's my flight, flight status; args: flightNumber optional), " +
+      "\"allergy\" (is this safe to eat / can I eat X / does this have nuts; args: dish), " +
+      "\"logspend\" (log/record spending — spent 50 on lunch, log 12 for coffee; args: amount, note), " +
+      "\"readtexts\" (read my texts/messages; args: none), " +
+      "\"mailbrief\" (check/read my email/inbox; args: none), " +
+      "\"debrief\" (wrap up my day / day summary / how did today go; args: none), " +
+      "\"safety\" (safety heads-up / any scams here / is it safe around here; args: none), " +
       "\"call\" (call/phone/ring a number; args: number), " +
       "\"text\" (text/message/SMS a number; args: number, message). " +
-      "Pick the single best skill. If it's just conversation or doesn't fit a skill, use \"chat\".",
+      "Pick the single best skill. Judge INTENT, not just keywords — infer what Shaun actually wants to happen. Use the recent conversation to resolve short follow-ups and fill in args. If he's acting on something just discussed (take me there, the closest, book it, yes), pick the skill that continues that thread. Only use \"chat\" when nothing else genuinely fits. Set confidence honestly: 0.8+ when intent is clear, lower when guessing.",
     messages: [{
       role: "user",
       content:
-        `Shaun said: "${message}"\n` +
+        `Shaun said: "${message}"${contextNote}\n` +
         `Reply as compact JSON ONLY (no markdown): "skill" (one of the names above), ` +
-        `"args" (object with only the fields you could extract), ` +
+        `"args" (object with only the fields you could extract — fill them in from the recent conversation if this message is a short follow-up), ` +
+        `"then" (OPTIONAL array of {skill, args} for compound requests like "find a bank and take me there" — the follow-on steps in order), ` +
         `"confidence" (0-1).`,
     }],
   };
@@ -706,7 +786,7 @@ app.post("/route", requireAuth, async (req, res) => {
     const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
     catch { p = { skill: "chat", args: {}, confidence: 0 }; }
-    res.json({ skill: p.skill || "chat", args: p.args || {}, confidence: p.confidence ?? 0 });
+    res.json({ skill: p.skill || "chat", args: p.args || {}, then: Array.isArray(p.then) ? p.then.slice(0, 3) : [], confidence: p.confidence ?? 0 });
   } catch (e) {
     res.status(200).json({ skill: "chat", args: {}, confidence: 0 });
   }
@@ -741,9 +821,12 @@ app.post("/chat", requireAuth, async (req, res) => {
       },
       body: JSON.stringify({
         model,
-        max_tokens: b.max_tokens || 400,
+        max_tokens: b.max_tokens || 600,
         system: buddyPersona(ctx),
         messages,
+        // CONNECTOR: Anthropic web search — lets the brain look up LIVE info
+        // (opening hours, events, current prices) when the question needs it.
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
         // NON-streaming: simpler + reliable. App just reads data.reply.
       }),
     });

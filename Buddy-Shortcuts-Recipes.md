@@ -137,6 +137,29 @@ Name it **"Navigate"**. Say **"Hey Siri, Navigate"** → say the place → Googl
 
 ---
 
+## RECIPE 6 — "Morning Trip Pulse" (Buddy speaks your day, automatically)
+
+*Every morning at 8am, Siri wakes Buddy and it speaks your briefing into your glasses — weather, bookings, spend, plan. This is the legit workaround for "Buddy can't send notifications": Siri does the waking, Buddy does the thinking.*
+
+First build the Shortcut:
+1. **Get Contents of URL**
+   - URL: `https://my-buddy-xu2x.onrender.com/chat`
+   - Method: POST, Headers: your token
+   - Body JSON: `message` = `Morning briefing: today's weather, my bookings today, what I spent yesterday, and a short plan for the day.`
+2. **Get Dictionary Value** → Key: `reply`
+3. **Speak Text** → Dictionary Value
+
+Name it **"Trip Pulse"**.
+
+Then automate it:
+4. Shortcuts app → **Automation** tab → **+** → **Time of Day** → 8:00 AM, Daily
+5. **Run Shortcut** → pick "Trip Pulse"
+6. Turn OFF "Ask Before Running" so it just runs *(iOS may confirm once)*
+
+Optional extras: a second automation at 6pm running "Grab Dinner" (Recipe 4), or one that runs Trip Pulse when you arrive at the airport.
+
+---
+
 ## Recommended setup order
 
 1. Deploy Buddy's brain (Phase 0) — Shortcuts need it live

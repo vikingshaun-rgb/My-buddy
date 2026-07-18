@@ -318,6 +318,10 @@
     <div class="tile" onclick="relayMessage()"><span class="badge live">live</span><div class="ic">🗨️</div><h3>Message her</h3><p>Walkie-talkie note</p></div>
     <div class="tile" onclick="checkPartner()"><span class="badge live">live</span><div class="ic">📥</div><h3>Any updates?</h3><p>Her messages &amp; pins</p></div>
     <div class="tile" onclick="planTogether()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan our day</h3><p>Shared itinerary</p></div>
+    <div class="tile" onclick="meetMiddle()"><span class="badge live">live</span><div class="ic">🤝</div><h3>Meet in the middle</h3><p>A spot halfway between you</p></div>
+    <div class="tile" onclick="onMyWay()"><span class="badge live">live</span><div class="ic">🚶</div><h3>On my way</h3><p>Send her your ETA</p></div>
+    <div class="tile" onclick="coupleSpend()"><span class="badge live">live</span><div class="ic">💞</div><h3>Our spend</h3><p>Shared pot &amp; who owes who</p></div>
+    <div class="tile" onclick="tripJournal()"><span class="badge live">live</span><div class="ic">📖</div><h3>Trip journal</h3><p>Your trip, written up</p></div>
     <div class="tile" onclick="shareMyView()"><span class="badge soon">glasses</span><div class="ic">👓</div><h3>Share my view</h3><p>What I'm seeing (photo now)</p></div>
     <div class="tile" onclick="seeHerView()"><span class="badge soon">glasses</span><div class="ic">🔭</div><h3>See her view</h3><p>What she's seeing</p></div>
   </div>
@@ -723,6 +727,83 @@
   }
 
   // Plan a day together — builds an itinerary AND shares it to the trip room.
+  // ---- COUPLES: Meet in the middle — a spot halfway between you two ----
+  async function meetMiddle(preset){
+    const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return; }
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    const what=preset||prompt("Meet at what kind of place? (cafe, restaurant, bar…)","cafe")||'cafe';
+    openChat(); addMsg('me','🤝 Meet in the middle: '+what);
+    const t=addMsg('buddy','Finding a spot halfway…','think');
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try{
+        const {status,data}=await api('/meetmiddle',{code,name:myName(),lat:pos.coords.latitude,lng:pos.coords.longitude,what});
+        if(status===501){ t.classList.remove('think'); t.textContent='Meet-in-the-middle needs the Google Maps key.'; return; }
+        t.remove(); addMsg('buddy',data.spoken||''); say(data.spoken||'');
+        if(data.found&&data.place){ brain.setPlace(data.place.name, data.place.address||data.place.name); brain.lastTopic='meetmiddle';
+          brain.suggest(`Directions to ${data.place.name}`, ()=>navigateWith(brain.lastDestination,'walking')); }
+      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't find a halfway spot right now."; }
+    }, ()=>{ t.classList.remove('think'); t.textContent='Location permission needed.'; });
+  }
+  // ---- COUPLES: On my way — speak your ETA to her + auto-message it ----
+  async function onMyWay(){
+    const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return; }
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    openChat(); addMsg('me','🚶 On my way');
+    const t=addMsg('buddy','Working out your ETA…','think');
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try{
+        const {data:rm}=await api('/room',{code,name:myName(),lat:pos.coords.latitude,lng:pos.coords.longitude});
+        const p=(rm.partners||[]).find(x=>x.lat!=null);
+        if(!p){ t.classList.remove('think'); t.textContent="I don't have your partner's location yet — ask them to share theirs first."; say("I don't have your partner's location yet."); return; }
+        let etaText='';
+        try{
+          const {status,data}=await api('/directions',{originLat:pos.coords.latitude,originLng:pos.coords.longitude,destination:`${p.lat},${p.lng}`,mode:'walking'});
+          if(status===200&&data.durationText) etaText=data.durationText;
+        }catch(e){}
+        if(!etaText) etaText=Math.max(1,Math.round((p.meters||0)/80))+' min'; // ~80m/min walking fallback
+        const line=`You're about ${etaText} walk from ${p.name}.`;
+        t.remove(); addMsg('buddy',line); say(line);
+        await api('/share',{code,name:myName(),message:`On my way — about ${etaText} away.`});
+        addMsg('buddy','✓ Told them you\'re on your way.');
+      }catch(e){ t.classList.remove('think'); t.textContent="Couldn't work out the ETA right now."; }
+    }, ()=>{ t.classList.remove('think'); t.textContent='Location permission needed.'; });
+  }
+  // ---- COUPLES: shared spend pot + who-owes-who ----
+  async function coupleSpend(preset){
+    const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return; }
+    const entry=preset!==undefined?preset:prompt("Add shared spend (e.g. \"40 dinner\") — or leave blank for the split");
+    openChat();
+    if(entry&&String(entry).trim()){
+      const m=String(entry).trim().match(/^([\d.]+)\s*(.*)$/);
+      if(!m){ say("Say an amount then a note — like 40 dinner."); return; }
+      await api('/share',{code,name:myName(),spend:{amt:Number(m[1]),note:m[2]||''}});
+      addMsg('me','💞 Logged shared: '+entry);
+    } else { addMsg('me','💞 Our spend'); }
+    const t=addMsg('buddy','Adding it up…','think');
+    try{
+      const {data}=await api('/room',{code,name:myName()});
+      const sp=data.spend||[];
+      if(!sp.length){ t.classList.remove('think'); t.textContent='No shared spend logged yet — add one like "40 dinner".'; return; }
+      const totals={}; sp.forEach(s=>{ totals[s.by]=(totals[s.by]||0)+s.amt; });
+      const names=Object.keys(totals); const grand=names.reduce((a,n)=>a+totals[n],0);
+      let line=`Trip pot: ${grand.toFixed(2)}. `+names.map(n=>`${n} put in ${totals[n].toFixed(2)}`).join(' · ');
+      if(names.length===2){ const [a,b]=names; const diff=(totals[a]-totals[b])/2;
+        if(Math.abs(diff)>0.01) line+=`. ${diff>0?b:a} owes ${diff>0?a:b} ${Math.abs(diff).toFixed(2)} to square up.`;
+        else line+='. You two are square.'; }
+      t.classList.remove('think'); t.textContent=line; say(line); brain.lastTopic='couplespend';
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't add it up right now."; }
+  }
+  // ---- COUPLES: trip journal — your shared trip, written up ----
+  async function tripJournal(){
+    const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return; }
+    openChat(); addMsg('me','📖 Trip journal');
+    const t=addMsg('buddy','Writing your trip story…','think');
+    try{
+      const {data}=await api('/journal',{code});
+      t.remove(); addMsg('buddy',data.spoken||''); say(data.spoken||'');
+      if(data.story) addMsg('buddy',data.story);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't write the journal right now."; }
+  }
   async function planTogether(){
     const code=pairCode();
     const city=prompt("Which city/area for your day together?", localStorage.getItem('buddy_city')||'')||'';
@@ -1026,6 +1107,10 @@
       addMsg('buddy',data.spoken||'Here\'s your trip.'); say(data.spoken||'');
       (data.items||[]).forEach(it=>addMsg('buddy',`${it.type==='flight'?'✈️':it.type==='hotel'?'🏨':it.type==='train'?'🚆':'📍'} ${it.what||''}\n${it.when||''}${it.where?' · '+it.where:''}`.trim()));
       if(!(data.items||[]).length) addMsg('buddy','No bookings found in your inbox.');
+      // BUDDY BRAIN: offer to navigate to the next booking's location
+      const nxt=(data.items||[]).find(i=>i.where);
+      if(nxt){ brain.setPlace(nxt.where, nxt.where); brain.lastTopic='itinerary';
+        brain.suggest(`Directions to ${nxt.where}`, ()=>navigateWith(nxt.where,'walking')); }
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't read your itinerary right now."; }
   }
 
@@ -1234,6 +1319,21 @@
 
   // ---- Chat panel: talk to Buddy's genius brain (with memory + streaming) ----
   let chatHistory = [];   // {role, content} — gives the brain conversation memory
+  // ---- BUDDY BRAIN: shared working memory across all skills (the "smart" layer) ----
+  // Every skill reads from + writes to this, so follow-ups like "take me there",
+  // "the closest one", "is that a fair price" resolve against what just happened.
+  const brain = {
+    lastPlace: null,      // last place/business discussed (name + address)
+    lastDestination: null,// last navigation target
+    lastTopic: null,      // last skill used
+    lastList: null,       // last list of options shown (for "the first one" / "the closest")
+    save(){ try{ localStorage.setItem('buddy_brain', JSON.stringify({lastPlace:this.lastPlace,lastDestination:this.lastDestination,lastTopic:this.lastTopic})); }catch{} },
+    load(){ try{ Object.assign(this, JSON.parse(localStorage.getItem('buddy_brain')||'{}')); }catch{} },
+    setPlace(name, addr){ this.lastPlace={name,addr:addr||name}; this.lastDestination=addr||name; this.save(); },
+    // proactively offer a logical next step as a tappable line
+    suggest(label, fn){ const el=addMsg('buddy','→ '+label); el.style.cursor='pointer'; el.style.opacity='.85'; el.onclick=fn; return el; }
+  };
+  brain.load();
   function openChat(){
     document.getElementById('chat').classList.add('open');
     if(chatHistory.length===0){ addMsg('buddy',"Hey Shaun! What can I do for you?"); }
@@ -1251,12 +1351,23 @@
   async function dispatchSkill(skill, a, original){
     const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
     const home=localStorage.getItem('buddy_home')||'AUD';
+    // BUDDY BRAIN: resolve vague follow-ups against what just happened.
+    const lc=(original||'').toLowerCase();
+    if(skill==='navigate' && !a.destination){
+      if(/there|that place|it|the (first|closest|nearest) one/.test(lc) && brain.lastDestination){ a.destination=brain.lastDestination; }
+    }
+    if((/the (closest|nearest|first) one|that one/.test(lc)) && brain.lastPlace && (skill==='navigate'||skill==='chat')){
+      a.destination=brain.lastPlace.addr; skill='navigate';
+    }
     try{
       if(skill==='scamcheck' && a.price!=null){
         const t=addMsg('buddy','Checking local prices…','think');
         const {data}=await api('/scamcheck',{item:a.item||original,price:Number(a.price)||a.price,currency:a.currency||'',country});
         const v=data.verdict?` (${data.verdict})`:''; const rg=data.fairRange?`  Fair: ${data.fairRange}`:'';
-        t.classList.remove('think'); t.textContent=(data.spoken||'')+rg+v; say(data.spoken||''); return true;
+        t.classList.remove('think'); t.textContent=(data.spoken||'')+rg+v; say(data.spoken||'');
+        brain.lastTopic='scamcheck';
+        if(data.verdict && /high|rip|over|too much/i.test(data.verdict)) brain.suggest('How do I politely negotiate?', ()=>{ document.getElementById('chatText').value='how do I politely haggle this down?'; sendChat(); });
+        return true;
       }
       if(skill==='gooddeal' && a.price!=null){
         const t=addMsg('buddy','Checking value…','think');
@@ -1270,12 +1381,23 @@
         t.classList.remove('think'); t.textContent=data.spoken||'Here\'s a plan.'; say(data.spoken||'');
         (data.stops||[]).forEach(s=>addMsg('buddy',`${s.time||''}  ${s.name}${s.approxCost?' · '+s.approxCost:''}\n${s.what||''}`.trim()));
         if(data.totalCost) addMsg('buddy',`Rough total: ${data.totalCost}`);
-        if(data.tip) addMsg('buddy',`💡 ${data.tip}`); return true;
+        if(data.tip) addMsg('buddy',`💡 ${data.tip}`);
+        // BUDDY BRAIN: remember the first stop, offer to navigate there
+        const first=(data.stops||[])[0];
+        if(first){ brain.setPlace(first.name, first.name); brain.lastTopic='planday';
+          brain.suggest(`Directions to ${first.name}`, ()=>navigateWith(first.name,'walking')); }
+        return true;
       }
       if(skill==='landmark'){
         const t=addMsg('buddy','Looking it up…','think');
         const {data}=await api('/landmark',{place:a.place||original,country});
-        renderLandmark(t,data); return true;
+        renderLandmark(t,data);
+        // BUDDY BRAIN: remember this place, anticipate next steps
+        const placeName=a.place||data.name||original;
+        brain.setPlace(placeName, placeName); brain.lastTopic='landmark';
+        brain.suggest(`Directions to ${placeName}`, ()=>navigateWith(placeName,'walking'));
+        brain.suggest(`Etiquette & customs here`, ()=>{ document.getElementById('chatText').value='what should I know about etiquette here?'; sendChat(); });
+        return true;
       }
       if(skill==='etiquette'){
         const t=addMsg('buddy','Checking local customs…','think');
@@ -1292,10 +1414,10 @@
         const {data}=await api('/currency',{from:a.from,to:a.to,amount:a.amount||1});
         t.classList.remove('think'); t.textContent=data.spoken||`${a.amount||1} ${a.from} → ${a.to}`; say(data.spoken||''); return true;
       }
-      if(skill==='weather'){ weatherHere(); return true; }
+      if(skill==='weather'){ weatherHere(); brain.lastTopic='weather'; setTimeout(()=>brain.suggest('Plan my day around this', ()=>planDay()), 1200); return true; }
       if(skill==='unlost'){ getUnlost(); return true; }
       if(skill==='survival'){ offlinePack(); return true; }
-      if(skill==='whereis'){ whereIsPartner(); return true; }
+      if(skill==='whereis'){ whereIsPartner(); brain.lastTopic='whereis'; setTimeout(()=>brain.suggest('Drop a meet-here pin', ()=>shareMyPin()), 1200); return true; }
       if(skill==='tellpartner'){
         const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return true; }
         const msg=a.message||original;
@@ -1305,6 +1427,10 @@
         return true;
       }
       if(skill==='sharepin'){ shareMyPin(); return true; }
+      if(skill==='meetmiddle'){ meetMiddle(a.what||'cafe'); return true; }
+      if(skill==='onmyway'){ onMyWay(); return true; }
+      if(skill==='couplespend'){ coupleSpend(a.amount!=null?`${a.amount} ${a.note||''}`.trim():''); return true; }
+      if(skill==='journal'){ tripJournal(); return true; }
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
       if(skill==='nearby'){ nearbyQuery(a.query||original); return true; }
@@ -1313,6 +1439,25 @@
       if(skill==='status'){ statusBriefing(); return true; }
       if(skill==='orderupdate'){ orderUpdate(); return true; }
       if(skill==='flight'){ if(a.flightNumber){ trackFlight(String(a.flightNumber).toUpperCase().replace(/\s/g,'')); } else { myFlight(); } return true; }
+      if(skill==='allergy' && (a.dish||original)){
+        const avoid=localStorage.getItem('buddy_avoid')||'';
+        if(!avoid){ say("Tell me what you avoid first — tap Safe to eat and I'll remember it."); return true; }
+        const t=addMsg('buddy','Checking that dish…','think');
+        const {data}=await api('/allergy',{dish:a.dish||original,avoid,country});
+        t.classList.remove('think'); t.textContent=data.spoken||'Checked.'; say(data.spoken||''); brain.lastTopic='allergy'; return true;
+      }
+      if(skill==='logspend' && a.amount!=null){
+        const amt=Number(a.amount); if(!isFinite(amt)){ say("How much was it?"); return true; }
+        const arr=spendGet(); arr.push({amt,note:a.note||'',at:Date.now()}); spendSave(arr);
+        const total=arr.reduce((s,e)=>s+e.amt,0); const hc=localStorage.getItem('buddy_home')||'';
+        const line=`Logged ${amt}${a.note?' for '+a.note:''}. Trip total: ${total.toFixed(2)} ${hc}.`;
+        addMsg('buddy',line); say(line); const el=document.getElementById('spendSub'); if(el) el.textContent=`${total.toFixed(2)} ${hc} so far`;
+        brain.lastTopic='spend'; return true;
+      }
+      if(skill==='readtexts'){ readTexts(); return true; }
+      if(skill==='mailbrief'){ mailBrief(); return true; }
+      if(skill==='debrief'){ dayDebrief(); return true; }
+      if(skill==='safety'){ safetyHeadsUp(); return true; }
       if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
       if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
     }catch(e){ /* fall back to chat */ }
@@ -1329,10 +1474,16 @@
     chatHistory.push({role:'user', content:text});
     // ---- Intelligent router: dispatch to a specific skill first (agentic feel) ----
     try{
-      const rt=await api('/route',{message:text});
+      const rt=await api('/route',{message:text, history:chatHistory.slice(-6)});
       if(rt.data && rt.data.skill && rt.data.skill!=='chat' && (rt.data.confidence??0)>=0.55){
         const handled=await dispatchSkill(rt.data.skill, rt.data.args||{}, text);
-        if(handled) return;
+        if(handled){
+          // MULTI-STEP: run any follow-on steps the router planned ("find a bank AND take me there")
+          for(const step of (rt.data.then||[])){
+            if(step && step.skill && step.skill!=='chat'){ await dispatchSkill(step.skill, step.args||{}, text); }
+          }
+          return;
+        }
       }
     }catch(e){ /* routing best-effort → fall through to normal chat */ }
     const thinking=addMsg('buddy','Buddy is thinking…','think');
@@ -1537,6 +1688,11 @@
         const line=data.recommendation||`Here are ${q} near you.`;
         addMsg('buddy',line); say(line);
         list.forEach(p=>addMsg('buddy',`📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${p.vicinity?`\n${p.vicinity}`:''}`));
+        // BUDDY BRAIN: remember what we found + anticipate the next step
+        brain.lastList=list; brain.lastTopic='nearby';
+        const top=list[0]; if(top){ brain.setPlace(top.name, top.vicinity||top.name);
+          brain.suggest(`Directions to ${top.name}`, ()=>navigateWith(brain.lastDestination,'walking'));
+          brain.suggest(`Is ${top.name} a fair price?`, ()=>{ document.getElementById('chatText').value='is '+top.name+' reasonably priced?'; }); }
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't search nearby right now."; }
     }, ()=>{ t.classList.remove('think'); t.textContent='I need location access. In Safari: tap the "aA" in the address bar → Website Settings → Location → Allow. Then try again.'; say('I need location access to look around you. Allow location for this site in Safari settings, then try again.'); });
   }
@@ -1619,6 +1775,7 @@
         say(line);
         openChat(); addMsg('me','🧭 Navigate to: '+dest);
         addMsg('buddy', line);
+        brain.lastDestination=dest; brain.lastTopic='navigate'; brain.save();
         const steps=(data.steps||[]).slice(0,6).map((s,i)=>`${i+1}. ${s.text}`).join('\n');
         if(steps) addMsg('buddy', steps);
         const el=addMsg('buddy','🗺️ Open turn-by-turn in Maps'); el.style.cursor='pointer'; el.onclick=()=>openMaps(dest);
