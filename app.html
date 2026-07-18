@@ -253,6 +253,21 @@
     </div>
   </div>
 
+  <div id="hero" style="text-align:center;padding:18px 0 8px">
+    <div id="orb" onclick="orbTap()"></div>
+    <div id="glance" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:12px 16px 0"></div>
+  </div>
+  <style>
+    #orb{width:92px;height:92px;margin:0 auto;border-radius:50%;cursor:pointer;
+      background:radial-gradient(circle at 35% 30%, #FFD98A, #F5A623 55%, #8a5b00);
+      box-shadow:0 0 26px rgba(245,166,35,.45);transition:box-shadow .3s, transform .2s}
+    #orb:active{transform:scale(.94)}
+    #orb.listening{box-shadow:0 0 34px rgba(255,80,160,.8);animation:orbPulse 1.2s infinite}
+    #orb.speaking{box-shadow:0 0 34px rgba(60,220,200,.8);animation:orbPulse 1.6s infinite}
+    @keyframes orbPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+    .chip{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);
+      border-radius:999px;padding:5px 12px;font-size:13px}
+  </style>
   <div class="group" id="favHeader" style="display:none"><h2>⭐ Favourites</h2><div class="rule"></div></div>
   <div class="grid" id="favGrid" style="display:none"></div>
 
@@ -554,7 +569,7 @@
           }
         }
       }catch(e){ /* one bad frame never kills the loop */ }
-      await new Promise(r=>setTimeout(r,4500));
+      await new Promise(r=>setTimeout(r,localStorage.buddy_saver==='on'?9000:4500));
     }
   }
   // Wake-lock helpers exist for live location; reuse if present, no-op if not.
@@ -645,22 +660,43 @@
     // would never start. Kick it off anyway once the greeting should have finished.
     if(wantMic && SR) setTimeout(()=>{ if(handsFree && !buddySpeaking) startListening(); }, 4000);
   }
+  function orbTap(){ openChat(); if(!handsFree) micDictate(); }
+  function orbState(st){ const o=document.getElementById('orb'); if(!o) return; o.className = st==='listening'?'listening':(st==='speaking'?'speaking':''); }
+  // Glance cards: the brain, visible. Refreshed after every skill.
+  function renderGlance(){
+    const g=document.getElementById('glance'); if(!g) return;
+    const s=brain.state(); const chips=[];
+    if(s.city||s.country) chips.push('📍 '+[s.city,s.country].filter(Boolean).join(', '));
+    if(s.spendToday>0) chips.push('💰 '+s.spendToday.toFixed(2)+' today');
+    let plan=null; try{ plan=JSON.parse(localStorage.getItem('buddy_trip')||'null'); }catch{}
+    if(plan&&plan.days&&plan.days.length) chips.push('🗺️ '+plan.destination+' · '+plan.days.length+'d');
+    if(s.flight&&s.flight.number) chips.push('✈️ '+s.flight.number);
+    if(localStorage.buddy_whisper==='on') chips.push('🤫 whisper');
+    if(localStorage.buddy_quiet==='on') chips.push('🔇 quiet');
+    if(localStorage.buddy_saver==='on') chips.push('🔋 saver');
+    g.innerHTML=chips.map(c=>'<span class="chip">'+c+'</span>').join('')||'<span class="chip" style="opacity:.6">Tap the orb and talk</span>';
+  }
   // Visible mic state so it's never a guess: armed / listening / off.
   function micState(s){
     const el=document.getElementById('micState'); if(!el) return;
     el.textContent = s==='listening' ? '🎙️ listening' : (s==='armed' ? '🔴 mic on' : '');
     el.style.opacity = s==='off' ? '0' : '1';
+    if(s==='listening') orbState('listening'); else if(s!=='armed') orbState('idle');
   }
   document.addEventListener('touchend', unlockVoice, {once:true});
   document.addEventListener('click', unlockVoice, {once:true});
   function say(text){
+    // QUIET MODE: show it, never speak it.
+    if(localStorage.buddy_quiet==='on'){ toast(text); return; }
     try{
       buddySpeaking=true; pauseListening();   // don't let the mic hear Vision talking
       speechSynthesis.resume();   // iOS gets stuck in a paused state
       speechSynthesis.cancel();   // clear any queued speech
       const u=new SpeechSynthesisUtterance(text);
       u.lang='en-AU';
-      u.onend=u.onerror=()=>{ buddySpeaking=false; if(handsFree) setTimeout(startListening, 300); };
+      if(localStorage.buddy_whisper==='on') u.volume=0.25;  // WHISPER MODE
+      u.onend=u.onerror=()=>{ buddySpeaking=false; orbState('idle'); if(handsFree) setTimeout(startListening, 300); };
+      orbState('speaking');
       // tiny delay avoids the iOS cancel→speak race that silently drops the utterance
       setTimeout(()=>{ try{ speechSynthesis.resume(); speechSynthesis.speak(u); }catch(e){ buddySpeaking=false; } }, 80);
     }catch(e){ buddySpeaking=false; }
@@ -1837,6 +1873,7 @@
     }
   };
   brain.load();
+  document.addEventListener('DOMContentLoaded', renderGlance);
   function openChat(){
     document.getElementById('chat').classList.add('open');
     if(chatHistory.length===0){ addMsg('buddy', openingBrief()); }
@@ -1874,6 +1911,11 @@
     d.appendChild(im); log.appendChild(d); log.scrollTop=log.scrollHeight;
     return d;
   }
+  // Push mode flags to the brain so web + native Vision stay in step.
+  function syncFlags(){
+    api('/state',{flags:{quiet:localStorage.buddy_quiet==='on', whisper:localStorage.buddy_whisper==='on', saver:localStorage.buddy_saver==='on'}}).catch(()=>{});
+  }
+
   // ---- Router dispatch: run the chosen skill inline in the chat, speak result ----
   // Wrapper: every skill that runs is recorded to the brain automatically, so all
   // 39 contribute context and preference data — not just the handful that
@@ -1881,7 +1923,7 @@
   async function dispatchSkill(skill, a, original){
     brain.lastAsked = original || '';
     const handled = await dispatchSkillInner(skill, a, original);
-    if(handled){ brain.lastTopic = skill; prefRecord('skill', skill); brain.save(); }
+    if(handled){ brain.lastTopic = skill; prefRecord('skill', skill); brain.save(); renderGlance(); }
     return handled;
   }
   async function dispatchSkillInner(skill, a, original){
@@ -1971,7 +2013,7 @@
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
       if(skill==='nearby'){ nearbyQuery(a.query||original); return true; }
-      if(skill==='navigate' && a.destination){ const saved=placesGet(); const k=String(a.destination).trim().toLowerCase(); const m=/train|bus|transit|metro|subway|public transport/i.test(original)?'transit':'walking'; navigateWith(saved[k]||a.destination,m); return true; }
+      if(skill==='navigate' && a.destination){ const saved=placesGet(); const k=String(a.destination).trim().toLowerCase(); const m=/train|bus|transit|metro|subway|public transport/i.test(original)?'transit':'walking'; const wantsMaps=/\b(in|into|open|use|via|with)\s+(google\s+|apple\s+)?maps\b/i.test(original||''); navigateWith(saved[k]||a.destination,m,wantsMaps); return true; }
       if(skill==='itinerary'){ tripItinerary(); return true; }
       if(skill==='status'){ statusBriefing(); return true; }
       if(skill==='orderupdate'){ orderUpdate(); return true; }
@@ -2022,6 +2064,26 @@
     box.value='';
     addMsg('me', text);
     chatHistory.push({role:'user', content:text});
+    // Voice preference: "always open maps" / "stop opening maps automatically"
+    if(/\b(always|auto(matically)?)\b.*\bmaps\b/i.test(text) && !/\b(stop|don'?t|never)\b/i.test(text)){
+      localStorage.buddy_automaps='on'; const m="Done — I'll hand you straight to Maps every time now. Say 'stop opening maps automatically' to turn it off."; addMsg('buddy',m); say(m); return;
+    }
+    if(/\b(stop|don'?t|never)\b.*\b(open|opening)\b.*\bmaps\b/i.test(text)){
+      localStorage.buddy_automaps='off'; const m="Okay — I'll offer Maps as a tap instead."; addMsg('buddy',m); say(m); return;
+    }
+    // MODES (batch 41): whisper / quiet / battery saver — voice-set, synced to the
+    // brain so the native glasses app shares them.
+    const modeHit=text.match(/\b(whisper|quiet|silent|battery saver|saver|low power)\s*(mode)?\s*(on|off)\b/i);
+    if(modeHit){
+      const which=/whisper/i.test(modeHit[1])?'buddy_whisper':(/quiet|silent/i.test(modeHit[1])?'buddy_quiet':'buddy_saver');
+      const on=/on/i.test(modeHit[3]);
+      localStorage[which]=on?'on':'off';
+      syncFlags();
+      renderGlance();
+      const label=which==='buddy_whisper'?'Whisper mode':(which==='buddy_quiet'?'Quiet mode':'Battery saver');
+      const m=on?`${label} on.`:`${label} off.`;
+      addMsg('buddy',m); say(m); return;
+    }
     // ---- Intelligent router: dispatch to a specific skill first (agentic feel) ----
     try{
       const rt=await api('/route',{message:text, history:chatHistory.slice(-6), brief:brain.brief()});
@@ -2252,7 +2314,14 @@
         brain.lastList=list; brain.lastTopic='nearby';
         const top=list[0]; if(top){ brain.setPlace(top.name, top.vicinity||top.name);
           brain.suggest(`Directions to ${top.name}`, ()=>navigateWith(brain.lastDestination,'walking'));
-          brain.suggest(`Is ${top.name} a fair price?`, ()=>{ document.getElementById('chatText').value='is '+top.name+' reasonably priced?'; }); }
+          // Context-aware follow-up: "fair price?" only makes sense where you'd
+          // pay for something — not for a bank, pharmacy or park (Shaun's catch).
+          const t=(top.types||[]).join(' ');
+          if(/restaurant|cafe|bar|food|meal|bakery|store|shop|market|supermarket|lodging|spa|gym|hair|beauty/.test(t)){
+            brain.suggest(`Is ${top.name} a fair price?`, ()=>{ document.getElementById('chatText').value='is '+top.name+' reasonably priced?'; });
+          } else if(top.phone){
+            brain.suggest(`Call ${top.name}`, ()=>{ if(confirm('Call '+top.phone+'?')) window.location.href='tel:'+String(top.phone).replace(/[^\d+]/g,''); });
+          } }
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't search nearby right now."; }
     }, ()=>{ t.classList.remove('think'); t.textContent='I need location access. In Safari: tap the "aA" in the address bar → Website Settings → Location → Allow. Then try again.'; say('I need location access to look around you. Allow location for this site in Safari settings, then try again.'); });
   }
@@ -2327,8 +2396,11 @@
     navigateWith(saved[key]||dest, 'transit');
   }
 
-  function navigateWith(dest, mode){
+  function navigateWith(dest, mode, autoOpen){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    // AUTO-HANDOVER: hand straight to Maps without a tap when asked ("in maps")
+    // or when the always-on preference is set by voice ("always open maps").
+    const auto = !!autoOpen || localStorage.buddy_automaps==='on';
     say('Finding the way…');
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{
@@ -2340,11 +2412,17 @@
           openChat(); addMsg('buddy','🗺️ Directions need a Google Maps key. For now, tap to open in Maps:');
           const el=addMsg('buddy','📍 Open in Maps'); el.style.cursor='pointer'; el.onclick=()=>openMaps(dest); return; }
         if(!ok||!data.steps){ say("I couldn't find a route there, Shaun."); return; }
-        const line=data.spoken||`${data.durationText}, ${data.distanceText}.`;
+        const line= auto ? `Righto — opening Maps to take you there.` : (data.spoken||`${data.durationText}, ${data.distanceText}.`);
         say(line);
         openChat(); addMsg('me','🧭 Navigate to: '+dest);
         addMsg('buddy', line);
         brain.lastDestination=dest; brain.lastTopic='navigate'; brain.save();
+        if(auto){
+          // Give the spoken line a beat to land, then hand over. location.href
+          // (not window.open) so iOS allows it without a tap; iOS may still show
+          // a one-tap "Open in Maps?" confirm — OS-level, can't be removed from web.
+          setTimeout(()=>{ (prefTop('maps')==='apple'?openAppleMaps:openMaps)(dest, mode); }, 1600);
+        }
         const steps=(data.steps||[]).slice(0,6).map((s,i)=>`${i+1}. ${s.text}`).join('\n');
         if(steps) addMsg('buddy', steps);
         if(prefTop('maps')==='apple'){

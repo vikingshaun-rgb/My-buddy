@@ -56,6 +56,24 @@ if (!KEY || !APP_TOKEN) {
 }
 
 // Simple shared-token gate so randoms can't run up your bill.
+// --- NATIVE PLUMBING (batch 41): shared brain state across web + glasses ---
+// The web app already sends brain.brief() on every /chat and /route call.
+// Cache the latest one here so the NATIVE shim can inject it — Vision on the
+// glasses then knows the same trip state as Vision on the web, with zero
+// native-side storage. Flags (quiet/whisper/saver) sync the same way.
+// HONEST NOTE: in-memory — resets on redeploy; the web app re-primes it on
+// first use, so the gap is minutes, not data loss.
+let lastWebBrief = null;                 // { text, at }
+let visionFlags = { quiet: false, whisper: false, saver: false };
+function rememberBrief(b) { if (typeof b === "string" && b.trim()) lastWebBrief = { text: b.slice(0, 900), at: Date.now() }; }
+
+app.get("/state", requireAuth, (req, res) => res.json({ flags: visionFlags, brief: lastWebBrief }));
+app.post("/state", requireAuth, (req, res) => {
+  const f = (req.body || {}).flags || {};
+  for (const k of ["quiet", "whisper", "saver"]) if (k in f) visionFlags[k] = !!f[k];
+  res.json({ flags: visionFlags });
+});
+
 function requireAuth(req, res, next) {
   const auth = req.get("authorization") || "";
   if (auth !== `Bearer ${APP_TOKEN}`) {
@@ -791,6 +809,7 @@ app.post("/route", requireAuth, async (req, res) => {
   const { message, history, brief } = req.body || {};
   if (!message) return res.status(400).json({ error: "message required" });
   const hist = Array.isArray(history) ? history.slice(-6) : [];
+  rememberBrief(brief);
   const stateNote = (typeof brief === "string" && brief.trim())
     ? `\n\nWhat Vision already knows about Shaun's situation (use it to FILL IN arguments he didn't say out loud — his country, currency, allergies, saved spots, tracked flight):\n${brief.slice(0, 900)}`
     : "";
@@ -890,6 +909,7 @@ app.post("/chat", requireAuth, async (req, res) => {
       profile: typeof b.profile === "string" ? b.profile.slice(0, 800) : "",
       brief: typeof b.brief === "string" ? b.brief.slice(0, 900) : "",
     };
+    rememberBrief(ctx.brief);
 
     // Build the message list: prior history (trimmed) + this turn.
     const history = Array.isArray(b.history) ? b.history.slice(-8) : [];
@@ -898,7 +918,7 @@ app.post("/chat", requireAuth, async (req, res) => {
       { role: "user", content: message },
     ];
 
-    const model = pickModel(message || history.map(h=>h.content).join(" "), b.model);
+    const model = visionFlags.saver ? "claude-haiku-4-5-20251001" : pickModel(message || history.map(h=>h.content).join(" "), b.model);
 
     const upstream = await fetch(ANTHROPIC_URL, {
       method: "POST",
@@ -1889,11 +1909,13 @@ app.post("/v1/chat/completions", requireAuth, async (req, res) => {
       "Be genuinely useful first, friendly second. Address him as Shaun when natural.",
       "If tools are provided in this request, use them when they fit rather than guessing.",
       "You can search the web when you need current facts — never claim you lack internet access.",
+      (lastWebBrief && Date.now() - lastWebBrief.at < 86400000) ? `WHAT YOU KNOW ABOUT SHAUN'S SITUATION (synced from his app): ${lastWebBrief.text}` : "",
+      visionFlags.whisper ? "WHISPER MODE is on: answer in ONE short sentence, calm and quiet in tone." : "",
       clientSystem,
     ].filter(Boolean).join(" ");
 
     const body = {
-      model: pickModel(typeof lastUserText?.content === "string" ? lastUserText.content : "", null),
+      model: visionFlags.saver ? "claude-haiku-4-5-20251001" : pickModel(typeof lastUserText?.content === "string" ? lastUserText.content : "", null),
       max_tokens: Math.min(Number(b.max_tokens) || 600, 1500),
       system: sys,
       messages: convo,
@@ -2000,6 +2022,60 @@ app.get("/v1/selftest", async (req, res) => {
     <p><b>Chat via shim:</b> ${out.chat?.status}${out.chat?.reply ? ` — Vision said: “${out.chat.reply}”` : ""}${out.chat?.error ? `<br><small>${out.chat.error}</small>` : ""}</p>
     <p><b>Model:</b> ${out.chat?.model || "-"} · <b>Round trip:</b> ${out.ms} ms</p>
     <p style="opacity:.7">${good ? "OpenVision setup: backend = OpenAI · base URL = this server + /v1 · API key = your app token." : "Fix the error above, redeploy the brain, and refresh this page."}</p>
+  </body></html>`);
+});
+
+// --- ROUTER REGRESSION CHECK (batch 43): fire realistic phrasings at the LIVE
+// classifier and report pass/fail — catches "wrong skill = nonsense answer"
+// bugs (Shaun's flight/cinema/bank catches) after every deploy, from a phone.
+// Open: /routecheck?tok=YOUR_TOKEN  (~24 haiku calls per run, cheap)
+app.get("/routecheck", async (req, res) => {
+  if ((req.query.tok || "") !== APP_TOKEN) return res.status(401).send("unauthorized — add ?tok=your token");
+  const cases = [
+    ["cheapest flights Brisbane to Bali in September", ["flightsearch"]],
+    ["how's my flight", ["flight"]],
+    ["take me to the cinema", ["nearby", "navigate"]],
+    ["take me to 12 Smith Street", ["navigate"]],
+    ["find me a bank and take me there", ["nearby"]],
+    ["where should I stay in Ubud", ["stay"]],
+    ["what's worth doing around here", ["activities"]],
+    ["plan 5 days in Bali", ["tripplan"]],
+    ["what's on day 2", ["tripday"]],
+    ["what should I pack", ["packlist"]],
+    ["how much will 10 days in Bali cost", ["tripbudget"]],
+    ["how do I get data in Bali", ["esim"]],
+    ["log 15 for lunch", ["logspend"]],
+    ["is this safe to eat", ["allergy"]],
+    ["is 80000 dong fair for a taxi", ["scamcheck", "gooddeal"]],
+    ["what's the weather like", ["weather"]],
+    ["convert 50 dollars to baht", ["currency"]],
+    ["read my texts", ["readtexts"]],
+    ["check my email", ["mailbrief"]],
+    ["where's my wife", ["whereis"]],
+    ["tell her I'm on my way", ["onmyway", "tellpartner"]],
+    ["remember this spot as the car", ["rememberspot"]],
+    ["take me back to the car", ["backto"]],
+    ["watch what I'm seeing", ["livelook"]],
+  ];
+  const rows = []; let pass = 0; const t0 = Date.now();
+  for (const [phrase, expect] of cases) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${PORT}/route`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ message: phrase }),
+      });
+      const j = await r.json();
+      const got = j.skill || "?";
+      const ok = expect.includes(got);
+      if (ok) pass++;
+      rows.push(`<tr><td>${ok ? "✅" : "❌"}</td><td>${phrase}</td><td>${got}</td><td>${ok ? "" : "wanted: " + expect.join("/")}</td></tr>`);
+    } catch (e) { rows.push(`<tr><td>❌</td><td>${phrase}</td><td colspan=2>error: ${String(e.message || e)}</td></tr>`); }
+  }
+  res.type("html").send(`<html><body style="font-family:system-ui;background:#0B1026;color:#EAE6DA;padding:18px">
+    <h2>${pass === cases.length ? "✅" : "⚠️"} Router check: ${pass}/${cases.length} passed</h2>
+    <p style="opacity:.7">${Date.now() - t0} ms total. Red rows = phrasings that would get a mismatched answer in the app.</p>
+    <table cellpadding="6" style="border-collapse:collapse;font-size:14px">${rows.join("")}</table>
   </body></html>`);
 });
 
