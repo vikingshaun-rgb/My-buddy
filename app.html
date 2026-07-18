@@ -215,7 +215,7 @@
   </div>
 
   <div class="hero">
-    <h1>Ready when you are.<br><span>What's the move?</span></h1>
+    <h1 id="heroTitle">G'day Shaun.<br><span>Vision's ready.</span></h1>
     <p id="heroSub">Add your backend in settings, then tap a shortcut or start talking.</p>
   </div>
 
@@ -660,7 +660,36 @@
     // would never start. Kick it off anyway once the greeting should have finished.
     if(wantMic && SR) setTimeout(()=>{ if(handsFree && !buddySpeaking) startListening(); }, 4000);
   }
-  function orbTap(){ openChat(); if(!handsFree) micDictate(); }
+  function orbTap(){
+    openChat();
+    // If Vision is mid-sentence, tap = interrupt and listen NOW.
+    if(buddySpeaking){ try{ speechSynthesis.cancel(); }catch(e){} buddySpeaking=false; }
+    forceListen();
+  }
+  // PUSH-TO-TALK (batch 44): one guaranteed listen, started inside the tap
+  // gesture (iOS requirement), independent of the hands-free loop's state.
+  // Errors are SHOWN, not swallowed — this is the testing path.
+  function forceListen(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ toast("Voice input isn't supported here — type instead."); return; }
+    pauseListening();
+    try{
+      const r=new SR();
+      r.lang='en-AU'; r.interimResults=false; r.maxAlternatives=1;
+      micState('listening'); toast('Listening — go ahead.');
+      r.onresult=(e)=>{ const t=e.results[0][0].transcript;
+        if(/^\s*(hey|ok)\s+meta\b/i.test(t)) return;
+        const box=document.getElementById('chatText'); box.value=t; sendChat(); };
+      r.onerror=(e)=>{ micState(handsFree?'armed':'off');
+        const why=e&&e.error?e.error:'unknown';
+        const hint= why==='not-allowed'||why==='service-not-allowed'
+          ? 'Mic blocked — Safari aA → Website Settings → Microphone → Allow, and iOS Settings → Privacy → Microphone → Safari ON.'
+          : (why==='no-speech' ? "Didn't catch anything — tap and try again." : 'Mic error: '+why);
+        toast(hint); };
+      r.onend=()=>{ micState(handsFree?'armed':'off'); if(handsFree&&!buddySpeaking) setTimeout(startListening,300); };
+      r.start();
+    }catch(e){ toast('Mic failed to start: '+String(e.message||e)); }
+  }
   function orbState(st){ const o=document.getElementById('orb'); if(!o) return; o.className = st==='listening'?'listening':(st==='speaking'?'speaking':''); }
   // Glance cards: the brain, visible. Refreshed after every skill.
   function renderGlance(){
@@ -1873,7 +1902,27 @@
     }
   };
   brain.load();
-  document.addEventListener('DOMContentLoaded', renderGlance);
+  // Front page (batch 46): Vision heading, smart subline, hide the battery
+  // card on web — iOS blocks the battery API and the glasses can't talk to
+  // Safari, so it can never fill here. The markup stays for the native fork.
+  function heroInit(){
+    const b=document.querySelector('.batt'); if(b) b.style.display='none';
+    const t=document.getElementById('heroTitle');
+    const h=new Date().getHours();
+    const part=h<12?'Morning':(h<18?'Arvo':'Evening');
+    if(t) t.innerHTML=`${part}, Shaun.<br><span>Vision's ready.</span>`;
+    const sub=document.getElementById('heroSub'); if(!sub) return;
+    if(!cfg.url||!cfg.tok) return; // keep the setup instruction until set up
+    const s2=brain.state(); const bits=[];
+    if(s2.city||s2.country) bits.push([s2.city,s2.country].filter(Boolean).join(', '));
+    if(s2.spendToday>0) bits.push(s2.spendToday.toFixed(2)+' today');
+    let plan=null; try{ plan=JSON.parse(localStorage.getItem('buddy_trip')||'null'); }catch{}
+    if(plan&&plan.days&&plan.days.length) bits.push(plan.destination+' plan saved');
+    const tips=['Try: "plan 5 days in Bali"','Try: "whisper mode on"','Try: "find me a cafe and take me there"','Try: "what should I pack"','Try: "battery saver on"','Try: "watch what I\'m seeing"'];
+    const tip=tips[Math.floor(Math.random()*tips.length)];
+    sub.textContent = bits.length? bits.join(' · ')+' — '+tip : 'Tap the orb and talk. '+tip;
+  }
+  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); });
   function openChat(){
     document.getElementById('chat').classList.add('open');
     if(chatHistory.length===0){ addMsg('buddy', openingBrief()); }
@@ -2207,7 +2256,29 @@
       const {ok,data}=await api('/health');
       const dot=document.getElementById('sysDot'), txt=document.getElementById('sysTxt');
       if(ok && data.ok){ dot.className='dot ok'; txt.textContent='System OK'; healthSub.textContent='All green'; }
-      else { dot.className='dot bad'; txt.textContent='Needs attention'; healthSub.textContent='Some services down'; }
+      else { dot.className='dot bad'; txt.textContent='Needs attention'; healthSub.textContent='Tap for details'; }
+      // THE DETAIL (Shaun's ask): list every service — what's up, what's down,
+      // what's simply not set up, and how to fix the ones that matter.
+      const names={
+        anthropic:['🧠 Vision\'s brain (Claude)','Nothing works without this — check API credits/key on the Render service.'],
+        google:['🗺️ Maps & places','Optional — unlocks nearby, navigate, stays. Set GOOGLE_MAPS_API_KEY on Render.'],
+        flight:['✈️ Flight tracking','Optional — set AVIATIONSTACK_KEY on Render (free tier).'],
+        weather:['🌤️ Weather','Free service — if down it\'s usually a blip; try again shortly.'],
+        currency:['💱 Currency','Free service — if down it\'s usually a blip; try again shortly.'],
+        mail:['📧 Email briefing','Optional — set ICLOUD_USER + app-specific password on Render.'],
+      };
+      if(data.checks){
+        openChat(); addMsg('me','📡 Status check');
+        const downs=[];
+        for(const [k,c] of Object.entries(data.checks)){
+          const [label,hint]=names[k]||[k,''];
+          if(c.ok===true) addMsg('buddy',`✅ ${label} — up (${c.ms}ms)`);
+          else if(c.ok===null||c.ok===undefined) addMsg('buddy',`⚪ ${label} — not set up. ${hint}`);
+          else { addMsg('buddy',`❌ ${label} — DOWN. ${hint}`); downs.push(label.replace(/^[^\s]+\s/,'')); }
+        }
+        const line = downs.length? `${downs.join(' and ')} ${downs.length>1?'are':'is'} down — everything else is running.` : 'Everything that\'s set up is running.';
+        addMsg('buddy',line); say(line);
+      }
     }catch(e){ healthSub.textContent='Add backend in settings'; }
     finally{ busy('healthSub',false); }
   }
