@@ -77,7 +77,21 @@ const DURABLE = DATA_DIR === "/var/data" || !!process.env.DATA_DIR;
 let STORE = { profiles: {}, briefs: {}, flags: {}, mem: {}, watchers: {}, results: {}, seen: {} };
 try { STORE = { ...STORE, ...JSON.parse(fs.readFileSync(STORE_FILE, "utf8")) }; } catch {}
 let _saveT = null;
-function saveStore() { clearTimeout(_saveT); _saveT = setTimeout(() => { try { fs.writeFileSync(STORE_FILE, JSON.stringify(STORE)); } catch {} }, 1500); }
+// A failed save is silent memory loss — the one failure you'd never notice
+// until something you told Vision has vanished. Record it and surface it in
+// /health so Status can say so plainly.
+let _saveFails = 0, _lastSaveOk = 0;
+function saveStore() {
+  clearTimeout(_saveT);
+  _saveT = setTimeout(() => {
+    try { fs.writeFileSync(STORE_FILE, JSON.stringify(STORE)); _saveFails = 0; _lastSaveOk = Date.now(); }
+    catch (e) {
+      _saveFails++;
+      try { dlog(null, "errors", `MEMORY SAVE FAILED (${_saveFails}x): ${String(e.message || e).slice(0, 120)}`); } catch {}
+      console.error("[vision] memory save failed:", e && e.message);
+    }
+  }, 1500);
+}
 function uidOf(req) { return String((req.body && req.body.uid) || req.query.uid || "shaun-default").slice(0, 64); }
 function profileOf(uid) { return STORE.profiles[uid] || { name: "Shaun", ainame: "Vision" }; }
 function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: false, whisper: false, saver: false }; }
@@ -93,7 +107,7 @@ function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: f
 function rememberBrief(uid, b) { if (typeof b === "string" && b.trim()) { STORE.briefs[uid] = { text: b.slice(0, 900), at: Date.now() }; saveStore(); } }
 function briefOf(uid) { return STORE.briefs[uid] || null; }
 
-app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid), patterns: patternScan(uid) }); });
+app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid), patterns: patternScan(uid), onThisDay: onThisDay(uid) }); });
 app.post("/state", requireAuth, (req, res) => {
   const uid = uidOf(req);
   const f = (req.body || {}).flags || {}; const cur = flagsOf(uid);
@@ -605,6 +619,8 @@ function buddyPersona(ctx) {
     // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
     ctx.styleLine || "",
     ctx.core || "",
+    ctx.verdicts || "",
+    ctx.pressure || "",
     ctx.patterns || "",
     ctx.recall || "",
     ctx.recentDays ? `HOW HIS LAST COUPLE OF DAYS WENT (context only, don't recite): ${ctx.recentDays}` : "",
@@ -1057,6 +1073,8 @@ app.post("/chat", requireAuth, async (req, res) => {
       recall: recallBrief(uidOf(req), message || ""),
       core: coreBrief(uidOf(req)),
       patterns: patternBrief(uidOf(req)),
+      verdicts: verdictBrief(uidOf(req)),
+      pressure: pressureBrief(uidOf(req)),
       recentDays: daySummaryBrief(uidOf(req), 2),
       upcoming: upcomingBrief(uidOf(req)),
       pending: pendingBrief(uidOf(req)),
@@ -1618,6 +1636,8 @@ app.get("/health", requireAuth, async (req, res) => {
   // Batch 58: memory storage indicator — store size + disk free + durability.
   let storage = { durable: DURABLE };
   try { storage.storeKB = Math.round((require("fs").statSync(STORE_FILE).size || 0) / 1024 * 10) / 10; } catch { storage.storeKB = 0; }
+  storage.saveFails = _saveFails;
+  storage.lastSaveOk = _lastSaveOk || null;
   try { const sf = require("fs").statfsSync(DATA_DIR); storage.diskFreeMB = Math.round(sf.bavail * sf.bsize / 1048576); } catch {}
   res.json({ ok, checkedAt: new Date().toISOString(), checks, storage });
 });
@@ -1678,6 +1698,7 @@ app.post("/currency", requireAuth, async (req, res) => {
 
 // --- Summarize: "catch me up" on forwarded messages, or a daily debrief ---
 // Body: { items: [strings], style: "messages" | "debrief" }
+// KEPT FOR NATIVE: used by other endpoints and available to the native app
 app.post("/summarize", requireAuth, async (req, res) => {
   const { items, style } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
@@ -1799,6 +1820,7 @@ async function mailBriefing(messages) {
     : `You've got ${messages.length} unread, nothing urgent-looking.`;
 }
 
+// KEPT FOR NATIVE: native app will use this; the web app only shows the briefing
 app.post("/mail/read", requireAuth, async (req, res) => {
   if (!mailReady()) return res.status(501).json({ error: "mail_disabled" });
   const { uid } = req.body || {};
@@ -1890,6 +1912,7 @@ app.post("/sms/send", requireAuth, async (req, res) => {
 });
 
 // Send a normal email reply (for actual emails, not SMS).
+// KEPT FOR NATIVE: native app will use this; no web UI yet by design
 app.post("/mail/send", requireAuth, async (req, res) => {
   if (!mailReady() || !nodemailer) return res.status(501).json({ error: "mail_disabled" });
   const { to, subject, message } = req.body || {};
@@ -2529,7 +2552,20 @@ function recallFor(uid, text, limit) {
 function recallBrief(uid, text) {
   const hits = recallFor(uid, text, 5);
   dlog(uid, "memory", `recall for "${String(text).slice(0, 40)}" -> ${hits.length} hits`, hits.map(h => h.t.slice(0, 60)));
-  if (!hits.length) return "";
+  // Batch 100: honest uncertainty. If he's asking about HIS past and memory has
+  // nothing, say so plainly instead of answering generically. Admitting a blank
+  // is the most human thing an assistant can do — and it protects trust.
+  if (!hits.length) {
+    const personal = /\b(my|our|we|i)\b.*\b(favourite|usual|last time|before|remember|told you|said|went|ate|paid|stayed|met|booked)\b/i.test(String(text || ""))
+      || /\b(what did (i|we)|where did (i|we)|when did (i|we)|who did (i|we)|did i ever)\b/i.test(String(text || ""));
+    if (personal) {
+      const total = (STORE.mem[uid] || []).length;
+      return total < 20
+        ? "YOU HAVE NO MEMORY OF THIS. Say so plainly — you're still getting to know him. Do not invent an answer or answer generically."
+        : "YOU HAVE NOTHING STORED ABOUT THIS. Say honestly that he hasn't told you, or you didn't catch it. Offer to remember it now. Never guess.";
+    }
+    return "";
+  }
   return "WHAT YOU REMEMBER THAT'S RELEVANT HERE (use naturally, only if it helps; never list it back mechanically): "
     + hits.map(h => `${when(h.at)}: ${h.t}`).join(" | ");
 }
@@ -2578,45 +2614,156 @@ app.post("/autocomplete", requireAuth, async (req, res) => {
 
 // Scan recent mail for a confirmation matching a pending flow. This is the one
 // place the handoff CAN be detected automatically — the confirmation email.
-app.post("/flowcheck", requireAuth, async (req, res) => {
+
+
+// --- 💰 BUDGET & PRESSURE (batch 101) ---
+// A number nobody set means nothing. Set a monthly budget and the spend figure
+// becomes a gauge — with warnings that arrive WITH a fix, not just a fright.
+app.post("/budget", requireAuth, (req, res) => {
+  const { action, monthlyUSD } = req.body || {};
   const uid = uidOf(req);
-  const list = ((STORE.flows || {})[uid] || []).filter(f => f.status === "waiting");
-  if (!list.length) return res.json({ found: [] });
-  if (!mailReady()) return res.json({ found: [], note: "email not set up" });
-  try {
-    const msgs = await withInbox(async (client) => {
-      const out = [];
-      const uids = await client.search({ since: new Date(Date.now() - 3 * 86400000) });
-      for await (const msg of client.fetch((uids || []).slice(-15).reverse(), { envelope: true })) {
-        const from = msg.envelope?.from?.[0];
-        out.push({ subject: msg.envelope?.subject || "", from: from?.name || from?.address || "" });
-      }
-      return out;
-    });
-    if (!msgs || !msgs.length) return res.json({ found: [] });
-    const digest = msgs.map(m => `${m.subject} | ${m.from}`).join("\n").slice(0, 2000);
-    const body = {
-      model: "claude-haiku-4-5-20251001", max_tokens: 300,
-      system: 'Match pending tasks to confirmation emails. JSON only: {"matches":[{"id":"flow id","detail":"reference or key detail from the subject"}]}. Only match when clearly the same thing. No markdown.',
-      messages: [{ role: "user", content: `Pending:\n${list.map(f => `${f.id}: ${f.kind} — ${f.what}`).join("\n")}\n\nRecent email subjects:\n${digest}` }],
-    };
-    const { status, text } = await callClaude(body);
-    if (status !== 200) return res.json({ found: [] });
-    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
-    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
-    const found = [];
-    for (const m of (p.matches || [])) {
-      const f = list.find(x => x.id === m.id);
-      if (f) { f.status = "done"; f.detail = m.detail || "confirmed by email"; f.closedAt = Date.now();
-        const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-        mem.push({ t: `${f.kind}: ${f.what} — ${f.detail} (confirmed)`, at: Date.now() });
-        while (mem.length > 400) mem.shift();
-        found.push({ ...f }); }
-    }
-    if (found.length) saveStore();
-    res.json({ found });
-  } catch { res.json({ found: [] }); }
+  STORE.budgets = STORE.budgets || {};
+  if (action === "set") {
+    const v = Number(monthlyUSD);
+    if (v > 0) STORE.budgets[uid] = v; else delete STORE.budgets[uid];
+    saveStore();
+    return res.json({ ok: true, monthlyUSD: STORE.budgets[uid] || null });
+  }
+  res.json({ monthlyUSD: STORE.budgets[uid] || null });
 });
+
+// One place that answers "how am I doing?" for both money and memory.
+function pressureGauges(uid) {
+  const sp = STORE.spend || {};
+  const month = new Date().toISOString().slice(0, 7);
+  let spent = 0;
+  for (const [d, v] of Object.entries(sp)) if (d.startsWith(month)) spent += v;
+  const budget = (STORE.budgets || {})[uid] || 0;
+
+  // How far through the month are we? Spending 50% by day 15 is fine;
+  // spending 50% by day 3 is not. Pace matters more than the total.
+  const now = new Date();
+  const daysIn = now.getDate();
+  const daysTotal = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const monthPct = daysIn / daysTotal;
+  const spendPct = budget ? spent / budget : 0;
+  // Floor the divisor rather than disabling pace early in the month: a big
+  // spend on day 2 is the most important thing to catch, not the least.
+  const pace = budget ? spendPct / Math.max(monthPct, 0.05) : 1;
+
+  const mem = STORE.mem[uid] || [];
+  const memPct = mem.length / 400;
+  const lastTidy = ((STORE.lastDistil || {})[uid] || {}).at || 0;
+  const tidyDays = lastTidy ? (Date.now() - lastTidy) / 86400000 : 999;
+
+  return {
+    spend: {
+      usd: Math.round(spent * 10000) / 10000, budget,
+      pct: Math.round(spendPct * 100),
+      pace: Math.round(pace * 100) / 100,
+      // Pace decides, not the raw figure: half the budget at mid-month is on
+      // track; half of it on day three is not.
+      state: !budget ? "unset" : spendPct >= 0.9 ? "red" : (pace > 1.4 && spendPct >= 0.35) ? "amber" : "green",
+    },
+    memory: {
+      total: mem.length, core: mem.filter(isCore).length,
+      pct: Math.round(memPct * 100),
+      state: memPct >= 0.9 ? "red" : memPct >= 0.7 ? "amber" : "green",
+      needsTidy: memPct > 0.7 && tidyDays > 2,
+    },
+  };
+}
+app.post("/gauges", requireAuth, (req, res) => res.json(pressureGauges(uidOf(req))));
+
+// A warning is only useful if it comes with something you can DO about it.
+function pressureBrief(uid) {
+  const g = pressureGauges(uid);
+  const out = [];
+  if (g.spend.state === "red") out.push(`SPEND: he's at ${g.spend.pct}% of his monthly budget. If it comes up, offer to run leaner (battery saver forces the cheap model, fewer watchers, less ambient capture).`);
+  else if (g.spend.state === "amber") out.push(`SPEND: ${g.spend.pct}% of budget used and running ahead of pace. Mention only if he asks about cost.`);
+  if (g.memory.state === "red") out.push(`MEMORY: nearly full (${g.memory.pct}%). Suggest a tidy-up — it promotes what matters and prunes noise.`);
+  return out.join(" | ");
+}
+
+// --- 🕰️ ON THIS DAY (batch 100) ---
+// Every memory is timestamped and nothing ever looked back. Real memory
+// resurfaces on its own — "a year ago today you were in Hanoi" — and that's the
+// moment an assistant stops feeling like software.
+function onThisDay(uid) {
+  const mem = STORE.mem[uid] || [];
+  if (!mem.length) return null;
+  const now = new Date(), day = 86400000;
+  // Look at the same calendar day across earlier periods, widening as needed.
+  const windows = [365, 180, 90, 30];
+  for (const back of windows) {
+    const target = now.getTime() - back * day;
+    const hits = mem.filter(m => Math.abs(m.at - target) < 1.5 * day)
+      .filter(m => /^(verdict|loved place|moment|conversation|day \d{4}|saw:|booking)/.test(String(m.t)));
+    if (hits.length) {
+      // Prefer the one that mattered most.
+      hits.sort((a, b) => survivalScore(b, mem) - survivalScore(a, mem));
+      const h = hits[0];
+      const label = back >= 365 ? "A year ago" : back >= 180 ? "Six months ago"
+                  : back >= 90 ? "Three months ago" : "A month ago";
+      return { at: h.at, label, text: String(h.t).replace(/^[a-z ]+:\s*/i, "").slice(0, 160) };
+    }
+  }
+  return null;
+}
+app.post("/onthisday", requireAuth, (req, res) => res.json({ memory: onThisDay(uidOf(req)) }));
+
+// --- ❤️ SIGNIFICANCE (batch 99) ---
+// A brilliant meal and a routine coffee were being stored identically. People
+// don't remember like that — they remember what MATTERED. This attaches a
+// verdict to whatever he was actually doing, so later Vision can say "you loved
+// that place" instead of "you said delicious on Tuesday".
+const GOOD = /\b(delicious|amazing|brilliant|beautiful|lovely|great|excellent|perfect|loved (it|that)|so good|the best|incredible|unreal)\b/i;
+const BAD  = /\b(terrible|awful|rubbish|horrible|disgusting|worst|hated (it|that)|not great|disappointing|overpriced|rip.?off)\b/i;
+const MEH  = /\b(alright|okay|ok|fine|average|nothing special|meh)\b/i;
+
+app.post("/verdict", requireAuth, async (req, res) => {
+  const { text, subject } = req.body || {};
+  const uid = uidOf(req);
+  const t = String(text || "");
+  const sentiment = BAD.test(t) ? "bad" : GOOD.test(t) ? "good" : MEH.test(t) ? "mixed" : null;
+  if (!sentiment) return res.json({ noted: false });
+
+  // What was he actually talking about? Prefer what he named, else the most
+  // recent thing he did — a place, a meal, a moment.
+  let about = String(subject || "").trim();
+  if (!about) {
+    const mem = STORE.mem[uid] || [];
+    const recent = mem.slice(-12).reverse();
+    const hit = recent.find(m => /^(loved place|nearby|findfood|menu read|moment|saw:|booking|navigate)/.test(String(m.t)));
+    if (hit) {
+      about = String(hit.t).replace(/^[a-z ]+:?\s*/i, "").split(/[—\n\-]/)[0].slice(0, 60).trim();
+    }
+  }
+  if (!about) return res.json({ noted: false, why: "nothing to attach it to" });
+
+  const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+  const line = sentiment === "good" ? `verdict: LOVED ${about} — "${t.slice(0, 60)}"`
+             : sentiment === "bad"  ? `verdict: DISLIKED ${about} — "${t.slice(0, 60)}" (do not suggest again)`
+             : `verdict: mixed on ${about}`;
+  mem.push({ t: line, at: Date.now() });
+  while (mem.length > 400) mem.shift();
+  saveStore();
+  dlog(uid, "memory", `verdict ${sentiment}: ${about}`.slice(0, 60));
+  res.json({ noted: true, sentiment, about });
+});
+
+// Verdicts are strong signals — they belong in every brief, and a disliked
+// thing must never be recommended again.
+function verdictBrief(uid) {
+  const v = (STORE.mem[uid] || []).filter(m => String(m.t).startsWith("verdict: ")).slice(-8);
+  if (!v.length) return "";
+  const loved = v.filter(m => /LOVED/.test(m.t)).map(m => m.t.replace(/^verdict: LOVED /, "").split(" — ")[0]);
+  const disliked = v.filter(m => /DISLIKED/.test(m.t)).map(m => m.t.replace(/^verdict: DISLIKED /, "").split(" — ")[0]);
+  return [
+    loved.length ? `THINGS HE LOVED (lean on these): ${loved.join(", ")}` : "",
+    disliked.length ? `THINGS HE DISLIKED — never suggest these again: ${disliked.join(", ")}` : "",
+  ].filter(Boolean).join(" | ");
+}
 
 // --- 🔮 PATTERN ANTICIPATION (batch 98) ---
 // Reacting to a booking tomorrow is scheduling. Real anticipation is noticing
@@ -2717,6 +2864,7 @@ function survivalScore(m, all) {
   const t = String(m.t || "").toLowerCase();
   let s = 0;
   // things he chose to keep
+  if (/^verdict: /.test(t)) s += 55;      // how he FELT outlives what he did
   if (/^(loved place|favourite|remember|note to self|reminder|booking|document)/.test(t)) s += 40;
   if (/^conversation with|agreed|commitment/.test(t)) s += 35;
   if (/^day \d{4}-/.test(t)) s += 30;                       // distilled day summaries
@@ -2935,6 +3083,7 @@ app.post("/plan", requireAuth, async (req, res) => {
       `${prof.name || "He"} said: "${goal}"\nWhere: ${place || country || "unknown"}\n` +
       (mem ? `What you remember that's relevant: ${mem}\n` : "You don't know much about him yet — ask rather than assume.\n") +
       (core ? `${core}\n` : "") +
+      (verdictBrief(uid) ? `${verdictBrief(uid)}\n` : "") +
       (loved ? `Places he has told you he loves: ${loved}\n` : "") +
       (prof.partner ? `His partner is ${prof.partner}.` : "") }],
   };
@@ -2953,194 +3102,32 @@ app.post("/plan", requireAuth, async (req, res) => {
   } catch { res.status(502).json({ error: "plan_failed" }); }
 });
 
-// --- ⏸️ PENDING FLOWS (batch 88) ---
-// The honest version of "automatic": Vision can't tap Apple Pay for you, but it
-// can HOLD THE THREAD across the handoff — set the task up, wait, notice you're
-// back, capture the outcome, and carry on. Nothing gets silently lost.
-app.post("/flow", requireAuth, async (req, res) => {
-  const { action, kind, what, resumeWith, id, outcome, detail } = req.body || {};
-  const uid = uidOf(req);
-  STORE.flows = STORE.flows || {};
-  const list = STORE.flows[uid] = STORE.flows[uid] || [];
-
-  if (action === "start") {
-    const f = { id: "f" + Date.now(), at: Date.now(), kind: kind || "task", what: what || "",
-                resumeWith: resumeWith || "", status: "waiting", asked: 0 };
-    list.push(f); while (list.length > 20) list.shift();
-    saveStore();
-    return res.json({ ok: true, flow: f });
-  }
-  if (action === "pending") {
-    // Anything still hanging, oldest first — this is what makes it resume.
-    const open = list.filter(f => f.status === "waiting").sort((a, b) => a.at - b.at);
-    return res.json({ pending: open, count: open.length });
-  }
-  if (action === "resolve" && id) {
-    const f = list.find(x => x.id === id);
-    if (f) {
-      f.status = outcome === "done" ? "done" : outcome === "abandoned" ? "abandoned" : "done";
-      f.detail = detail || ""; f.closedAt = Date.now();
-      // Completed flows become memory — that's how the AI learns the pattern.
-      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-      mem.push({ t: `${f.kind}: ${f.what}${f.detail ? ` — ${f.detail}` : ""} (${f.status})`, at: Date.now() });
-      while (mem.length > 400) mem.shift();
-      saveStore();
-    }
-    return res.json({ ok: true });
-  }
-  if (action === "asked" && id) {
-    const f = list.find(x => x.id === id);
-    if (f) { f.asked = (f.asked || 0) + 1; f.lastAsked = Date.now();
-      if (f.asked >= 3) { f.status = "abandoned"; }   // stop nagging after three
-      saveStore(); }
-    return res.json({ ok: true });
-  }
-  res.status(400).json({ error: "bad action" });
-});
 
 // Pending work, phrased for the brief. Real anticipation: it remembers you were
 // mid-something and picks it back up.
 function pendingBrief(uid) {
-  const list = ((STORE.flows || {})[uid] || []).filter(f => f.status === "waiting");
+  // Reads STORE.pending — the store the app actually writes to. An earlier
+  // /flow system used STORE.flows and is no longer called by anything.
+  const list = ((STORE.pending || {})[uid] || []).filter(f => f.state === "waiting" && !f.ownedByPlan);
   if (!list.length) return "";
   const f = list.sort((a, b) => a.at - b.at)[0];
   const mins = Math.round((Date.now() - f.at) / 60000);
   const ago = mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`;
-  return `He started this and never confirmed it (${ago}): ${f.kind} — ${f.what}. Ask how it went, once, naturally.`;
+  return `UNFINISHED (${ago}): he started ${f.kind} "${f.what || ""}" and never confirmed it. Ask how it went, once, naturally.`;
 }
 
 // --- 🐞 BUG LOG (batch 92) ---
 // He finds bugs I can't — screenshots have caught fourteen so far. This turns
 // "the orb looked wrong" into a snapshot I can actually act on, and triages
 // known limits so he stops sending me things that aren't broken.
-app.post("/bug", requireAuth, async (req, res) => {
-  const { action, report, snapshot, id } = req.body || {};
-  const uid = uidOf(req);
-  STORE.bugs = STORE.bugs || {};
-  const list = STORE.bugs[uid] = STORE.bugs[uid] || [];
 
-  if (action === "log") {
-    const b = { id: "bug" + Date.now(), at: Date.now(), report: String(report || "").slice(0, 500),
-                snapshot: snapshot || {}, status: "open" };
-    // Triage: is this a known limit, or something genuinely broken?
-    try {
-      const body = {
-        model: "claude-haiku-4-5-20251001", max_tokens: 320,
-        system:
-          "You triage bug reports for Vision, a web-based AI travel companion (Safari on iPhone, Node server on Render). " +
-          "KNOWN HARD LIMITS that are NOT bugs: cannot run in the background or listen when closed; cannot read Safari " +
-          "history, battery, or Bluetooth; cannot tap Apple Pay or pay for anything; cannot phone a human; timers only " +
-          "ring while open; no push notifications; cannot see inside other apps; live location needs the screen on. " +
-          'JSON only: {"verdict":"known-limit|likely-bug|needs-info","spoken":"one honest sentence back to him",' +
-          '"forClaude":"one line describing what to investigate, or empty if it is a known limit"}. No markdown.',
-        messages: [{ role: "user", content: `He reports: "${report}"\nContext: ${JSON.stringify(snapshot || {}).slice(0, 900)}` }],
-      };
-      const { status, text } = await callClaude(body);
-      if (status === 200) {
-        const raw = (JSON.parse(text).content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
-        const t = JSON.parse(raw.replace(/```json|```/g, "").trim());
-        b.verdict = t.verdict; b.spoken = t.spoken; b.forClaude = t.forClaude;
-      }
-    } catch {}
-    list.push(b); while (list.length > 60) list.shift();
-    saveStore();
-    dlog(uid, "errors", `bug logged: ${String(report).slice(0, 60)}`, b.verdict || "");
-    return res.json({ ok: true, bug: b });
-  }
-  if (action === "list") return res.json({ bugs: list.filter(b => b.status === "open").slice(-20).reverse(), total: list.length });
-  if (action === "close" && id) {
-    const b = list.find(x => x.id === id); if (b) { b.status = "fixed"; b.closedAt = Date.now(); saveStore(); }
-    return res.json({ ok: true });
-  }
-  if (action === "clear") { STORE.bugs[uid] = list.filter(b => b.status !== "fixed"); saveStore(); return res.json({ ok: true }); }
-  if (action === "export") {
-    // One block, formatted for pasting straight into a conversation with me.
-    const open = list.filter(b => b.status === "open");
-    const lines = open.map((b, i) => {
-      const s2 = b.snapshot || {};
-      return `${i + 1}. [${new Date(b.at).toLocaleString("en-AU")}] ${b.report}\n` +
-        `   verdict: ${b.verdict || "untriaged"}${b.forClaude ? ` — ${b.forClaude}` : ""}\n` +
-        `   build: ${s2.build || "?"} | skill: ${s2.lastSkill || "-"} | theme: ${s2.theme || "-"} | orb: ${s2.orb || "-"}\n` +
-        `   said: ${s2.lastUser || "-"}\n   replied: ${String(s2.lastReply || "-").slice(0, 160)}` +
-        (s2.diag ? `\n   diag: ${String(s2.diag).slice(0, 300)}` : "");
-    }).join("\n\n");
-    return res.json({ text: open.length ? `VISION BUG LOG — ${open.length} open\n\n${lines}` : "No open bugs logged.", count: open.length });
-  }
-  res.status(400).json({ error: "bad action" });
-});
 
 // --- 🎯 ORCHESTRATOR (batch 89) ---
 // One command, a whole journey. Vision plans the steps, runs what it can, and
 // STOPS to ask only where a real choice exists or where it must hand over.
 // The judgement that matters: decide vs ask. Guessing his dinner is rude;
 // asking which route to take is worse.
-app.post("/plan", requireAuth, async (req, res) => {
-  const { goal, place, country } = req.body || {};
-  if (!goal) return res.status(400).json({ error: "goal required" });
-  const uid = uidOf(req);
-  const mem = recallFor(uid, goal, 6).map(m => `${when(m.at)}: ${m.t}`).join(" | ");
-  // Favourites and loved places matter most for "my favourite" / "the usual".
-  const loved = ((STORE.mem[uid] || []).filter(m => /loved place|favourite/i.test(String(m.t)))
-    .slice(-5).map(m => m.t).join(" | "));
-  const prof = profileOf(uid);
-  const core = coreBrief(uid);
-  const body = {
-    model: "claude-haiku-4-5-20251001", max_tokens: 700,
-    system:
-      "You plan a short journey for a traveller's assistant. Reply JSON ONLY: " +
-      '{"spoken":"one sentence saying what you\'re about to do","steps":[{"skill":"skill name","args":{},"why":"3-6 words",' +
-      '"mode":"auto|ask|handoff","question":"only if mode=ask — what to ask him","options":[{"label":"short","value":"what to use"}]}]}. ' +
-      "Available skills — use ONLY these: " +
-      "FIND & GO: nearby, findfood, navigate, transit, ride, unlost, backto, rememberspot, meetmiddle, whereis. " +
-      "EAT & BUY: menu, allergy, booktable, logspend, scamcheck, gooddeal, currency, splitbill, favourite. " +
-      "PLAN & TRAVEL: tripplan, tripday, tripbudget, packlist, activities, stay, flightsearch, flight, esim, arrival, itinerary, planday, bookings. " +
-      "SEE & READ: capture, livelook, landmark, seenrecall, readpage, converse, sayphrase. " +
-      "REMEMBER: memory, dayview, lifelog, debrief, journal, savechat, recallchat, docs, spend. " +
-      "TELL PEOPLE: whatsapp, tellpartner, onmyway, text, call, sharepin, livelocation, couplespend, sharedmoments. " +
-      "LATER: watcher, timer. OTHER: weather, etiquette, safety, survival, music, mailbrief, readtexts, orderupdate, status. " +
-      "TIME-SHIFTED STEPS: if something should happen LATER (leave at 6:30, check in tomorrow, " +
-      "remind him the day before), use the watcher or timer skill with the time in args — do NOT try to do it now. " +
-      "MODE RULES — this is the important part: " +
-      "'auto' = do it now without asking (looking things up, checking weather, reading a menu, logging something). " +
-      "'ask' = a genuine choice only he can make (which restaurant, what time, how many people, spend a lot or a little) — " +
-      "give 2-4 concrete options. " +
-      "'handoff' = it leaves your hands (booking, paying, ordering a ride) — he'll confirm when he's back. " +
-      "Use what you REMEMBER about him to avoid asking things you already know (his allergies, places he's loved, his usual style). " +
-      "If he says 'my favourite' or 'the usual', look it up in what you remember rather than asking which one. " +
-      "If he mentions his partner, include telling her as a step. " +
-      "NEVER invent a capability: you can open a dialer but cannot speak to a human; you can open a booking or " +
-      "airline page but cannot pay. Use handoff for those and say so plainly. " +
-      "PARALLEL: mark a step \"parallel\":true when it does NOT depend on any earlier step " +
-      "(checking weather, converting currency, looking up etiquette). Those run at the same time, so the plan feels instant. " +
-      "Anything that uses {{prev}} or needs an earlier answer must NOT be parallel. " +
-      "FALLBACK: give any step that might come up empty a \"fallback\" object {\"skill\":\"...\",\"args\":{}} " +
-      "to try automatically before bothering him (e.g. nearby with a wider area, or a different search term). " +
-      "STEP RESULTS: later steps can use what earlier ones found — write {{prev}} in an argument to mean " +
-      "'whatever the previous step produced' (e.g. booking the restaurant that step 1 found). " +
-      "ABORT SENSIBLY: order steps so that if an early lookup finds nothing, the rest would be pointless — " +
-      "the runner will stop and ask him rather than carry on blindly. " +
-      "3-6 steps maximum. Prefer fewer, better steps. Do not narrate obvious steps. No markdown.",
-    messages: [{ role: "user", content:
-      `${prof.name || "He"} said: "${goal}"\nWhere: ${place || country || "unknown"}\n` +
-      (mem ? `What you remember that's relevant: ${mem}\n` : "You don't know much about him yet — ask rather than assume.\n") +
-      (core ? `${core}\n` : "") +
-      (loved ? `Places he has told you he loves: ${loved}\n` : "") +
-      (prof.partner ? `His partner is ${prof.partner}.` : "") }],
-  };
-  try {
-    const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "plan_failed" });
-    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
-    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
-    const steps = (Array.isArray(p.steps) ? p.steps : []).slice(0, 6);
-    // Remember the plan itself — an abandoned plan is as informative as a finished one.
-    const mm = STORE.mem[uid] = STORE.mem[uid] || [];
-    mm.push({ t: `plan: "${String(goal).slice(0, 80)}" -> ${steps.map(x => x.skill).join(" → ")}`, at: Date.now() });
-    while (mm.length > 400) mm.shift(); saveStore();
-    dlog(uid, "routing", `plan: ${goal}`.slice(0, 60), steps.map(x => `${x.skill}:${x.mode}`));
-    res.json({ spoken: p.spoken || "", steps });
-  } catch { res.status(502).json({ error: "plan_failed" }); }
-});
+
 
 // --- ⏸️ PENDING FLOWS (batch 88) ---
 // Vision can't tap Apple Pay for you — nobody can. But it CAN hold the thread
@@ -3203,13 +3190,6 @@ app.post("/pending", requireAuth, async (req, res) => {
 });
 
 // Pending work belongs in the brief — that's how a flow survives being left.
-function pendingBrief(uid) {
-  const list = ((STORE.pending || {})[uid] || []).filter(p => p.state === "waiting");
-  if (!list.length) return "";
-  const p = list[list.length - 1];
-  const mins = Math.round((Date.now() - p.at) / 60000);
-  return `UNFINISHED: he was ${p.kind} "${p.what || ""}" ${mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)}h ago`} and hasn't confirmed it went through. Ask, briefly, if it makes sense.`;
-}
 
 // --- 🍽️ MENU READER (batch 86) ---
 // Photograph a menu: translated, priced, and steered toward what's actually

@@ -1246,6 +1246,215 @@
       scrollChat();
     }catch(e){ settle(t,'Day view unreachable — is the brain deployed?'); }
   }
+  // 📊 PRESSURE GAUGES (batch 101): spend and memory on the front page as
+  // states, not numbers — and any warning arrives WITH a one-tap fix.
+  async function refreshGauges(){
+    try{
+      if(isOffline()) return;
+      const {ok,data}=await api('/gauges',{});
+      if(!ok||!data) return;
+      const g=document.getElementById('glance'); if(!g) return;
+      const colour={green:'rgba(60,220,140,.9)',amber:'rgba(255,180,60,.95)',red:'rgba(255,90,90,.95)',unset:'rgba(255,255,255,.5)'};
+      // spend chip
+      let sc=document.getElementById('gaugeSpend');
+      if(!sc){ sc=document.createElement('span'); sc.className='chip'; sc.id='gaugeSpend'; sc.style.cursor='pointer';
+        sc.onclick=()=>spendCheck(); g.appendChild(sc); }
+      sc.textContent = data.spend.budget
+        ? `💰 ${data.spend.pct}%`
+        : `💰 $${(data.spend.usd||0).toFixed(2)}`;
+      sc.style.color=colour[data.spend.state];
+      // memory chip
+      let mc=document.getElementById('gaugeMem');
+      if(!mc){ mc=document.createElement('span'); mc.className='chip'; mc.id='gaugeMem'; mc.style.cursor='pointer';
+        mc.onclick=()=>memoryHealth(); g.appendChild(mc); }
+      mc.textContent=`🧠 ${data.memory.pct}%`;
+      mc.style.color=colour[data.memory.state];
+      // Adaptive warning — once per state change, never nagging.
+      const key=`${data.spend.state}|${data.memory.state}`;
+      if(localStorage.buddy_gaugewarn!==key){
+        localStorage.buddy_gaugewarn=key;
+        if(data.spend.state==='red') offerLeaner(data);
+        else if(data.spend.state==='amber' && data.spend.pace>1.4) offerLeaner(data);
+        else if(data.memory.state==='red' || data.memory.needsTidy) offerTidy(data);
+      }
+    }catch(e){}
+  }
+  function offerLeaner(data){
+    openChat();
+    const pace=data.spend.pace>1.4?` and you're running ${Math.round((data.spend.pace-1)*100)}% ahead of pace`:'';
+    const m=`You're at ${data.spend.pct}% of this month's budget${pace}. Want me to run leaner?`;
+    const el=addMsg('buddy','💰 '+m); el.classList.add('flash'); say(m);
+    [['🔋 Run leaner (cheap model, fewer checks)','lean'],
+     ['💳 Raise the budget','raise'],
+     ['👍 Leave it','no']].forEach(([label,act])=>{
+      const b=document.createElement('div');
+      b.style.cssText='margin-top:6px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+      b.textContent=label;
+      b.onclick=async()=>{
+        if(act==='lean'){
+          localStorage.buddy_saver='on'; localStorage.buddy_capmax='8';
+          try{ await api('/state',{flags:{saver:true}}); }catch(e){}
+          b.parentElement.textContent='🔋 Running lean — fast model, fewer background checks, less capture.';
+          say('Running lean.');
+        } else if(act==='raise'){
+          const v=prompt('Monthly budget in US dollars:', String(data.spend.budget||10));
+          if(v){ await api('/budget',{action:'set',monthlyUSD:Number(v)}); b.parentElement.textContent=`💳 Budget set to $${Number(v)}.`; refreshGauges(); }
+        } else { b.parentElement.textContent='👍 Righto — I\'ll keep an eye on it.'; }
+      };
+      el.appendChild(b);
+    });
+    scrollChat();
+  }
+  function offerTidy(data){
+    openChat();
+    const m=`My memory's ${data.memory.pct}% full. A tidy-up keeps what matters and clears the noise — shall I?`;
+    const el=addMsg('buddy','🧠 '+m); el.classList.add('flash'); say(m);
+    [['🧪 Tidy it now','yes'],['👍 Not yet','no']].forEach(([label,act])=>{
+      const b=document.createElement('div');
+      b.style.cssText='margin-top:6px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+      b.textContent=label;
+      b.onclick=async()=>{
+        if(act==='yes'){
+          b.parentElement.textContent='🧪 Working through it…';
+          const {data:r}=await api('/distil',{});
+          b.parentElement.textContent = r.skipped ? `Nothing to tidy — ${r.skipped}`
+            : `✓ Learned ${r.promoted?r.promoted.length:0} lasting facts, cleared ${r.pruned||0}.`;
+          refreshGauges();
+        } else b.parentElement.textContent='👍 I\'ll ask again later.';
+      };
+      el.appendChild(b);
+    });
+    scrollChat();
+  }
+  async function setBudget(){
+    const cur=await api('/budget',{}).then(r=>r.data&&r.data.monthlyUSD).catch(()=>null);
+    const v=prompt('What should Vision cost you per month, in US dollars?\n\n(Most days run to a few cents — $5-10 is generous.)', String(cur||10));
+    if(v===null) return;
+    await api('/budget',{action:'set',monthlyUSD:Number(v)||0});
+    const m=Number(v)?`Budget set to $${Number(v)} a month. I'll warn you at halfway.`:'Budget cleared.';
+    addMsg('buddy',m); say(m); refreshGauges();
+  }
+
+  // 📴 OFFLINE QUEUE (batch 101): dead zones are normal in Vietnam. Anything
+  // that needs the brain gets queued honestly instead of failing; anything
+  // local just works. When signal returns, the queue drains quietly.
+  function queueGet(){ try{ return JSON.parse(localStorage.buddy_queue||'[]'); }catch(e){ return []; } }
+  function queueSave(q){ try{ localStorage.buddy_queue=JSON.stringify(q.slice(-30)); }catch(e){} }
+  function isOffline(){ return !navigator.onLine; }
+  function queueAdd(kind, payload, label){
+    const q=queueGet();
+    q.push({id:'q'+Date.now(), at:Date.now(), kind, payload, label});
+    queueSave(q);
+    updateOfflineChip();
+    return q.length;
+  }
+  // Things that genuinely work with no signal — local memory, no model needed.
+  async function offlineCapable(text){
+    // spend
+    let m=text.match(/^log (?:spend )?(\d+(?:\.\d+)?)\s*(?:for |on )?(.*)$/i);
+    if(m){
+      try{ const sp=JSON.parse(localStorage.getItem('buddy_spend')||'[]');
+        sp.push({amt:Number(m[1]),note:m[2]||'',at:Date.now()});
+        localStorage.setItem('buddy_spend',JSON.stringify(sp)); }catch(e){}
+      queueAdd('memory',{action:'add',text:`logspend (offline): ${m[1]} ${m[2]||''}`},'spend '+m[1]);
+      return `Logged ${m[1]}${m[2]?' for '+m[2]:''} — saved locally, I'll sync it when we're back online.`;
+    }
+    // notes and verdicts still land
+    m=text.match(/^(?:remember|note to self|memo)[:,]?\s+(.{2,300})$/i);
+    if(m){ queueAdd('memory',{action:'add',text:m[1]},'note'); return "Noted — it'll be in my memory properly once we've got signal."; }
+    if(text.trim().split(/\s+/).length<=6 && FEELS.test(text)){
+      queueAdd('verdict',{text},'verdict'); return "Noted — I'll file that when we're back on.";
+    }
+    return null;
+  }
+  async function drainQueue(){
+    if(isOffline()) return;
+    const q=queueGet();
+    if(!q.length) return;
+    let done=0, results=[];
+    for(const item of q.slice()){
+      try{
+        if(item.kind==='memory'){ await api('/memory',item.payload); done++; }
+        else if(item.kind==='verdict'){ await api('/verdict',item.payload); done++; }
+        else if(item.kind==='menu'){
+          const {ok,data}=await api('/menu',item.payload);
+          if(ok&&data.spoken) results.push(`🍽️ That menu you snapped: ${data.spoken}`);
+          done++;
+        }
+        else if(item.kind==='photo'){
+          const {ok,data}=await api('/vision',item.payload);
+          if(ok&&(data.answer||data.reply)) results.push(`📸 That photo from the dead zone: ${data.answer||data.reply}`);
+          done++;
+        }
+        else if(item.kind==='ask'){
+          const {ok,data}=await api('/chat',item.payload);
+          if(ok&&data.reply) results.push(`💬 You asked "${item.label}" — ${data.reply}`);
+          done++;
+        }
+      }catch(e){ break; }   // stop on first failure, try again later
+    }
+    if(done){
+      queueSave(queueGet().slice(done));
+      updateOfflineChip();
+      if(results.length){
+        openChat();
+        addMsg('buddy',`📴 Back online — caught up on ${done} thing${done===1?'':'s'} from the dead zone:`);
+        results.forEach(r=>{ const el=addMsg('buddy',r); el.classList.add('flash'); });
+        say(results[0]);
+        scrollChat();
+      }
+    }
+  }
+  function updateOfflineChip(){
+    let chip=document.getElementById('offlineChip');
+    const n=queueGet().length;
+    const off=isOffline();
+    if(!off && !n){ if(chip) chip.remove(); return; }
+    if(!chip){
+      chip=document.createElement('div'); chip.id='offlineChip';
+      chip.style.cssText='position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:1350;'+
+        'padding:7px 12px;border-radius:999px;font-size:12px;font-weight:700;font-family:var(--f-mono);'+
+        'background:rgba(20,26,54,.92);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(8px);cursor:pointer';
+      chip.onclick=()=>{ if(isOffline()) toast(`No signal — ${n} thing${n===1?'':'s'} waiting to sync.`); else drainQueue(); };
+      document.body.appendChild(chip);
+    }
+    chip.textContent = off ? (n?`📴 offline · ${n} queued`:'📴 offline') : `🔄 ${n} to sync`;
+    chip.style.borderColor = off ? 'rgba(255,170,60,.5)' : 'rgba(60,220,140,.5)';
+  }
+
+  // ❤️ SIGNIFICANCE (batch 99): when you react to something, Vision attaches the
+  // feeling to the thing — so later it knows you LOVED that place, not that you
+  // said "delicious" on a Tuesday. Disliked things are never suggested again.
+  const FEELS=/\b(delicious|amazing|brilliant|beautiful|lovely|great|excellent|perfect|loved (it|that)|so good|the best|incredible|unreal|terrible|awful|rubbish|horrible|disgusting|worst|hated (it|that)|not great|disappointing|overpriced|rip.?off|alright|okay|fine|average|nothing special|meh)\b/i;
+  async function noteVerdict(text){
+    try{
+      const {data}=await api('/verdict',{text, subject:(brain.lastPlace&&brain.lastPlace.name)||''});
+      if(!data||!data.noted) return false;
+      const m = data.sentiment==='good' ? `Noted — you rated ${data.about}.`
+              : data.sentiment==='bad'  ? `Noted — I'll steer you away from ${data.about} in future.`
+              : `Noted — ${data.about} was alright, nothing special.`;
+      addMsg('buddy','❤️ '+m); scrollChat();
+      return true;
+    }catch(e){ return false; }
+  }
+  // Occasionally — not every time — ask whether a moment is worth keeping.
+  // Only after something that could actually matter, and never twice in a day.
+  function maybeAskSignificance(skill){
+    try{
+      if(!['nearby','findfood','menu','landmark','capture','booktable','activities'].includes(skill)) return;
+      const today=new Date().toDateString();
+      if(localStorage.buddy_askedsig===today) return;
+      if(Math.random()>0.35) return;                 // occasional, not clingy
+      localStorage.buddy_askedsig=today;
+      setTimeout(()=>{
+        brain.suggest('→ Worth remembering', ()=>{
+          const box=document.getElementById('chatText');
+          if(box){ box.value='that was great'; sendChat(); }
+        });
+      }, 1400);
+    }catch(e){}
+  }
+
   // 🧪 TEST RUNNER (batch 96): 85 functions is too many to hold in your head.
   // This lists every one, lets you run it, mark it pass or fail, and remembers
   // where you got to. Failures go straight into the bug log with context.
@@ -1413,7 +1622,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='98';
+  const BUILD_VERSION='103';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -4322,7 +4531,11 @@
       t.appendChild(d);
     });
   }
-  document.addEventListener('DOMContentLoaded', async ()=>{ await autoConfig(); renderGlance(); heroInit(); applyGlassChip(); mountTips(); mountBack(); mountSearch();
+  document.addEventListener('DOMContentLoaded', async ()=>{ await autoConfig(); renderGlance(); heroInit(); applyGlassChip(); mountTips(); mountBack(); mountSearch(); updateOfflineChip();
+    window.addEventListener('online', ()=>{ updateOfflineChip(); setTimeout(drainQueue,1200); });
+    window.addEventListener('offline', ()=>{ updateOfflineChip(); toast('📴 No signal — I\'ll queue anything that needs the brain.'); });
+    setTimeout(drainQueue, 3000);
+    refreshGauges(); setInterval(refreshGauges, 600000);
     // Batch 97: Shaun has no allergies — clear any stored avoid list once and
     // stop the app volunteering dietary restrictions it doesn't have.
     try{ if(localStorage.buddy_avoid && !localStorage.buddy_avoid_confirmed){ localStorage.removeItem('buddy_avoid'); } }catch(e){} applyLooks(); applyFont(); orb3dStart(); resumePending(); resumePlan(); setInterval(()=>{ if(localStorage.buddy_bg==='auto') applyLooks(); }, 900000); if(lifelogOn()) lifelogStart(); });
@@ -4335,6 +4548,17 @@
       // than anything he was about to ask.
       api('/state').then(({data})=>{
         if(data&&data.upcoming){ const el=addMsg('buddy','🎫 '+data.upcoming); el.classList.add('flash'); say(data.upcoming); }
+        // Batch 100: a memory resurfacing unprompted — but only once a day, and
+        // only sometimes, so it stays a nice moment rather than a feature.
+        try{
+          const today=new Date().toDateString();
+          if(data&&data.onThisDay&&localStorage.buddy_otd!==today&&Math.random()<0.5){
+            localStorage.buddy_otd=today;
+            const m=data.onThisDay;
+            const line=`${m.label} today: ${m.text}`;
+            setTimeout(()=>{ const el=addMsg('buddy','🕰️ '+line); el.classList.add('flash'); say(line); scrollChat(); }, 2200);
+          }
+        }catch(e){}
       }).catch(()=>{});
     }
     setTimeout(()=>document.getElementById('chatText').focus(), 150);
@@ -4399,6 +4623,7 @@
       nextMoves(skill);       // batch 63: every skill offers the obvious next step
       rememberSkill(skill, original);  // batch 65: every skill deposits a memory
       maybeCapture(skill);             // batch 67: adaptive — only if it earns it
+      maybeAskSignificance(skill);     // batch 99: occasionally, was that one worth keeping?
       if(['nearby','findfood','landmark','stay'].includes(skill)) coach('placefound');
       if(skill==='ride'||skill==='booktable') coach('ridehandoff');
       if(skill==='lifelog') coach('lifelog');
@@ -4685,8 +4910,27 @@
     if(/^(my bugs|bug log|show (me )?(the )?bugs)$/i.test(text)){ bugsView(); return; }
     if(/^(what do you know|memory health|my memory|tidy (up )?(my )?memory)$/i.test(text)){ memoryHealth(); return; }
     if(/^(test|test runner|run tests|what needs testing)$/i.test(text)){ testRunner(); return; }
+    if(/^(set|change) (my )?budget$/i.test(text)){ setBudget(); return; }
+    if(/^(run lean|save money|cheaper mode)$/i.test(text)){
+      localStorage.buddy_saver='on'; localStorage.buddy_capmax='8';
+      api('/state',{flags:{saver:true}}).catch(()=>{});
+      const m='Running lean — fast model, fewer background checks.'; addMsg('buddy',m); say(m); return;
+    }
     if(/^(test all|show all tests)$/i.test(text)){ testRunner('all'); return; }
     if(/^reset tests$/i.test(text)){ testReset(); return; }
+    // OFFLINE: do what can be done locally, queue the rest honestly.
+    if(isOffline()){
+      const local=await offlineCapable(text);
+      if(local){ addMsg('buddy',local); say(local); return; }
+      queueAdd('ask',{message:text},text.slice(0,40));
+      const m="No signal right now — I've saved that and I'll answer it the moment we're back online.";
+      addMsg('buddy','📴 '+m); say(m); return;
+    }
+    // A short reaction is a verdict, not a question — attach it to what he was
+    // just doing rather than sending it to the router.
+    if(text.trim().split(/\s+/).length<=6 && FEELS.test(text)){
+      if(await noteVerdict(text)) return;
+    }
     // LOOKS (batch 73)
     if(/^(change|pick|choose|set) (the )?(look|theme|style|orb|background|colou?rs?)$/i.test(text)){ chooseLooks(); return; }
     if(m51=text.match(/^(?:make|set) (?:the )?orb (\w+)$/i)){
@@ -4884,6 +5128,10 @@
           const st=data.storage;
           const disk = st.diskFreeMB!=null ? ` · ${st.diskFreeMB>1024?(st.diskFreeMB/1024).toFixed(1)+'GB':st.diskFreeMB+'MB'} free` : '';
           addMsg('buddy',`💾 Memory: ${st.storeKB||0}KB used${disk} · ${st.durable?'durable disk':'⚠️ EPHEMERAL — add a Render Disk at /var/data'}`);
+          if(st.saveFails>0){
+            const w=`❌ Memory has failed to save ${st.saveFails} time${st.saveFails>1?'s':''} — anything new may be lost. Check the disk is mounted at /var/data.`;
+            const el=addMsg('buddy',w); el.classList.add('flash'); say('Heads up — my memory is failing to save.');
+          }
         }
         const line = downs.length? `${downs.join(' and ')} ${downs.length>1?'are':'is'} down — everything else is running.` : 'Everything that\'s set up is running.';
         addMsg('buddy',line); say(line);
