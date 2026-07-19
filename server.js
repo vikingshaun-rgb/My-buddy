@@ -107,7 +107,8 @@ function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: f
 function rememberBrief(uid, b) { if (typeof b === "string" && b.trim()) { STORE.briefs[uid] = { text: b.slice(0, 900), at: Date.now() }; saveStore(); } }
 function briefOf(uid) { return STORE.briefs[uid] || null; }
 
-app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid), patterns: patternScan(uid), onThisDay: onThisDay(uid) }); });
+app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid), patterns: patternScan(uid),
+    onThisDay: onThisDay(uid), texts: ((STORE.smsHold || {})[uid] || []) }); });
 app.post("/state", requireAuth, (req, res) => {
   const uid = uidOf(req);
   const f = (req.body || {}).flags || {}; const cur = flagsOf(uid);
@@ -620,6 +621,9 @@ function buddyPersona(ctx) {
     ctx.styleLine || "",
     ctx.core || "",
     ctx.verdicts || "",
+    ctx.procedures || "",
+    ctx.texts || "",
+    ctx.expiry || "",
     ctx.pressure || "",
     ctx.patterns || "",
     ctx.recall || "",
@@ -1014,6 +1018,13 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"savechat\" (save/remember this conversation, save that as the hotel manager, log what we agreed; args: tag), " +
       "\"recallchat\" (what did the driver say, what did we agree with X, what did the hotel manager promise; args: query), " +
       "\"bookings\" (my bookings, what have I booked, my reservations, booking reference, add a booking; args: query), " +
+      "\"texts\" (read my texts, any messages, what did they say, check my SMS; args: none), " +
+      "\"sendtext\" (text someone, send a message to a number, reply to that text, tell them; args: to = number, message), " +
+      "\"handover\" (email me that, send me the details, send that to my inbox, I'll deal with it later; args: context = what to write up), " +
+      "\"expiry\" (passport expiry, when does my visa run out, are my documents still valid, document dates; args: none), " +
+      "\"procedures\" (how do I do things, what habits have you noticed, how I work; args: none), " +
+      "\"findstay\" (find somewhere to stay, book a hotel, airbnb, accommodation in X; args: where, from, to, people), " +
+      "\"thingstobook\" (tours, attractions, tickets, what can we book in X, things to do; args: where, what), " +
       "\"docs\" (my documents, insurance policy, embassy number, passport number, emergency details; args: none), " +
       "\"splitbill\" (split the bill, divide the cost, what does each person owe; args: none), " +
       "\"favourite\" (favourite that, save this place, that place was great; args: none), " +
@@ -1075,6 +1086,9 @@ app.post("/chat", requireAuth, async (req, res) => {
       patterns: patternBrief(uidOf(req)),
       verdicts: verdictBrief(uidOf(req)),
       pressure: pressureBrief(uidOf(req)),
+      procedures: procedureBrief(uidOf(req)),
+      expiry: expiryBrief(uidOf(req)),
+      texts: textsBrief(uidOf(req)),
       recentDays: daySummaryBrief(uidOf(req), 2),
       upcoming: upcomingBrief(uidOf(req)),
       pending: pendingBrief(uidOf(req)),
@@ -1915,10 +1929,11 @@ app.post("/sms/send", requireAuth, async (req, res) => {
 // KEPT FOR NATIVE: native app will use this; no web UI yet by design
 app.post("/mail/send", requireAuth, async (req, res) => {
   if (!mailReady() || !nodemailer) return res.status(501).json({ error: "mail_disabled" });
-  const { to, subject, message } = req.body || {};
+  const { to, subject, message, html } = req.body || {};
   if (!to || !message) return res.status(400).json({ error: "to and message required" });
   try {
-    await mailer().sendMail({ from: ICLOUD_USER, to, subject: subject || "(no subject)", text: String(message) });
+    await mailer().sendMail({ from: ICLOUD_USER, to, subject: subject || "(no subject)",
+      text: String(message), ...(html ? { html: String(html) } : {}) });
     res.json({ ok: true, to });
   } catch (e) {
     res.status(502).json({ error: "smtp_failed", detail: String(e) });
@@ -2616,6 +2631,250 @@ app.post("/autocomplete", requireAuth, async (req, res) => {
 // place the handoff CAN be detected automatically — the confirmation email.
 
 
+// --- 📧 HANDOVER (batch 106) ---
+// Work that isn't finished shouldn't only live in Vision's memory. This writes
+// up what was found — options, prices, numbers to ring, pre-filled links — and
+// emails it, so he can act on it on a laptop, forward it to Jess, or come back
+// to it in a week. The pending-flow follow-up still runs; this supports it.
+app.post("/handover", requireAuth, async (req, res) => {
+  const { context, to } = req.body || {};
+  const uid = uidOf(req);
+  const dest = to || ICLOUD_USER;
+  if (!mailReady()) return res.status(501).json({ error: "mail_not_set_up",
+    spoken: "Email isn't set up yet — add your iCloud details in Service keys and I can send these." });
+
+  // Build from what actually happened: the conversation plus anything left open.
+  const mem = STORE.mem[uid] || [];
+  const recent = mem.slice(-25).map(m => m.t).join("\n");
+  const pending = ((STORE.pending || {})[uid] || []).filter(p => p.state === "waiting")
+    .map(p => `${p.kind}: ${p.what}`).join("; ");
+  const bookings = ((STORE.bookings || {})[uid] || []).slice(-4)
+    .map(b => `${b.type}: ${b.what} ${b.when || ""}${b.ref ? ` (${b.ref})` : ""}`).join("; ");
+
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 1400,
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+    system:
+      "You write a handover note for Shaun to act on later — on a laptop, or in a week. " +
+      "He asked Vision to look into something and now wants it in his inbox. " +
+      'JSON only: {"subject":"short and specific","intro":"one sentence on what this covers",' +
+      '"items":[{"title":"what it is","detail":"prices, times, what you found — be concrete",' +
+      '"link":"a real URL that opens a search or booking page already filled in, or empty",' +
+      '"phone":"a real number if one is genuinely known, or empty","todo":"what he still has to do"}],' +
+      '"closing":"one honest line about what you could not settle"}. ' +
+      "RULES: never invent a phone number or a booking reference — leave it empty if you don't know it. " +
+      "Prices are estimates unless you searched and found them; say which. " +
+      "Links should be searches or booking pages pre-filled with his dates and party size, " +
+      "not payment links — no one can generate those on his behalf. " +
+      "Max 6 items. Write like a competent friend leaving notes, not a brochure. No markdown.",
+    messages: [{ role: "user", content:
+      `What he asked about: ${context || "the recent conversation"}\n\n` +
+      `Recent activity:\n${recent}\n\n` +
+      (pending ? `Still unfinished: ${pending}\n` : "") +
+      (bookings ? `Already booked: ${bookings}` : "") }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "write_failed" });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const items = Array.isArray(p.items) ? p.items.slice(0, 6) : [];
+
+    const esc = t => String(t || "").replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+    const html = `<div style="font-family:-apple-system,system-ui,sans-serif;max-width:600px;color:#1a1a2e">
+      <p style="font-size:15px;line-height:1.6">${esc(p.intro)}</p>
+      ${items.map((it, i) => `
+        <div style="margin:18px 0;padding:16px;border-radius:12px;background:#f4f4f8;border-left:3px solid #F5A623">
+          <div style="font-weight:700;font-size:16px;margin-bottom:6px">${i + 1}. ${esc(it.title)}</div>
+          <div style="font-size:14px;line-height:1.6;color:#3a3a52">${esc(it.detail)}</div>
+          ${it.todo ? `<div style="font-size:13px;margin-top:8px;color:#6a6a85"><b>You still need to:</b> ${esc(it.todo)}</div>` : ""}
+          <div style="margin-top:12px">
+            ${it.link ? `<a href="${esc(it.link)}" style="display:inline-block;padding:9px 14px;background:#F5A623;color:#1a1a2e;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;margin-right:8px">Open it →</a>` : ""}
+            ${it.phone ? `<a href="tel:${esc(String(it.phone).replace(/[^\d+]/g, ""))}" style="display:inline-block;padding:9px 14px;background:#2a2a3e;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">Call ${esc(it.phone)}</a>` : ""}
+          </div>
+        </div>`).join("")}
+      ${p.closing ? `<p style="font-size:13px;color:#6a6a85;line-height:1.6;margin-top:22px">${esc(p.closing)}</p>` : ""}
+      <p style="font-size:12px;color:#9a9ab0;margin-top:26px">Prices and availability change — the links open live searches.<br>Sent by Vision.</p>
+    </div>`;
+
+    const plain = `${p.intro}\n\n` + items.map((it, i) =>
+      `${i + 1}. ${it.title}\n   ${it.detail}` + (it.todo ? `\n   TO DO: ${it.todo}` : "") +
+      (it.link ? `\n   ${it.link}` : "") + (it.phone ? `\n   Call: ${it.phone}` : "")).join("\n\n") +
+      (p.closing ? `\n\n${p.closing}` : "");
+
+    const r = await fetch(`http://127.0.0.1:${PORT}/mail/send`, {
+      method: "POST", headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ to: dest, subject: p.subject || "From Vision", message: plain, html }),
+    });
+    const sent = r.ok;
+    if (sent) {
+      const m2 = STORE.mem[uid] = STORE.mem[uid] || [];
+      m2.push({ t: `emailed handover: ${p.subject} (${items.length} things to follow up)`, at: Date.now() });
+      while (m2.length > 400) m2.shift(); saveStore();
+    }
+    res.json({ ok: sent, subject: p.subject, count: items.length, to: dest,
+      spoken: sent ? `Sent to your inbox — ${items.length} thing${items.length === 1 ? "" : "s"} with links and anything you still need to do.`
+                   : "I wrote it up but couldn't send it — check the email setup in Service keys." });
+  } catch { res.status(502).json({ error: "write_failed" }); }
+});
+
+// --- ⏳ EXPIRY WATCH (batch 105) ---
+// The highest-consequence gap in the system. Documents were stored but nothing
+// watched their dates. A passport inside six months of expiry is a denied
+// boarding at the airport, not an inconvenience — and Vietnam enforces it.
+const EXPIRY_FIELDS = [
+  { id: "passportExpiry",  label: "Passport",        warnDays: 240, rule: "Most of Asia refuses entry if your passport expires within 6 months." },
+  { id: "visaExpiry",      label: "Visa",            warnDays: 30,  rule: "Overstaying is a fine and a stamp you don't want." },
+  { id: "insuranceExpiry", label: "Travel insurance", warnDays: 30, rule: "Cover must span the whole trip, not just the start." },
+  { id: "licenceExpiry",   label: "Driver's licence", warnDays: 60, rule: "Needed with an international permit to hire a scooter." },
+  { id: "cardExpiry",      label: "Bank card",       warnDays: 60,  rule: "A card expiring mid-trip is a bad afternoon." },
+];
+function expiryScan(uid) {
+  const d = (STORE.docs || {})[uid] || {};
+  const out = [];
+  for (const f of EXPIRY_FIELDS) {
+    const raw = d[f.id];
+    if (!raw) continue;
+    const when = Date.parse(raw);
+    if (isNaN(when)) continue;
+    const days = Math.round((when - Date.now()) / 86400000);
+    if (days < 0) out.push({ ...f, days, state: "expired", note: `${f.label} EXPIRED ${Math.abs(days)} days ago.` });
+    else if (days <= f.warnDays) out.push({ ...f, days, state: days <= 30 ? "urgent" : "soon", note: `${f.label} expires in ${days} days. ${f.rule}` });
+  }
+  return out.sort((a, b) => a.days - b.days);
+}
+function expiryBrief(uid) {
+  const e = expiryScan(uid);
+  if (!e.length) return "";
+  const worst = e[0];
+  return `DOCUMENT WARNING — raise this if travel comes up at all: ${worst.note}`;
+}
+app.post("/expiry", requireAuth, (req, res) => res.json({ expiries: expiryScan(uidOf(req)), fields: EXPIRY_FIELDS }));
+
+// --- 🧭 PROCEDURAL MEMORY (batch 105) ---
+// Facts are "he loves Made's". Procedure is "he checks a price before agreeing,
+// books flights before hotels, wants directions sent not spoken". The field
+// calls this the next frontier and the tooling is still early everywhere.
+// It's cheap here because the sequence data is already in the pool.
+async function learnProcedure(uid) {
+  const mem = STORE.mem[uid] || [];
+  const recent = mem.filter(m => Date.now() - m.at < 30 * 86400000 && !isCore(m));
+  if (recent.length < 60) return { skipped: "not enough activity" };
+  const trail = recent.slice(-140).map(m => `${new Date(m.at).toISOString().slice(5, 16)} ${m.t}`).join("\n").slice(0, 6500);
+  const known = mem.filter(m => String(m.t).startsWith("howto: ")).map(m => m.t).join(" | ").slice(0, 800);
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 500,
+    system:
+      "You extract HOW someone does things — their working habits — not what they like. " +
+      'JSON only: {"procedures":["short present-tense habits, under 14 words each"]}. ' +
+      "Look for ORDER (what he does before what), CONDITIONS (what he always checks first), " +
+      "and PREFERENCES OF METHOD (how he wants things delivered). " +
+      "Examples of the right shape: 'checks a price against past spending before agreeing', " +
+      "'books the flight before looking at accommodation', 'wants directions opened not read aloud'. " +
+      "Only include a habit the trail shows at least twice. Max 6. No markdown. If nothing repeats, return empty.",
+    messages: [{ role: "user", content: `Already known: ${known || "nothing"}\n\nWhat he's done recently:\n${trail}` }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return { skipped: "model_failed" };
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const found = (Array.isArray(p.procedures) ? p.procedures : []).slice(0, 6);
+    let added = 0;
+    for (const proc of found) {
+      if (!mem.some(m => String(m.t).startsWith("howto: ") && m.t.toLowerCase().includes(String(proc).toLowerCase().slice(0, 20)))) {
+        mem.push({ t: `howto: ${proc}`, at: Date.now() }); added++;
+      }
+    }
+    if (added) { while (mem.length > 400) mem.shift(); saveStore(); }
+    dlog(uid, "memory", `procedures learned: ${added}`, found.slice(0, 3));
+    return { learned: found, added };
+  } catch { return { skipped: "parse_failed" }; }
+}
+function procedureBrief(uid) {
+  const p = (STORE.mem[uid] || []).filter(m => String(m.t).startsWith("howto: "))
+    .slice(-8).map(m => m.t.slice(7));
+  return p.length ? `HOW HE LIKES THINGS DONE (follow these without being told): ${p.join(" · ")}` : "";
+}
+app.post("/procedures", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  if ((req.body || {}).action === "list") {
+    return res.json({ procedures: (STORE.mem[uid] || []).filter(m => String(m.t).startsWith("howto: ")).map(m => ({ t: m.t.slice(7), at: m.at })) });
+  }
+  if ((req.body || {}).action === "forget" && req.body.text) {
+    const q = String(req.body.text).toLowerCase();
+    const before = (STORE.mem[uid] || []).length;
+    STORE.mem[uid] = (STORE.mem[uid] || []).filter(m => !(String(m.t).startsWith("howto: ") && m.t.toLowerCase().includes(q)));
+    saveStore();
+    return res.json({ removed: before - STORE.mem[uid].length });
+  }
+  res.json(await learnProcedure(uid));
+});
+
+// --- 🔑 PROFILE RECOVERY (batch 104) ---
+// The user id is per-device. A new phone gets a new id, so a lifetime of memory
+// would sit on the server invisible — present, but belonging to a stranger.
+// This lets a device reclaim an existing profile. Nothing is ever merged
+// silently: he sees what he's claiming before it happens.
+app.post("/recover", requireAuth, (req, res) => {
+  const { action, code, newUid } = req.body || {};
+  STORE.recovery = STORE.recovery || {};
+
+  if (action === "issue") {
+    // A short, sayable code tied to the profile he's using right now.
+    const uid = uidOf(req);
+    let existing = Object.entries(STORE.recovery).find(([, v]) => v === uid);
+    if (existing) return res.json({ code: existing[0] });
+    const words = ["amber", "harbour", "compass", "lantern", "meridian", "cedar", "quarry", "tide",
+                   "ember", "atlas", "pike", "willow", "cove", "flint", "orchard", "beacon"];
+    let c;
+    do { c = `${words[Math.floor(Math.random() * words.length)]}-${words[Math.floor(Math.random() * words.length)]}-${Math.floor(Math.random() * 90 + 10)}`; }
+    while (STORE.recovery[c]);
+    STORE.recovery[c] = uid;
+    saveStore();
+    return res.json({ code: c });
+  }
+
+  if (action === "preview" && code) {
+    // Show what's behind the code BEFORE claiming it — no silent takeovers.
+    const target = STORE.recovery[String(code).toLowerCase().trim()];
+    if (!target) return res.status(404).json({ error: "no_such_code" });
+    const mem = STORE.mem[target] || [];
+    const prof = STORE.profiles[target] || {};
+    return res.json({
+      found: true, name: prof.name || "unknown",
+      memories: mem.length, core: mem.filter(isCore).length,
+      oldest: mem.length ? mem[0].at : null,
+      watchers: ((STORE.watchers || {})[target] || []).length,
+      bookings: ((STORE.bookings || {})[target] || []).length,
+    });
+  }
+
+  if (action === "claim" && code && newUid) {
+    const target = STORE.recovery[String(code).toLowerCase().trim()];
+    if (!target) return res.status(404).json({ error: "no_such_code" });
+    if (target === newUid) return res.json({ ok: true, already: true });
+    // Move every per-user collection across to the new device id.
+    const buckets = ["profiles", "briefs", "flags", "mem", "watchers", "results", "seen",
+                     "convos", "bookings", "docs", "pending", "bugs", "daySummaries",
+                     "budgets", "lastDistil", "spend", "smsHold", "smsSeen", "recovery"];
+    let moved = 0;
+    for (const b of buckets) {
+      if (STORE[b] && STORE[b][target] !== undefined) {
+        STORE[b][newUid] = STORE[b][target];
+        delete STORE[b][target];
+        moved++;
+      }
+    }
+    STORE.recovery[String(code).toLowerCase().trim()] = newUid;   // code follows the profile
+    saveStore();
+    dlog(newUid, "memory", `profile recovered from ${String(target).slice(0, 8)} — ${moved} collections`);
+    const mem = STORE.mem[newUid] || [];
+    return res.json({ ok: true, moved, memories: mem.length, name: (STORE.profiles[newUid] || {}).name || "" });
+  }
+  res.status(400).json({ error: "bad action" });
+});
+
 // --- 💰 BUDGET & PRESSURE (batch 101) ---
 // A number nobody set means nothing. Set a monthly budget and the spend figure
 // becomes a gauge — with warnings that arrive WITH a fix, not just a fright.
@@ -2864,6 +3123,7 @@ function survivalScore(m, all) {
   const t = String(m.t || "").toLowerCase();
   let s = 0;
   // things he chose to keep
+  if (/^howto: /.test(t)) s += 60;        // process knowledge is the hardest to relearn
   if (/^verdict: /.test(t)) s += 55;      // how he FELT outlives what he did
   if (/^(loved place|favourite|remember|note to self|reminder|booking|document)/.test(t)) s += 40;
   if (/^conversation with|agreed|commitment/.test(t)) s += 35;
@@ -2965,7 +3225,12 @@ app.post("/distil", requireAuth, async (req, res) => {
 });
 
 // Nightly sweep for everyone, plus a catch-up 5 min after boot.
-setInterval(() => { for (const uid of Object.keys(STORE.mem || {})) distil(uid).catch(() => {}); }, 86400000);
+setInterval(() => {
+  for (const uid of Object.keys(STORE.mem || {})) {
+    distil(uid).catch(() => {});
+    learnProcedure(uid).catch(() => {});
+  }
+}, 86400000);
 setTimeout(() => { for (const uid of Object.keys(STORE.mem || {})) distil(uid).catch(() => {}); }, 300000);
 
 // --- 🐞 BUG LOG (batch 92) ---
@@ -3084,6 +3349,7 @@ app.post("/plan", requireAuth, async (req, res) => {
       (mem ? `What you remember that's relevant: ${mem}\n` : "You don't know much about him yet — ask rather than assume.\n") +
       (core ? `${core}\n` : "") +
       (verdictBrief(uid) ? `${verdictBrief(uid)}\n` : "") +
+      (procedureBrief(uid) ? `${procedureBrief(uid)}\n` : "") +
       (loved ? `Places he has told you he loves: ${loved}\n` : "") +
       (prof.partner ? `His partner is ${prof.partner}.` : "") }],
   };
@@ -3319,7 +3585,8 @@ app.post("/docs", requireAuth, (req, res) => {
   STORE.docs = STORE.docs || {};
   const d = STORE.docs[uid] = STORE.docs[uid] || {};
   const FIELDS = ["insurer", "policyNumber", "insurancePhone", "embassyPhone", "embassyAddress",
-                  "passportNumber", "bloodType", "emergencyContact", "medicalNotes"];
+                  "passportNumber", "bloodType", "emergencyContact", "medicalNotes",
+                  "passportExpiry", "visaExpiry", "insuranceExpiry", "licenceExpiry", "cardExpiry"];
   if (action === "set" && FIELDS.includes(field)) {
     const v = String(value || "").trim();
     if (v) d[field] = v.slice(0, 200); else delete d[field];
@@ -3748,6 +4015,61 @@ app.post("/watchers", requireAuth, async (req, res) => {
   res.status(400).json({ error: "bad action" });
 });
 
+// Batch 108: texts are the one thing worth pulling out of a busy inbox. This
+// looks ONLY at @sms.teltel.com.au senders, remembers what he's already seen,
+// and holds anything new so Vision can lead with it whenever he next opens up —
+// even if the app has been shut for hours.
+async function checkTexts(uid) {
+  if (!mailReady()) return { messages: [], unread: 0 };
+  try {
+    const seen = (STORE.smsSeen || {})[uid] || 0;
+    const out = await withInbox(async (client) => {
+      const items = [];
+      const all = await client.search({ since: new Date(Date.now() - 3 * 864e5) });
+      for await (const msg of client.fetch(all.slice(-40).reverse(), { envelope: true, internalDate: true, source: true })) {
+        const addr = msg.envelope?.from?.[0]?.address || "";
+        const num = smsNumberFrom(addr);
+        if (!num) continue;                              // not a text — skip the noise
+        const at = msg.internalDate ? new Date(msg.internalDate).getTime() : 0;
+        const body = extractPlainText(msg.source?.toString("utf8") || "")
+          .replace(/reply directly to this email[\s\S]*/i, "")
+          .replace(/^\s*>.*$/gm, "").replace(/\s+/g, " ").trim();
+        if (body) items.push({ number: num, text: body.slice(0, 400), at, isNew: at > seen });
+        if (items.length >= 15) break;
+      }
+      return items;
+    });
+    const fresh = (out || []).filter(m => m.isNew);
+    // Every text lands in memory — so "what did that bloke say about the
+    // delivery" works weeks later, and Vision learns who he actually texts.
+    if (fresh.length) {
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      for (const f of fresh) {
+        mem.push({ t: `text from ${f.number}: ${f.text.slice(0, 160)}`, at: f.at || Date.now() });
+      }
+      while (mem.length > 400) mem.shift();
+      STORE.smsHold = STORE.smsHold || {};
+      STORE.smsHold[uid] = fresh.slice(0, 5);
+      saveStore();
+      dlog(uid, "services", `${fresh.length} new text${fresh.length === 1 ? "" : "s"}`);
+    }
+    return { messages: out || [], unread: fresh.length };
+  } catch (e) { return { messages: [], unread: 0, error: String(e.message || e).slice(0, 80) }; }
+}
+// Waiting texts lead the brief — they're the most time-sensitive thing he has.
+function textsBrief(uid) {
+  const held = (STORE.smsHold || {})[uid] || [];
+  if (!held.length) return "";
+  return `UNREAD TEXTS — mention these FIRST, before anything else: ` +
+    held.map(t => `${t.number} said "${t.text.slice(0, 90)}"`).join(" | ");
+}
+app.post("/texts/check", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const r = await checkTexts(uid);
+  if ((req.body || {}).action === "clear") { STORE.smsHold = STORE.smsHold || {}; STORE.smsHold[uid] = []; STORE.smsSeen = STORE.smsSeen || {}; STORE.smsSeen[uid] = Date.now(); saveStore(); }
+  res.json({ ...r, held: ((STORE.smsHold || {})[uid] || []) });
+});
+
 async function runWatcher(uid, w) {
   let spoken = "", triggered = false;
   try {
@@ -3813,6 +4135,11 @@ async function runWatcher(uid, w) {
 }
 // Hourly sweep + first run a minute after boot.
 setInterval(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 3600000);
+// Texts are checked far more often than watchers — every 4 minutes — because a
+// text sitting unseen for an hour is useless. Cheap: one IMAP call, no model.
+setInterval(() => {
+  for (const uid of Object.keys(STORE.profiles || { "shaun-default": 1 })) checkTexts(uid).catch(() => {});
+}, 240000);
 setTimeout(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 60000);
 
 app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));

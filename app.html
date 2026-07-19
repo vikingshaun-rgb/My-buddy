@@ -820,6 +820,9 @@
   <div class="grid">
     <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">🔌</div><h3>Connection</h3><p>Server, token & colours</p></div>
     <div class="tile" onclick="chooseLooks()"><span class="badge live">live</span><div class="ic">🎨</div><h3>Looks</h3><p>Orb & background</p></div>
+    <div class="tile" onclick="sendHandover('')"><span class="badge live">live</span><div class="ic">📧</div><h3>Email me that</h3><p>Links, numbers, what's left</p></div>
+    <div class="tile" onclick="vendorHandoff('stay',{})"><span class="badge live">live</span><div class="ic">🏨</div><h3>Find a stay</h3><p>Booking · Airbnb · Agoda</p></div>
+    <div class="tile" onclick="vendorHandoff('doing',{})"><span class="badge live">live</span><div class="ic">🎟️</div><h3>Things to book</h3><p>TripAdvisor · Klook</p></div>
     <div class="tile" onclick="readMenu()"><span class="badge live">live</span><div class="ic">🍽️</div><h3>Read a menu</h3><p>Safe picks & prices</p></div>
     
     <div class="tile" onclick="keysView()"><span class="badge live">live</span><div class="ic">🔑</div><h3>Service keys</h3><p>Set & test from here</p></div>
@@ -1246,6 +1249,208 @@
       scrollChat();
     }catch(e){ settle(t,'Day view unreachable — is the brain deployed?'); }
   }
+  // 📧 HANDOVER (batch 106): work you haven't finished shouldn't only live in
+  // Vision's memory. This emails the write-up — options, prices, numbers to
+  // ring, pre-filled links — so you can act on it on a laptop, forward it to
+  // Jess, or come back in a week. Pending follow-ups still run alongside it.
+  async function sendHandover(context){
+    openChat();
+    if(!context){
+      // Default to what he was just doing — that's almost always what he means.
+      const msgs=[...document.querySelectorAll('#chatLog .msg')].slice(-8);
+      context=msgs.map(m=>m.textContent).join(' | ').slice(0,600);
+    }
+    addMsg('me','📧 Send me that');
+    const t=addMsg('buddy','Writing it up…','think');
+    try{
+      const {ok,status,data}=await api('/handover',{context});
+      if(status===501){
+        settle(t, (data&&data.spoken)||"Email isn't set up yet.");
+        const el=addMsg('buddy','🔑 Set up email now'); el.style.cursor='pointer';
+        el.onclick=()=>keysView();
+        return;
+      }
+      if(!ok||!data.ok){ settle(t,(data&&data.spoken)||"Couldn't send that — try again?"); return; }
+      settle(t,`📧 ${data.spoken}`);
+      addMsg('buddy',`"${data.subject}" — sent to ${data.to}`);
+      say(data.spoken);
+      scrollChat();
+    }catch(e){ settle(t,"Couldn't reach the brain to send that."); }
+  }
+
+  // 🏨 VENDOR HANDOFF (batch 105): no consumer APIs exist for Airbnb, Booking or
+  // TripAdvisor — they're partner-only. Deep links are better anyway: real
+  // prices, real availability, your account and card already in their app.
+  // Vision pre-fills the search across several at once so you can compare.
+  const VENDORS={
+    stay:[
+      {id:'booking',  name:'Booking.com', icon:'🏨',
+       url:(q)=>`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(q.where)}${q.from?`&checkin=${q.from}`:''}${q.to?`&checkout=${q.to}`:''}${q.people?`&group_adults=${q.people}`:''}`},
+      {id:'airbnb',   name:'Airbnb', icon:'🏠',
+       url:(q)=>`https://www.airbnb.com/s/${encodeURIComponent(q.where)}/homes${q.from?`?checkin=${q.from}`:''}${q.to?`&checkout=${q.to}`:''}${q.people?`&adults=${q.people}`:''}`},
+      {id:'agoda',    name:'Agoda', icon:'🛏️',
+       url:(q)=>`https://www.agoda.com/search?city=${encodeURIComponent(q.where)}${q.from?`&checkIn=${q.from}`:''}${q.to?`&checkOut=${q.to}`:''}`},
+    ],
+    doing:[
+      {id:'tripadvisor', name:'TripAdvisor', icon:'🦉',
+       url:(q)=>`https://www.tripadvisor.com/Search?q=${encodeURIComponent(q.where+' '+(q.what||'things to do'))}`},
+      {id:'getyourguide',name:'GetYourGuide', icon:'🎟️',
+       url:(q)=>`https://www.getyourguide.com/s/?q=${encodeURIComponent(q.where)}`},
+      {id:'klook',       name:'Klook', icon:'🎫',
+       url:(q)=>`https://www.klook.com/search/?query=${encodeURIComponent(q.where)}`},
+    ],
+    eat:[
+      {id:'tripadvisor', name:'TripAdvisor', icon:'🦉',
+       url:(q)=>`https://www.tripadvisor.com/Search?q=${encodeURIComponent(q.where+' restaurants')}`},
+      {id:'gmaps',       name:'Google Maps', icon:'📍',
+       url:(q)=>`https://www.google.com/maps/search/${encodeURIComponent('restaurants '+q.where)}`},
+    ],
+  };
+  // Whichever he actually taps gets remembered and floated to the top next time.
+  function vendorScore(id){ try{ return (JSON.parse(localStorage.buddy_vendors||'{}'))[id]||0; }catch(e){ return 0; } }
+  function vendorUsed(id){
+    try{ const v=JSON.parse(localStorage.buddy_vendors||'{}'); v[id]=(v[id]||0)+1;
+      localStorage.buddy_vendors=JSON.stringify(v);
+      api('/memory',{action:'add',text:`books through ${id} (used ${v[id]}x)`}).catch(()=>{});
+    }catch(e){}
+  }
+  async function vendorHandoff(kind, q){
+    q=q||{};
+    if(!q.where){
+      q.where=await pickPlace(kind==='stay'?'Stay where?':kind==='doing'?'Things to do where?':'Eat where?');
+      if(!q.where) return;
+    }
+    if(kind==='stay'&&!q.people){ q.people=await pick('How many of you?', PICKS.people); }
+    const list=[...(VENDORS[kind]||[])].sort((a,b)=>vendorScore(b.id)-vendorScore(a.id));
+    openChat();
+    addMsg('me',`${kind==='stay'?'🏨 Stays':kind==='doing'?'🎟️ Things to do':'🍽️ Eating'} in ${q.where}`);
+    const card=addMsg('buddy',`Pick where to look — I've pre-filled ${q.where}${q.from?` from ${q.from}`:''}${q.people?` for ${q.people}`:''}.`);
+    list.forEach(v=>{
+      const used=vendorScore(v.id);
+      const b=document.createElement('div');
+      b.style.cssText='margin-top:8px;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.08);'+
+        'border:1px solid rgba(255,255,255,.1);cursor:pointer;font-weight:600';
+      b.textContent=`${v.icon} ${v.name}${used?`  · you usually use this`:''}`;
+      b.onclick=()=>{ vendorUsed(v.id); window.location.href=v.url(q); };
+      card.appendChild(b);
+    });
+    say(`${list.length} places to look for ${kind==='stay'?'stays':kind==='doing'?'things to do':'food'} in ${q.where}.`);
+    // Booking somewhere is a flow that leaves our hands — keep the thread open.
+    handoffWithWait(kind==='stay'?'accommodation':'booking', `${kind} in ${q.where}`,
+      {spoken:`Have a look and tell me what you land on — I'll keep the details.`});
+    scrollChat();
+  }
+  // ⏳ EXPIRY WATCH
+  async function expiryView(){
+    openChat(); addMsg('me','⏳ Document expiry');
+    try{
+      const {data}=await api('/expiry',{});
+      const e=data.expiries||[];
+      if(e.length){
+        e.forEach(x=>{
+          const icon=x.state==='expired'?'🔴':x.state==='urgent'?'🟠':'🟡';
+          const el=addMsg('buddy',`${icon} ${x.note}`); el.classList.add('flash');
+        });
+        say(e[0].note);
+      } else addMsg('buddy','Nothing expiring soon that I know about.');
+      addMsg('buddy','Set or update a date — tap one:');
+      (data.fields||[]).forEach(f=>{
+        const el=addMsg('buddy',`📅 ${f.label} — tap to set`);
+        el.style.cursor='pointer';
+        el.onclick=async()=>{
+          const v=prompt(`${f.label} expiry date (YYYY-MM-DD):`,'');
+          if(!v) return;
+          await api('/docs',{action:'set',field:f.id,value:v});
+          el.textContent=`✅ ${f.label}: ${v}`;
+          expiryView();
+        };
+      });
+      scrollChat();
+    }catch(e){ addMsg('buddy','Expiry check unreachable — is the brain deployed?'); }
+  }
+  // 🧭 PROCEDURES
+  async function proceduresView(){
+    openChat(); addMsg('me','🧭 How I do things');
+    try{
+      const {data}=await api('/procedures',{action:'list'});
+      const p=data.procedures||[];
+      if(!p.length){
+        const m="Nothing learned yet — I pick these up from how you actually work, over a week or two.";
+        addMsg('buddy',m); say(m);
+      } else {
+        addMsg('buddy','Things I\'ve noticed about how you like to work — tap any to correct it:');
+        p.forEach(x=>{
+          const el=addMsg('buddy','· '+x.t);
+          el.style.cursor='pointer';
+          el.onclick=async()=>{ if(!confirm(`Forget this?\n\n"${x.t}"`)) return;
+            await api('/procedures',{action:'forget',text:x.t.slice(0,25)});
+            el.style.opacity='.4'; el.textContent='✓ forgotten — '+x.t; };
+        });
+        say(`${p.length} habits noted.`);
+      }
+      const run=addMsg('buddy','🧭 Look for more now'); run.style.cursor='pointer';
+      run.style.cssText+='background:rgba(245,166,35,.18);border:1px solid rgba(245,166,35,.4);font-weight:600';
+      run.onclick=async()=>{
+        run.textContent='Watching how you work…';
+        const {data:r}=await api('/procedures',{});
+        run.textContent=r.skipped?`Not yet — ${r.skipped}`:`✓ Learned ${r.added||0} new habits.`;
+        (r.learned||[]).forEach(l=>addMsg('buddy','✨ '+l));
+        scrollChat();
+      };
+      scrollChat();
+    }catch(e){ addMsg('buddy','Unreachable — is the brain deployed?'); }
+  }
+
+  // 🔑 PROFILE RECOVERY (batch 104): your memory lives on the server, but the id
+  // that owns it lives on this device. Lose the phone and the memory is still
+  // there — just invisible. A recovery code reconnects the two.
+  async function recoveryCode(){
+    openChat(); addMsg('me','🔑 My recovery code');
+    try{
+      const {ok,data}=await api('/recover',{action:'issue'});
+      if(!ok||!data.code){ addMsg('buddy',"Couldn't get a code — is the brain deployed?"); return; }
+      addMsg('buddy','Write this down somewhere that isn\'t your phone:');
+      const el=addMsg('buddy',data.code);
+      el.style.cssText+='font-size:26px;letter-spacing:.06em;padding:18px;text-align:center;font-family:var(--f-mono)';
+      el.classList.add('flash');
+      addMsg('buddy','On a new phone: open Vision, tap Recover, and type that. Everything I know about you comes back.');
+      say(`Your recovery code is ${data.code.split('-').join(', ')}`);
+      scrollChat();
+    }catch(e){ addMsg('buddy','Recovery unreachable — is the brain deployed?'); }
+  }
+  async function recoverProfile(){
+    const code=prompt('Recovery code from your old phone:\n\n(three parts, like amber-compass-42)','');
+    if(!code) return;
+    openChat(); addMsg('me','🔑 Recover '+code);
+    const t=addMsg('buddy','Looking that up…','think');
+    try{
+      const {ok,status,data}=await api('/recover',{action:'preview',code});
+      if(status===404||!ok){ settle(t,"No profile with that code. Check the spelling — it's three parts with dashes."); return; }
+      const age=data.oldest?Math.round((Date.now()-data.oldest)/86400000):0;
+      settle(t,`Found ${data.name}'s profile: ${data.memories} memories${data.core?`, ${data.core} lasting facts`:''}${age?`, going back ${age} days`:''}${data.watchers?`, ${data.watchers} watchers`:''}${data.bookings?`, ${data.bookings} bookings`:''}.`);
+      const q=addMsg('buddy','Bring all of that onto this phone?');
+      [['✅ Yes, that\'s me','yes'],['✖️ No, leave it','no']].forEach(([label,act])=>{
+        const b=document.createElement('div');
+        b.style.cssText='margin-top:6px;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+        b.textContent=label;
+        b.onclick=async()=>{
+          if(act!=='yes'){ q.textContent='✖️ Left it where it was.'; return; }
+          q.textContent='Moving it across…';
+          const r=await api('/recover',{action:'claim',code,newUid:UID});
+          if(r.ok&&r.data&&r.data.ok){
+            if(r.data.name) localStorage.buddy_myname=r.data.name;
+            q.textContent=`✅ Done — ${r.data.memories} memories are yours again.`;
+            const m=`Welcome back${r.data.name?', '+r.data.name:''}. I've got everything.`;
+            addMsg('buddy',m); say(m); heroInit();
+          } else q.textContent="That didn't work — try the code again?";
+          scrollChat();
+        };
+        q.appendChild(b);
+      });
+      scrollChat();
+    }catch(e){ settle(t,'Recovery unreachable — is the brain deployed?'); }
+  }
+
   // 📊 PRESSURE GAUGES (batch 101): spend and memory on the front page as
   // states, not numbers — and any warning arrives WITH a one-tap fix.
   async function refreshGauges(){
@@ -1622,7 +1827,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='103';
+  const BUILD_VERSION='108';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -1819,6 +2024,7 @@
     else if(runningPlan){
       const m='That\'s the lot — anything else?';
       addMsg('buddy','✅ '+m); say(m);
+      brain.suggest('→ Email me all that', ()=>sendHandover(runningPlan?runningPlan.goal:''));
       try{ api('/memory',{action:'add',text:'completed plan: '+runningPlan.goal}).catch(()=>{}); }catch(e){}
     }
     runningPlan=null;
@@ -2409,6 +2615,22 @@
         // Coming back from another app is exactly when a pending flow resumes.
         if(!document.hidden && localStorage.buddy_awaiting) setTimeout(resumePending, 800);
         if(!document.hidden && localStorage.buddy_planresume) setTimeout(resumePlan, 1000);
+        // Coming back to the app is exactly when to check for texts.
+        if(!document.hidden) setTimeout(()=>{
+          api('/texts/check',{}).then(({data})=>{
+            if(data&&data.unread>0){
+              chimeNews(); openChat();
+              const el=addMsg('buddy',`💬 ${data.unread} new text${data.unread===1?'':'s'}`);
+              el.classList.add('flash');
+              (data.held||[]).slice(0,3).forEach(t=>{
+                const m=addMsg('buddy',`From ${t.number}: ${t.text}`);
+                m.style.cursor='pointer'; m.onclick=()=>replyText(t.number);
+              });
+              if(data.held&&data.held[0]) say(`New text from ${data.held[0].number}. ${data.held[0].text}`);
+              api('/texts/check',{action:'clear'}).catch(()=>{});
+            }
+          }).catch(()=>{});
+        }, 1500);
       });
       if('IntersectionObserver' in window){
         try{
@@ -4547,6 +4769,27 @@
       // Batch 87: lead with what's imminent — a flight tomorrow matters more
       // than anything he was about to ask.
       api('/state').then(({data})=>{
+        // Texts lead — they're the most time-sensitive thing waiting, and they
+        // arrived while the app was shut.
+        if(data&&data.texts&&data.texts.length){
+          chimeNews();
+          const n=data.texts.length;
+          const head=addMsg('buddy',`💬 ${n} text${n===1?'':'s'} waiting`);
+          head.classList.add('flash');
+          data.texts.slice(0,3).forEach(t=>{
+            const el=addMsg('buddy',`From ${t.number}: ${t.text}`);
+            el.style.cursor='pointer';
+            el.onclick=()=>replyText(t.number);
+            const hint=document.createElement('div');
+            hint.style.cssText='margin-top:6px;font-size:12px;opacity:.55';
+            hint.textContent='tap to reply, or say "reply to that"';
+            el.appendChild(hint);
+          });
+          const first=data.texts[0];
+          say(`${n} text${n===1?'':'s'} waiting. ${first.number} says: ${first.text}`);
+          api('/texts/check',{action:'clear'}).catch(()=>{});
+          lastTexts=data.texts.map(t=>({number:t.number,text:t.text}));
+        }
         if(data&&data.upcoming){ const el=addMsg('buddy','🎫 '+data.upcoming); el.classList.add('flash'); say(data.upcoming); }
         // Batch 100: a memory resurfacing unprompted — but only once a day, and
         // only sometimes, so it stays a nice moment rather than a feature.
@@ -4770,6 +5013,13 @@
       if(skill==='savechat'){ await saveConversation(a.tag||''); return true; }
       if(skill==='recallchat'){ await recallConversation(a.query||original); return true; }
       if(skill==='bookings'){ await bookingsView(a.query||''); return true; }
+      if(skill==='texts'){ readTexts(); return true; }
+      if(skill==='sendtext'){ await replyText(a.to||null, a.message||null); return true; }
+      if(skill==='handover'){ await sendHandover(a.context||''); return true; }
+      if(skill==='expiry'){ await expiryView(); return true; }
+      if(skill==='procedures'){ await proceduresView(); return true; }
+      if(skill==='findstay'){ await vendorHandoff('stay',{where:a.where,from:a.from,to:a.to,people:a.people}); return true; }
+      if(skill==='thingstobook'){ await vendorHandoff('doing',{where:a.where,what:a.what}); return true; }
       if(skill==='docs'){ await docsView(); return true; }
       if(skill==='splitbill'){ await splitBill(); return true; }
       if(skill==='favourite'){ const box=document.getElementById('chatText'); if(box){ box.value='favourite that'; sendChat(); } return true; }
@@ -4911,6 +5161,22 @@
     if(/^(what do you know|memory health|my memory|tidy (up )?(my )?memory)$/i.test(text)){ memoryHealth(); return; }
     if(/^(test|test runner|run tests|what needs testing)$/i.test(text)){ testRunner(); return; }
     if(/^(set|change) (my )?budget$/i.test(text)){ setBudget(); return; }
+    if(/^(my )?recovery code$/i.test(text)){ recoveryCode(); return; }
+    if(/^(email|send) (me )?(that|this|the details|it)( to me)?$/i.test(text)){ sendHandover(''); return; }
+    // Texting by voice — the whole point when the glasses are on.
+    if(m51=text.match(/^(?:reply|respond|text back|answer)(?: to)?(?: the)? (?:that|them|him|her|it|last(?: one)?)(?:[:,]?\s+(.+))?$/i)){
+      replyText(lastTexts&&lastTexts[0]?lastTexts[0].number:null, m51[1]?m51[1].trim():null); return;
+    }
+    if(m51=text.match(/^(?:text|sms|message) (\+?\d[\d ]{5,})(?:[:,]?\s+(.+))?$/i)){
+      replyText(m51[1].replace(/[^\d+]/g,''), m51[2]?m51[2].trim():null); return;
+    }
+    if(m51=text.match(/^(?:text|sms|message) (\w{2,20})[:,]?\s+(.+)$/i)){
+      // A name — look it up in saved contacts, else ask who.
+      let num=null;
+      try{ const c=JSON.parse(localStorage.getItem('buddy_contacts')||'{}'); num=c[m51[1].toLowerCase()]||null; }catch(e){}
+      replyText(num, m51[2].trim()); return;
+    }
+    if(/^(recover|restore) (my )?(memory|profile|account)$/i.test(text)){ recoverProfile(); return; }
     if(/^(run lean|save money|cheaper mode)$/i.test(text)){
       localStorage.buddy_saver='on'; localStorage.buddy_capmax='8';
       api('/state',{flags:{saver:true}}).catch(()=>{});
@@ -5482,40 +5748,94 @@
       if(!lastTexts.length){ addMsg('buddy','No recent texts.'); say('No recent texts.'); return; }
       // Vision reads the latest few aloud, numbered so you can say "reply to 1".
       lastTexts.slice(0,6).forEach((m,i)=>{
-        addMsg('buddy',`${i+1}. From ${m.number}: ${m.text}`);
+        const el=addMsg('buddy',`${i+1}. From ${m.number}: ${m.text}`);
+        el.style.cursor='pointer';
+        el.onclick=()=>replyText(m.number);
+        const hint=document.createElement('div');
+        hint.style.cssText='margin-top:6px;font-size:12px;opacity:.55';
+        hint.textContent='tap to reply';
+        el.appendChild(hint);
       });
       const first=lastTexts[0];
       const spoken=`You've got ${lastTexts.length} recent text${lastTexts.length===1?'':'s'}. Latest, from ${first.number}: ${first.text}`;
       say(spoken);
-      addMsg('buddy','— tap "Reply to text" to answer any of these —');
+      addMsg('buddy','Tap any message to reply, or say "reply to Jess" and I\'ll sort it.');
     }catch(e){ smsSub.textContent='Add backend in settings'; }
     finally{ busy('smsSub',false); }
   }
-  async function replyText(){
-    if(!lastTexts.length){ // fetch first if not loaded
+  // Batch 107: replying by voice. The old flow used two typed prompts, which is
+  // the wrong shape when you're wearing glasses. Now: tap who, speak the reply,
+  // confirm before it goes — because an SMS can't be unsent.
+  async function replyText(preNumber, preMessage){
+    if(!lastTexts.length){
       const {status,data}=await api('/sms/recent').catch(()=>({status:0,data:{}}));
-      if(status===501){ say('Texts aren\'t set up yet.'); return; }
+      if(status===501){ const m="Texts aren't set up yet — add your iCloud details in Service keys."; addMsg('buddy',m); say(m); return; }
       lastTexts=(data&&data.messages)||[];
     }
-    if(!lastTexts.length){ say("No texts to reply to. Or type a number to send a new one."); }
-    const list=lastTexts.slice(0,6).map((m,i)=>`${i+1}. ${m.number}: ${m.text.slice(0,40)}`).join('\n');
-    const pick=prompt(`Which text to reply to? Type a number (1-${Math.min(6,lastTexts.length)||1})\n\n${list}\n\n(or type a full phone number to send a new SMS)`);
-    if(!pick) return;
-    let number;
-    if(/^\d{1,2}$/.test(pick.trim()) && lastTexts[Number(pick)-1]) number=lastTexts[Number(pick)-1].number;
-    else number=pick.replace(/[^\d+]/g,'');
-    if(!number){ say("Didn't catch which number."); return; }
-    const message=prompt(`Your reply to ${number}:\n(speak it, or type — Vision adds your sign-off)`);
+    let number=preNumber;
+    if(!number){
+      const opts=lastTexts.slice(0,6).map((m,i)=>({
+        label:`${m.number} — "${String(m.text).slice(0,32)}${m.text.length>32?'…':''}"`, value:m.number }));
+      opts.push({label:'📱 A different number',value:'__other'});
+      const chosen=await pick('Reply to who?', opts);
+      if(!chosen) return;
+      number = chosen==='__other' ? (prompt('Number to text:','')||'').replace(/[^\d+]/g,'') : chosen;
+      if(!number) return;
+    }
+    let message=preMessage;
+    if(!message){
+      message=await new Promise(resolve=>{
+        openChat();
+        const el=addMsg('buddy',`What should I say to ${number}?`);
+        const mic=document.createElement('div');
+        mic.style.cssText='margin-top:8px;padding:12px 14px;border-radius:12px;background:rgba(245,166,35,.18);'+
+          'border:1px solid rgba(245,166,35,.45);font-weight:700;text-align:center;cursor:pointer';
+        mic.textContent='🎤 Say it';
+        mic.onclick=()=>{
+          const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+          if(!SR){ mic.textContent='Voice not available — type instead'; return; }
+          mic.textContent='🎙️ Listening…';
+          try{ const r=new SR(); r.lang='en-AU'; r.interimResults=false;
+            r.onresult=e=>{ mic.textContent='🎤 Say it'; resolve(e.results[0][0].transcript.trim()); };
+            r.onerror=()=>{ mic.textContent='Didn\'t catch that — tap to retry'; };
+            r.start();
+          }catch(e){ mic.textContent='Mic failed'; }
+        };
+        const typ=document.createElement('div');
+        typ.style.cssText='margin-top:6px;padding:10px;text-align:center;opacity:.6;font-size:14px;cursor:pointer';
+        typ.textContent='⌨️ type it instead';
+        typ.onclick=()=>{ const v=prompt(`Your text to ${number}:`,''); if(v) resolve(v.trim()); };
+        el.appendChild(mic); el.appendChild(typ); scrollChat();
+      });
+    }
     if(!message) return;
-    openChat(); addMsg('me',`↩️ To ${number}: ${message}`);
-    const t=addMsg('buddy','Sending your text…','think');
-    try{
-      const {status,data}=await api('/sms/send',{number,message});
-      t.classList.remove('think');
-      if(status===200 && data.ok){ t.textContent=`Sent to ${number} ✓`; say('Text sent.'); }
-      else if(status===501){ t.textContent='Texts aren\'t set up in the backend yet.'; }
-      else t.textContent='Couldn\'t send — try again.';
-    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't send — try again."; }
+    // An SMS can't be unsent — always read it back before it goes.
+    openChat();
+    const confirm_=addMsg('buddy',`To ${number}:\n"${message}"`);
+    confirm_.classList.add('flash');
+    say(`To ${number}. ${message}. Send it?`);
+    [['✅ Send it','go'],['✏️ Say it again','redo'],['✖️ Cancel','no']].forEach(([label,act])=>{
+      const b=document.createElement('div');
+      b.style.cssText='margin-top:6px;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+      b.textContent=label;
+      b.onclick=async()=>{
+        if(act==='no'){ confirm_.textContent='✖️ Not sent.'; return; }
+        if(act==='redo'){ confirm_.textContent='Righto — try again.'; return replyText(number); }
+        confirm_.textContent=`Sending to ${number}…`;
+        try{
+          const {status,data}=await api('/sms/send',{number,message});
+          if(status===200&&data.ok){
+            confirm_.textContent=`✅ Sent to ${number}`;
+            say('Sent.');
+            api('/memory',{action:'add',text:`texted ${number}: ${message.slice(0,80)}`}).catch(()=>{});
+          } else if(status===501) confirm_.textContent="Texts aren't set up in the backend yet.";
+          else confirm_.textContent="Couldn't send — try again.";
+        }catch(e){ confirm_.textContent="Couldn't send — try again."; }
+        scrollChat();
+      };
+      confirm_.appendChild(b);
+    });
+    scrollChat();
   }
 
   // ---- Call receptionist: OFF by default, toggle for later (needs TelTel routing) ----
