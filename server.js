@@ -83,7 +83,34 @@ function requireAuth(req, res, next) {
 }
 
 // Forward a non-streaming request to Claude and return the raw JSON.
+// --- USAGE METER (batch 48): count every token the server actually spends.
+// ESTIMATE ONLY — your Anthropic key can't read the real balance (needs an
+// admin key), so console.anthropic.com stays the source of truth for the bill.
+const usageTotals = {}; // model -> { calls, inTok, outTok }
+function recordUsage(model, u) {
+  if (!u) return;
+  const m = usageTotals[model] = usageTotals[model] || { calls: 0, inTok: 0, outTok: 0 };
+  m.calls++; m.inTok += u.input_tokens || 0; m.outTok += u.output_tokens || 0;
+}
+// USD per MTok (input, output) — update if Anthropic pricing changes.
+const PRICES = { "claude-haiku-4-5-20251001": [1, 5], "claude-sonnet-4-6": [3, 15] };
+function usdEstimate() {
+  let total = 0;
+  for (const [m, u] of Object.entries(usageTotals)) {
+    const [pi, po] = PRICES[m] || [3, 15];
+    total += (u.inTok / 1e6) * pi + (u.outTok / 1e6) * po;
+  }
+  return total;
+}
+
+// Rolling logs (batch 49): real-traffic brain latency + perf-run history.
+// In-memory, resets on redeploy — durable logging needs the persistent-store
+// upgrade (same missing piece as durable memory).
+const brainLog = []; // {at, model, ms} cap 200 — EVERY real Claude call
+const perfLog = [];  // {at, ok, worst} cap 30 — each /perf run
+
 async function callClaude(body) {
+  const _t0 = Date.now();
   const r = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: {
@@ -94,6 +121,7 @@ async function callClaude(body) {
     body: JSON.stringify(body),
   });
   const text = await r.text();
+  try { const j = JSON.parse(text); if (r.status === 200) trackUsage(body.model, j.usage); } catch {}
   return { status: r.status, text };
 }
 
@@ -868,6 +896,7 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"tripbudget\" (what will the trip cost, how much do I need for X days in Y, daily budget for a country; args: destination, days, style), " +
       "\"esim\" (data/eSIM/SIM card for a country, how do I get internet there, roaming options; args: country), " +
       "\"livelook\" (live look / watch what I'm seeing / narrate the scene / keep looking and tell me what's there — continuous camera narration on or off; args: none), " +
+      "\"readpage\" (read/summarise a link or web page — any message containing a URL to read, 'read this', 'summarise this page'; args: url), " +
       "\"call\" (call/phone/ring a number; args: number), " +
       "\"text\" (text/message/SMS a number; args: number, message). " +
       "Pick the single best skill. Judge INTENT, not just keywords — infer what Shaun actually wants to happen. Use the recent conversation to resolve short follow-ups and fill in args. If he's acting on something just discussed (take me there, the closest, book it, yes), pick the skill that continues that thread. Only use \"chat\" when nothing else genuinely fits. Set confidence honestly: 0.8+ when intent is clear, lower when guessing. " +
@@ -952,6 +981,8 @@ app.post("/chat", requireAuth, async (req, res) => {
     let reply = "";
     try {
       const j = JSON.parse(raw);
+      if (j && j.usage) recordUsage(model, j.usage);
+      trackUsage(model, j.usage);
       reply = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
       // If reply is empty, surface WHY (stop_reason / error / raw) so we can see it.
       if (!reply) {
@@ -1047,6 +1078,24 @@ app.post("/directions", requireAuth, async (req, res) => {
 //   type   -> Places type filter ("restaurant","atm","hospital"...)
 //   radius -> meters (default 1500)
 // Returns: { places: [{ name, address, lat, lng, rating, openNow, types, placeId }] }
+// AviationStack free tier rejects HTTPS (paid feature) — try https first,
+// fall back to plain http so a valid free key still works.
+async function aviationFetch(params) {
+  for (const scheme of ["https", "http"]) {
+    try {
+      const u = new URL(`${scheme}://api.aviationstack.com/v1/flights`);
+      for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+      const r = await fetch(u);
+      const j = await r.json().catch(() => null);
+      // free-tier https rejection comes back as an error object, not a 200 list
+      if (r.status === 200 && j && !j.error) return { ok: true, json: j };
+      if (j && j.error && /https|access_restricted|function_access/i.test(JSON.stringify(j.error)) && scheme === "https") continue;
+      return { ok: false, json: j, status: r.status };
+    } catch (e) { if (scheme === "http") return { ok: false, error: String(e) }; }
+  }
+  return { ok: false };
+}
+
 // --- Maps depth helpers (batch 36) ---
 function haversineM(lat1, lng1, lat2, lng2) {
   const R = 6371000, toR = d => d * Math.PI / 180;
@@ -1196,13 +1245,9 @@ app.post("/flight", requireAuth, async (req, res) => {
   const { flightIata } = req.body || {};
   if (!flightIata) return res.status(400).json({ error: "flightIata required" });
 
-  const url = new URL("https://api.aviationstack.com/v1/flights");
-  url.searchParams.set("access_key", FLIGHT_KEY);
-  url.searchParams.set("flight_iata", flightIata);
-
   try {
-    const r = await fetch(url);
-    const data = await r.json();
+    const av = await aviationFetch({ access_key: FLIGHT_KEY, flight_iata: flightIata });
+    const data = av.json || {};
     const f = (data.data || [])[0];
     if (!f) return res.json({ found: false, spoken: "I couldn't find that flight, Shaun — double-check the number?" });
 
@@ -1404,9 +1449,8 @@ app.get("/health", requireAuth, async (req, res) => {
     }),
     time("flight", async () => {
       if (!FLIGHT_KEY) return null;
-      const u = new URL("https://api.aviationstack.com/v1/flights");
-      u.searchParams.set("access_key", FLIGHT_KEY); u.searchParams.set("limit", "1");
-      const r = await fetch(u); return r.status === 200;
+      const av = await aviationFetch({ access_key: FLIGHT_KEY, limit: "1" });
+      return av.ok;
     }),
     time("weather", async () => {
       // Open-Meteo needs no key; proves outbound network for weather.
@@ -2077,6 +2121,153 @@ app.get("/routecheck", async (req, res) => {
     <p style="opacity:.7">${Date.now() - t0} ms total. Red rows = phrasings that would get a mismatched answer in the app.</p>
     <table cellpadding="6" style="border-collapse:collapse;font-size:14px">${rows.join("")}</table>
   </body></html>`);
+});
+
+// --- PERFORMANCE DASHBOARD (batch 48): /perf?tok=YOUR_TOKEN ---
+// Latency meters for EVERY api + system Vision touches, model-switch table,
+// OpenVision integration status, and the token/spend estimate since deploy.
+// Each run makes ~4 tiny model calls (cents territory). Bars: green <500ms,
+// amber <1500ms, red beyond.
+app.get("/perf", async (req, res) => {
+  if ((req.query.tok || "") !== APP_TOKEN) return res.status(401).send("unauthorized — add ?tok=your token");
+  const t0 = Date.now();
+  const lanes = [];
+  const lane = async (name, fn) => {
+    const s = Date.now();
+    try { const ok = await fn(); lanes.push({ name, ms: Date.now() - s, ok: ok !== false, note: ok === null ? "not set up" : "" }); }
+    catch (e) { lanes.push({ name, ms: Date.now() - s, ok: false, note: String(e.message || e).slice(0, 60) }); }
+  };
+  const base = `http://127.0.0.1:${PORT}`;
+  const auth = { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" };
+
+  await lane("Server (self ping)", async () => (await fetch(`${base}/ping`)).ok);
+  await lane("Claude — Haiku (fast lane)", async () => (await callClaude({ model: "claude-haiku-4-5-20251001", max_tokens: 1, messages: [{ role: "user", content: "hi" }] })).status === 200);
+  await lane("Claude — Sonnet (smart lane)", async () => (await callClaude({ model: "claude-sonnet-4-6", max_tokens: 1, messages: [{ role: "user", content: "hi" }] })).status === 200);
+  await lane("OpenVision shim (native path)", async () => {
+    const r = await fetch(`${base}/v1/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ messages: [{ role: "user", content: "Reply: ok" }], max_tokens: 5 }) });
+    return r.ok;
+  });
+  await lane("OpenAI fallback", async () => {
+    if (!OPENAI_FALLBACK_KEY) return null;
+    const r = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_FALLBACK_KEY}` }, body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }) });
+    return r.ok;
+  });
+  await lane("Google Maps", async () => {
+    if (!GMAPS_KEY) return null;
+    const u = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    u.searchParams.set("address", "Brisbane"); u.searchParams.set("key", GMAPS_KEY);
+    return (await (await fetch(u)).json()).status === "OK";
+  });
+  await lane("Weather (Open-Meteo)", async () => (await fetch("https://api.open-meteo.com/v1/forecast?latitude=-27.5&longitude=153&current=temperature_2m")).ok);
+  await lane("Currency (Frankfurter)", async () => (await fetch("https://api.frankfurter.app/latest?from=AUD&to=USD")).ok);
+  await lane("Flights (AviationStack)", async () => { if (!FLIGHT_KEY) return null; return (await aviationFetch({ access_key: FLIGHT_KEY, limit: "1" })).ok; });
+  await lane("Email (iCloud IMAP)", async () => { if (!mailReady()) return null; return await withInbox(async () => true); });
+
+  // Model-switch table — pure logic, zero cost.
+  const samples = ["what's the weather", "hi", "explain why the baht is falling", "plan my day in Hanoi", "log 15 for lunch", "compare grab and taxis", "translate a menu", "how far is the beach"];
+  const switches = samples.map(p => `<tr><td>${p}</td><td>${(visionFlags.saver ? "claude-haiku-4-5-20251001 (saver)" : pickModel(p, null)).replace("claude-", "")}</td></tr>`).join("");
+
+  // Usage + spend estimate since deploy.
+  const upMin = Math.round(process.uptime() / 60);
+  const rows = Object.entries(usageTotals).map(([m, u]) =>
+    `<tr><td>${m.replace("claude-", "")}</td><td>${u.calls}</td><td>${u.inTok.toLocaleString()}</td><td>${u.outTok.toLocaleString()}</td></tr>`).join("") || "<tr><td colspan=4>no calls yet this deploy</td></tr>";
+
+  const bar = l => {
+    const w = Math.min(100, Math.round(l.ms / 25));
+    const col = !l.ok ? "#e33" : l.note === "not set up" ? "#888" : l.ms < 500 ? "#3c8" : l.ms < 1500 ? "#F5A623" : "#e33";
+    const tag = l.note === "not set up" ? "⚪ not set up" : l.ok ? `${l.ms} ms` : `❌ ${l.note || "down"}`;
+    return `<div style="margin:7px 0"><div style="display:flex;justify-content:space-between"><span>${l.name}</span><b>${tag}</b></div>
+      <div style="background:rgba(255,255,255,.08);border-radius:6px;height:10px"><div style="width:${l.note === "not set up" ? 3 : w}%;background:${col};height:10px;border-radius:6px"></div></div></div>`;
+  };
+
+  // log this run for the timeline
+  const worst = lanes.filter(l => l.note !== "not set up").reduce((a, l) => Math.max(a, l.ms), 0);
+  perfLog.push({ at: Date.now(), ok: lanes.every(l => l.ok), worst });
+  if (perfLog.length > 30) perfLog.shift();
+
+  // SVG timeline of REAL brain traffic (last 200 calls), colored by model
+  const W = 340, H = 110;
+  const maxMs = Math.max(600, ...brainLog.map(p => p.ms));
+  const pt = (p, i) => `${(i / Math.max(1, brainLog.length - 1) * (W - 10) + 5).toFixed(1)},${(H - 8 - (p.ms / maxMs) * (H - 20)).toFixed(1)}`;
+  const line = model => brainLog.map((p, i) => p.model === model ? pt(p, i) : null).filter(Boolean).join(" ");
+  const chart = brainLog.length < 2 ? "<p style='opacity:.6'>No traffic logged yet this deploy — use Vision, then refresh.</p>" :
+    `<svg width="${W}" height="${H}" style="background:rgba(255,255,255,.04);border-radius:10px">
+      <text x="6" y="14" fill="#888" font-size="10">${maxMs}ms</text>
+      <text x="6" y="${H - 2}" fill="#888" font-size="10">0</text>
+      <polyline points="${line("claude-haiku-4-5-20251001")}" fill="none" stroke="#3c8" stroke-width="2"/>
+      <polyline points="${line("claude-sonnet-4-6")}" fill="none" stroke="#F5A623" stroke-width="2"/>
+    </svg>
+    <p style="font-size:12px;opacity:.7"><span style="color:#3c8">━ Haiku (fast)</span> · <span style="color:#F5A623">━ Sonnet (smart)</span> · last ${brainLog.length} real calls</p>`;
+
+  // per-model latency stats from real traffic
+  const stat = model => {
+    const xs = brainLog.filter(p => p.model === model).map(p => p.ms);
+    if (!xs.length) return null;
+    xs.sort((a, b) => a - b);
+    return { n: xs.length, avg: Math.round(xs.reduce((a, b) => a + b, 0) / xs.length), p50: xs[Math.floor(xs.length * .5)], worst: xs[xs.length - 1] };
+  };
+  const statRows = ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"].map(m => {
+    const st = stat(m); if (!st) return "";
+    return `<tr><td>${m.replace("claude-", "")}</td><td>${st.n}</td><td>${st.avg}ms</td><td>${st.p50}ms</td><td>${st.worst}ms</td></tr>`;
+  }).join("") || "<tr><td colspan=5>no traffic yet</td></tr>";
+
+  // perf-run timeline
+  const runRows = perfLog.slice().reverse().map(r =>
+    `<tr><td>${new Date(r.at).toLocaleTimeString("en-AU", { timeZone: "Australia/Brisbane" })}</td><td>${r.ok ? "✅ all up" : "⚠️ issue"}</td><td>worst ${r.worst}ms</td></tr>`).join("");
+
+  res.type("html").send(`<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+  <body style="font-family:system-ui;background:#0B1026;color:#EAE6DA;padding:18px;line-height:1.5">
+    <h2>⚡ Vision performance</h2>
+    <h3>Brain latency — real traffic timeline</h3>${chart}
+    <table cellpadding="5" style="font-size:13px"><tr><th>model</th><th>calls</th><th>avg</th><th>median</th><th>worst</th></tr>${statRows}</table>
+    <p style="opacity:.7">Full sweep took ${Date.now() - t0} ms · <a style="color:#F5A623" href="/perf?tok=${req.query.tok}">run again</a> (~4 tiny model calls per run)</p>
+    <h3>Latency — every system</h3>${lanes.map(bar).join("")}
+    <h3>Check history (this deploy)</h3>
+    <table cellpadding="5" style="font-size:13px">${runRows || "<tr><td>first run</td></tr>"}</table>
+    <h3>When the brain switches models</h3>
+    <table cellpadding="5" style="font-size:14px;border-collapse:collapse">${switches}</table>
+    <p style="opacity:.6;font-size:13px">Haiku = fast lane, Sonnet = smart lane. Battery saver ${visionFlags.saver ? "is ON — everything forced to Haiku" : "off — routing is automatic"}.</p>
+    <h3>Usage & spend (since deploy, ${upMin} min ago)</h3>
+    <table cellpadding="5" style="font-size:14px"><tr><th>model</th><th>calls</th><th>tokens in</th><th>tokens out</th></tr>${rows}</table>
+    <p><b>Estimated spend this deploy: $${usdEstimate().toFixed(4)} USD</b></p>
+    <p style="opacity:.6;font-size:13px">Estimate from actual token counts. Your API key can't read the real balance — console.anthropic.com is the bill.</p>
+    <h3>OpenVision integration</h3>
+    <p style="font-size:14px">Trip-state sync: ${lastWebBrief ? `fresh (${Math.round((Date.now() - lastWebBrief.at) / 60000)} min old)` : "not primed yet — use the web app once"}<br>
+    Modes: whisper ${visionFlags.whisper ? "ON" : "off"} · quiet ${visionFlags.quiet ? "ON" : "off"} · saver ${visionFlags.saver ? "ON" : "off"}</p>
+  </body></html>`);
+});
+
+// --- 🔗 READPAGE (batch 50): the web-possible slice of the Vision Browser.
+// Shaun pastes any link; server fetches the page (no CORS wall server-side),
+// strips it to text, Haiku summarises. The native Safari extension makes this
+// automatic later — this is the manual version, working today.
+app.post("/readpage", requireAuth, async (req, res) => {
+  const { url } = req.body || {};
+  if (!url) return res.status(400).json({ error: "url required" });
+  let u;
+  try { u = new URL(url); } catch { return res.status(400).json({ error: "bad url" }); }
+  // SSRF guard: public http(s) only — never the server's own network.
+  if (!/^https?:$/.test(u.protocol) || /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(u.hostname))
+    return res.status(400).json({ error: "blocked url" });
+  try {
+    const r = await fetch(u, { redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (VisionReader)" } });
+    const html = await r.text();
+    const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || u.hostname;
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ").replace(/&[a-z#\d]+;/gi, " ").replace(/\s+/g, " ").trim().slice(0, 8000);
+    if (text.length < 200) return res.status(422).json({ error: "page_unreadable", title });
+    const body = {
+      model: "claude-haiku-4-5-20251001", max_tokens: 400,
+      system: "You are Vision, summarising a web page aloud for Shaun. JSON only: {\"spoken\": \"2-3 sentence summary of what actually matters\", \"points\": [\"up to 4 short key points\"]}. No markdown.",
+      messages: [{ role: "user", content: `Page: ${title}\n\n${text}` }],
+    };
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "summarise_failed" });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300), points: [] }; }
+    res.json({ title, spoken: p.spoken || "", points: Array.isArray(p.points) ? p.points.slice(0, 4) : [] });
+  } catch (e) { res.status(502).json({ error: "fetch_failed" }); }
 });
 
 app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));

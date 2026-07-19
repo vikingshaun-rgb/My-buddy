@@ -275,6 +275,7 @@
   <div class="grid">
     <div class="tile" onclick="landmarkLook()"><span class="badge live">live</span><div class="ic">🏛️</div><h3>What is this place?</h3><p>Landmark &amp; history</p></div>
     <div class="tile" onclick="liveLook()"><span class="badge live">live</span><div class="ic">👁️</div><h3>Live look</h3><p>Vision narrates the scene</p></div>
+    <div class="tile" onclick="readPage()"><span class="badge live">live</span><div class="ic">🔗</div><h3>Read a link</h3><p>Paste → summary, saved</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
     <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>Translate offline</h3><p>No signal — opens Google</p></div>
@@ -575,6 +576,30 @@
   // Wake-lock helpers exist for live location; reuse if present, no-op if not.
   function keepAwakeSafe(){ try{ if(typeof keepAwake==='function') keepAwake(); }catch(e){} }
   function releaseAwakeSafe(){ try{ if(typeof releaseAwake==='function') releaseAwake(); }catch(e){} }
+
+  // 🔗 Read a link (batch 50): paste any URL — Vision fetches it server-side,
+  // summarises, speaks, and remembers it. Manual version of the future Safari
+  // extension.
+  async function readPage(url){
+    if(!url){ url=prompt('Paste the link to read:'); }
+    if(!url) return;
+    openChat(); addMsg('me','🔗 '+url.slice(0,80));
+    const t=addMsg('buddy','Reading the page…','think');
+    try{
+      const {ok,status,data}=await api('/readpage',{url});
+      t.remove();
+      if(status===422){ const m="That page wouldn't let me read it — some sites block readers. Try another link?"; addMsg('buddy',m); say(m); return; }
+      if(!ok||!data.spoken){ addMsg('buddy','Couldn\'t read that page — try again?'); return; }
+      addMsg('buddy','📄 '+data.title);
+      addMsg('buddy',data.spoken); say(data.spoken);
+      (data.points||[]).forEach(p=>addMsg('buddy','• '+p));
+      try{ const pages=JSON.parse(localStorage.getItem('buddy_pages')||'[]');
+        pages.push({title:data.title,url,summary:data.spoken,at:Date.now()});
+        while(pages.length>20) pages.shift();
+        localStorage.setItem('buddy_pages',JSON.stringify(pages)); }catch(e){}
+      brain.lastTopic='readpage'; brain.save(); renderGlance();
+    }catch(e){ t.remove(); addMsg('buddy','Couldn\'t read that page — try again?'); }
+  }
 
   // Shrink an image file to maxPx on its longest side, return a JPEG data URL.
   function shrinkImage(file, maxPx){
@@ -2099,6 +2124,7 @@
       if(skill==='tripbudget'){ await tripBudget(a); return true; }
       if(skill==='esim'){ await esimInfo(a); return true; }
       if(skill==='livelook'){ liveLook(); return true; }
+      if(skill==='readpage'){ const m=(a.url||original||'').match(/https?:\/\/\S+/); await readPage(m?m[0]:a.url); return true; }
       if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
       if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
     }catch(e){ /* fall back to chat */ }
