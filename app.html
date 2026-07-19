@@ -806,8 +806,16 @@
 
   <div class="group" onclick="toggleCat(this)"><h2>Settings</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
-    <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Settings</h3><p>Backend, themes &amp; more</p></div>
+    <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">🔌</div><h3>Connection</h3><p>Server, token & colours</p></div>
     <div class="tile" onclick="chooseLooks()"><span class="badge live">live</span><div class="ic">🎨</div><h3>Looks</h3><p>Orb & background</p></div>
+    <div class="tile" onclick="readMenu()"><span class="badge live">live</span><div class="ic">🍽️</div><h3>Read a menu</h3><p>Safe picks & prices</p></div>
+    <div class="tile" onclick="bookingsView('')"><span class="badge live">live</span><div class="ic">🎫</div><h3>My bookings</h3><p>Refs, times, seats</p></div>
+    <div class="tile" onclick="docsView()"><span class="badge live">live</span><div class="ic">📋</div><h3>Documents</h3><p>Insurance & embassy</p></div>
+    <div class="tile" onclick="recallConversation('')"><span class="badge live">live</span><div class="ic">🗣️</div><h3>Conversations</h3><p>What we agreed</p></div>
+    <div class="tile" onclick="keysView()"><span class="badge live">live</span><div class="ic">🔑</div><h3>Service keys</h3><p>Set & test from here</p></div>
+    <div class="tile" onclick="memoryHealth()"><span class="badge live">live</span><div class="ic">🧠</div><h3>What I know</h3><p>Durable facts, editable</p></div>
+    <div class="tile" onclick="logBug('')"><span class="badge live">live</span><div class="ic">🐞</div><h3>Log a bug</h3><p>Captures the context</p></div>
+    <div class="tile" onclick="bugsView()"><span class="badge live">live</span><div class="ic">📋</div><h3>Bug log</h3><p>Copy for Claude</p></div>
     <div class="tile" onclick="diagView('all')"><span class="badge live">live</span><div class="ic">🔍</div><h3>Diagnostics</h3><p>Logs for testing</p></div>
     <div class="tile" onclick="runHealth(true)" data-tip="status"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
     <div class="tile" onclick="location.href='./trainer.html'"><span class="badge live">live</span><div class="ic">🎓</div><h3>Learn commands</h3><p>Practice out loud</p></div>
@@ -831,6 +839,10 @@
       <div class="modeToggle">
         <button id="modeDark" onclick="setMode('dark')">🌙 Dark</button>
         <button id="modeLight" onclick="setMode('light')">☀️ Light</button>
+      </div>
+      <div style="margin-top:14px">
+        <div style="opacity:.6;font-size:12px;margin-bottom:8px">ORB, BACKGROUND & FONT</div>
+        <button onclick="closeSettings(); setTimeout(chooseLooks,320)" style="width:100%">🎨 Open Looks…</button>
       </div>
 
       <div class="row">
@@ -888,6 +900,24 @@
     get url(){ return localStorage.getItem('ap_url')||localStorage.getItem('buddy_url')||'' },
     get tok(){ return localStorage.getItem('ap_tok')||localStorage.getItem('buddy_tok')||'' },
   };
+  // ZERO-CONFIG (batch 83): the app is served from your own site, so it can
+  // simply ask that site for its settings. Drop a config.json next to app.html
+  // and anyone who opens the link is connected — nothing to type, no token to
+  // pass around by hand. Personal data still stays per-device.
+  async function autoConfig(){
+    if(cfg.url&&cfg.tok) return true;              // already set up
+    try{
+      const r=await fetch('config.json?v='+Date.now(),{cache:'no-store'});
+      if(!r.ok) return false;
+      const c=await r.json();
+      if(c && c.url && c.token){
+        localStorage.setItem('ap_url', String(c.url).trim().replace(/\/$/,''));
+        localStorage.setItem('ap_tok', String(c.token).trim());
+        return true;
+      }
+    }catch(e){}
+    return false;
+  }
   function openSettings(){
     try{ history.pushState({vision:'layer'},''); }catch(e){} updateBackBtn(); inUrl.value=cfg.url; inTok.value=cfg.tok; buildSwatches(); sheet.classList.add('open'); }
   function closeSettings(){ sheet.classList.remove('open'); }
@@ -1206,6 +1236,522 @@
       scrollChat();
     }catch(e){ settle(t,'Day view unreachable — is the brain deployed?'); }
   }
+  // 🧠 MEMORY HEALTH (batch 94): see what Vision has distilled into durable
+  // truths about you — and correct anything it got wrong. Memory you can't
+  // inspect isn't yours.
+  async function memoryHealth(){
+    openChat(); addMsg('me','🧠 What Vision knows');
+    const t=addMsg('buddy','Checking…','think');
+    try{
+      const {data}=await api('/distil',{action:'status'});
+      const pct=Math.round((data.total/400)*100);
+      settle(t,`🧠 ${data.core} durable facts · ${data.total} memories (${pct}% full)`);
+      if(data.facts&&data.facts.length){
+        addMsg('buddy','These are the things I treat as true about you — tap any to correct it:');
+        data.facts.forEach(f=>{
+          const el=addMsg('buddy','• '+f);
+          el.style.cursor='pointer';
+          el.onclick=async()=>{
+            if(!confirm(`Forget this?\n\n"${f}"`)) return;
+            const {data:r}=await api('/distil',{action:'forget',fact:f.slice(0,30)});
+            el.style.opacity='.4'; el.textContent='✓ forgotten — '+f;
+          };
+        });
+      } else {
+        addMsg('buddy','Nothing distilled yet — I need a few days of use before patterns show.');
+      }
+      if(data.last){
+        addMsg('buddy',`Last tidy-up: ${new Date(data.last.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'})} · +${data.last.promoted} learned, ${data.last.pruned} pruned`);
+      }
+      const run=addMsg('buddy','🧪 Tidy up my memory now'); run.style.cursor='pointer';
+      run.style.cssText+='background:rgba(245,166,35,.18);border:1px solid rgba(245,166,35,.4);font-weight:600';
+      run.onclick=async()=>{
+        run.textContent='Working through it…';
+        const {data:r}=await api('/distil',{});
+        run.textContent = r.skipped ? `Nothing to do — ${r.skipped}`
+          : `✓ Learned ${r.promoted?r.promoted.length:0} new facts, pruned ${r.pruned||0}. ${r.size} memories left.`;
+        if(r.promoted&&r.promoted.length) r.promoted.forEach(f=>addMsg('buddy','✨ '+f));
+        scrollChat();
+      };
+      say(`${data.core} durable facts, ${data.total} memories.`);
+      scrollChat();
+    }catch(e){ settle(t,'Memory health unreachable — is the brain deployed?'); }
+  }
+
+  // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
+  // happening — not just your words. That turns "the orb looked wrong" into
+  // something fixable.
+  const BUILD_VERSION='94';
+  async function logBug(report){
+    if(!report){
+      report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
+      if(!report) return;
+    }
+    openChat(); addMsg('me','🐞 '+report);
+    const t=addMsg('buddy','Capturing what was happening…','think');
+    // Snapshot the state AROUND the moment — this is the valuable part.
+    const msgs=[...document.querySelectorAll('#chatLog .msg')];
+    const lastUser=[...msgs].reverse().find(m=>m.classList.contains('me'));
+    const lastReply=[...msgs].reverse().find(m=>m.classList.contains('buddy'));
+    let diag='';
+    try{
+      const {data}=await api('/diag',{cat:'all',limit:6});
+      if(data&&data.on&&data.lines) diag=data.lines.map(l=>`[${l.cat}] ${l.msg}`).join(' / ');
+    }catch(e){}
+    const snapshot={
+      build:BUILD_VERSION,
+      lastSkill:brain.lastTopic||'',
+      theme:localStorage.buddy_bg||'aurora',
+      orb:localStorage.buddy_orbstyle||'aurora',
+      orb3d:localStorage.buddy_orb3d!=='off',
+      font:localStorage.buddy_font||'auto',
+      lastUser:lastUser?lastUser.textContent.slice(0,160):'',
+      lastReply:lastReply?lastReply.textContent.slice(0,300):'',
+      place:localStorage.getItem('buddy_city')||'',
+      modes:{quiet:localStorage.buddy_quiet==='on',whisper:localStorage.buddy_whisper==='on',saver:localStorage.buddy_saver==='on'},
+      screen:`${window.innerWidth}x${window.innerHeight}`,
+      online:navigator.onLine,
+      diag,
+    };
+    try{
+      const {ok,data}=await api('/bug',{action:'log',report,snapshot});
+      if(!ok||!data.bug){ settle(t,"Couldn't save that — but I've got it on screen at least."); return; }
+      const b=data.bug;
+      const icon = b.verdict==='known-limit'?'ℹ️' : b.verdict==='likely-bug'?'🐞' : '❓';
+      settle(t, `${icon} ${b.spoken||'Logged.'}`);
+      if(b.verdict==='likely-bug') addMsg('buddy','Saved to the bug log — say "my bugs" when you want to send them to Claude.');
+      if(b.spoken) say(b.spoken);
+      scrollChat();
+    }catch(e){ settle(t,"Couldn't reach the brain — try again when you're back online."); }
+  }
+  async function bugsView(){
+    openChat(); addMsg('me','🐞 Bug log');
+    try{
+      const {data}=await api('/bug',{action:'list'});
+      const bugs=data.bugs||[];
+      if(!bugs.length){ const m='No open bugs. Say "log bug" the moment something looks wrong.'; addMsg('buddy',m); say(m); return; }
+      bugs.forEach(b=>{
+        const icon = b.verdict==='known-limit'?'ℹ️' : b.verdict==='likely-bug'?'🐞' : '❓';
+        const el=addMsg('buddy',`${icon} ${new Date(b.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}: ${b.report}${b.forClaude?`\n   → ${b.forClaude}`:''}\n   tap to mark fixed`);
+        el.style.cursor='pointer';
+        el.onclick=async()=>{ if(confirm('Mark as fixed?')){ await api('/bug',{action:'close',id:b.id}); el.style.opacity='.4'; el.textContent='✓ fixed — '+b.report; } };
+      });
+      const copy=addMsg('buddy','📋 Copy all for Claude'); copy.style.cursor='pointer';
+      copy.style.cssText+='background:rgba(245,166,35,.18);border:1px solid rgba(245,166,35,.4);font-weight:600';
+      copy.onclick=async()=>{
+        try{
+          const {data:ex}=await api('/bug',{action:'export'});
+          await navigator.clipboard.writeText(ex.text||'');
+          copy.textContent='✓ Copied — paste it straight to Claude';
+        }catch(e){
+          const {data:ex}=await api('/bug',{action:'export'});
+          copy.textContent='Select and copy this:'; addMsg('buddy',ex.text||'');
+        }
+        scrollChat();
+      };
+      say(`${bugs.length} open bug${bugs.length===1?'':'s'} — tap copy to send them to Claude.`);
+      scrollChat();
+    }catch(e){ addMsg('buddy','Bug log unreachable — is the brain deployed?'); }
+  }
+
+  // 🎯 ORCHESTRATOR (batch 89): one command, the whole journey. Runs what it
+  // can, asks only where a real choice exists, waits where it must hand over,
+  // then carries on. The point is that YOU stop driving every step.
+  let runningPlan=null;
+  async function runPlan(goal){
+    if(runningPlan){ toast('Already working on something — say stop to cancel.'); return; }
+    openChat(); addMsg('me','🎯 '+goal);
+    const t=addMsg('buddy','Working out how to do that…','think');
+    let plan=null;
+    try{
+      const {ok,data}=await api('/plan',{goal, place:localStorage.getItem('buddy_city')||'',
+        country:localStorage.getItem('buddy_country')||''});
+      if(!ok||!data.steps||!data.steps.length){ settle(t,"I couldn't break that into steps — try asking for one thing at a time?"); return; }
+      plan=data;
+    }catch(e){ settle(t,"Couldn't plan that — is the brain deployed?"); return; }
+
+    settle(t, plan.spoken || 'Here we go.');
+    if(plan.spoken) say(plan.spoken);
+    runningPlan={goal, steps:plan.steps, i:0, cancelled:false};
+    await stepPlan();
+  }
+  async function stepPlan(){
+    if(!runningPlan||runningPlan.cancelled) return;
+    const p=runningPlan;
+    p.results = p.results || [];
+    while(p.i < p.steps.length){
+      if(p.cancelled) return;
+      const st=p.steps[p.i];
+      // ASK: a genuine choice — stop and let him decide.
+      if(st.mode==='ask' && st.question){
+        const opts=(st.options||[]).map(o=>({label:o.label,value:o.value!=null?o.value:o.label}));
+        const answer = opts.length ? await pick(st.question, opts) : null;
+        if(answer===null && opts.length){ finishPlan('You called it off — no worries.'); return; }
+        st.args=st.args||{};
+        const SLOT={
+          navigate:'destination', transit:'destination', ride:'destination',
+          nearby:'query', findfood:'query', stay:'area', activities:'area',
+          booktable:'what', timer:'minutes', watcher:'request',
+          whatsapp:'message', tellpartner:'message', flightsearch:'to',
+          currency:'text', scamcheck:'item', menu:'', favourite:'',
+          allergy:'dish', weather:'place', tripplan:'destination', tripbudget:'destination',
+          packlist:'destination', esim:'country', gooddeal:'item', savechat:'tag',
+          recallchat:'query', bookings:'query', logspend:'text', sayphrase:'text',
+        };
+        const slot=SLOT[st.skill];
+        if(slot) st.args[slot]=answer; else st.args.query=answer;
+        st.args.choice=answer;
+        p.results.push(answer);
+      }
+      // RESULTS CARRY FORWARD: {{prev}} means "what the last step produced", so
+      // step 3 can book the place step 1 found without going via memory.
+      if(st.args){
+        const prev = p.results.length ? p.results[p.results.length-1] : '';
+        for(const k of Object.keys(st.args)){
+          if(typeof st.args[k]==='string' && st.args[k].includes('{{prev}}')){
+            st.args[k]=st.args[k].replace(/\{\{prev\}\}/g, prev||'');
+          }
+        }
+      }
+      // Quiet narration: a small line, not a running commentary. Jarvis doesn't
+      // announce every step — he does it and tells you what matters.
+      if(st.why){ const n=addMsg('buddy','· '+st.why); n.style.cssText+='opacity:.55;font-size:13px'; }
+      scrollChat();
+      // HANDOFF: leaves our hands. The PLAN owns the asking from here, so the
+      // pending stays silent and we don't prompt him twice for one action.
+      if(st.mode==='handoff'){
+        p.i++;
+        p.awaitingHandoff=true;
+        localStorage.buddy_planresume=JSON.stringify({goal:p.goal, steps:p.steps, i:p.i, results:p.results});
+        await dispatchSkill(st.skill, st.args||{}, p.goal);
+        const remaining=p.steps.length-p.i;
+        if(remaining>0){
+          const m=`I'll pick this up when you're back — ${remaining} thing${remaining===1?'':'s'} left.`;
+          addMsg('buddy','⏸️ '+m); say(m);
+        } else { finishPlan(''); }
+        return;
+      }
+      // AUTO: just do it, and notice if it got nowhere.
+      p.i++;
+      let worked=true;
+      const before=document.querySelectorAll('#chatLog .msg.buddy').length;
+      try{ worked = await dispatchSkill(st.skill, st.args||{}, p.goal); }
+      catch(e){ worked=false; }
+      // Capture what this step produced, for the next one to use.
+      try{
+        const msgs=[...document.querySelectorAll('#chatLog .msg.buddy')];
+        if(msgs.length>before) p.results.push(msgs[msgs.length-1].textContent.slice(0,120));
+      }catch(e){}
+      // ADAPT: if a lookup found nothing, don't plough on to steps that depend on it.
+      if(worked===false && p.i < p.steps.length){
+        const go=await pick(`That didn't get anywhere. ${p.steps.length-p.i} step${p.steps.length-p.i===1?'':'s'} left — carry on?`,
+          [{label:'▶️ Carry on anyway',value:'go'},{label:'✖️ Stop here',value:'stop'}],{allowSpeech:false,allowType:false});
+        if(go!=='go'){ finishPlan('Stopped there.'); return; }
+      }
+      await new Promise(r=>setTimeout(r,350));
+    }
+    finishPlan('');
+  }
+  function finishPlan(msg){
+    if(msg){ addMsg('buddy',msg); say(msg); }
+    else if(runningPlan){
+      const m='That\'s the lot — anything else?';
+      addMsg('buddy','✅ '+m); say(m);
+      try{ api('/memory',{action:'add',text:'completed plan: '+runningPlan.goal}).catch(()=>{}); }catch(e){}
+    }
+    runningPlan=null;
+    localStorage.removeItem('buddy_planresume');
+    scrollChat();
+  }
+  // Come back after a handoff mid-plan and it picks up where it stopped.
+  async function resumePlan(){
+    try{
+      const raw=localStorage.getItem('buddy_planresume'); if(!raw) return;
+      const saved=JSON.parse(raw);
+      if(!saved||!saved.steps||saved.i>=saved.steps.length){ localStorage.removeItem('buddy_planresume'); return; }
+      openChat();
+      const left=saved.steps.length-saved.i;
+      const m=`Where were we — ${left} step${left===1?'':'s'} left on "${saved.goal}". Carry on?`;
+      const el=addMsg('buddy','🎯 '+m); el.classList.add('flash'); say(m);
+      ['▶️ Carry on','✖️ Drop it'].forEach((label,i)=>{
+        const b=document.createElement('div');
+        b.style.cssText='margin-top:6px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+        b.textContent=label;
+        b.onclick=()=>{ el.textContent = i===0?'▶️ Carrying on…':'✖️ Dropped.';
+          localStorage.removeItem('buddy_planresume');
+          if(i===0){ runningPlan={...saved, cancelled:false, results:saved.results||[]}; stepPlan(); } };
+        el.appendChild(b);
+      });
+      scrollChat();
+    }catch(e){}
+  }
+
+  // ⏸️ PENDING FLOWS (batch 88): Vision holds the thread across a handoff.
+  // It can't pay for you — nobody can — but it waits, then picks the journey
+  // back up when you return, and learns what you actually follow through on.
+  async function handoffWithWait(kind, what, opts){
+    opts=opts||{};
+    let p=null;
+    try{
+      const {data}=await api('/pending',{action:'open',flow:{kind,what,when:opts.when||'',url:opts.url||'',
+        ownedByPlan: !!(runningPlan&&runningPlan.awaitingHandoff)}});
+      p=data&&data.pending;
+    }catch(e){}
+    openChat();
+    const line = opts.spoken || `${what} is ready. Tap to open it — I'll wait here.`;
+    const card=addMsg('buddy','⏸️ '+line);
+    card.classList.add('flash');
+    say(line + " Come back and tell me how it went.");
+    if(opts.go){
+      const btn=document.createElement('div');
+      btn.style.cssText='margin-top:10px;padding:12px 14px;border-radius:12px;background:rgba(245,166,35,.2);'+
+        'border:1px solid rgba(245,166,35,.45);font-weight:700;cursor:pointer;text-align:center';
+      btn.textContent=opts.label||'Open it →';
+      btn.onclick=()=>{ localStorage.buddy_awaiting = p? p.id : ''; opts.go(); };
+      card.appendChild(btn);
+    }
+    // The confirm row — this is what turns a dead end into a continuing journey.
+    const row=addMsg('buddy','When you\'re back:');
+    ['✅ It\'s done','🕓 Still deciding','✖️ Didn\'t do it'].forEach((label,i)=>{
+      const b=document.createElement('div');
+      b.style.cssText='margin-top:6px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+      b.textContent=label;
+      b.onclick=()=>closePending(p&&p.id, i===0?'done':i===1?'waiting':'abandoned', row);
+      row.appendChild(b);
+    });
+    scrollChat();
+    return p;
+  }
+  async function closePending(id, outcome, rowEl){
+    if(!id) return;
+    if(outcome==='waiting'){ if(rowEl) rowEl.textContent='🕓 No rush — I\'ll ask again later.'; return; }
+    let detail='';
+    if(outcome==='done'){
+      const ref=prompt('Any reference or confirmation number? (leave blank to skip)','');
+      if(ref) detail=ref;
+    }
+    if(rowEl) rowEl.textContent = outcome==='done' ? '✅ Noted — nice one.' : '✖️ Fair enough, dropped it.';
+    localStorage.removeItem('buddy_awaiting');
+    try{
+      await api('/pending',{action:'close',id,outcome,detail});
+      if(outcome==='done'){
+        const {data}=await api('/pending',{action:'nextstep',id});
+        if(data&&data.spoken){ addMsg('buddy',data.spoken); say(data.spoken); }
+        (data&&data.moves||[]).slice(0,3).forEach(mv=>{
+          if(mv&&mv.label&&mv.say) brain.suggest('→ '+mv.label, ()=>{
+            const box=document.getElementById('chatText'); if(box){ box.value=mv.say; sendChat(); } });
+        });
+        scrollChat();
+      }
+    }catch(e){}
+  }
+  // On return: if something's still hanging, ask about it before anything else.
+  async function resumePending(){
+    try{
+      const {data}=await api('/pending',{action:'active'});
+      const list=(data&&data.pending)||[];
+      if(!list.length) return;
+      const p=list[0];
+      const mins=Math.round((Date.now()-p.at)/60000);
+      if(mins<1) return;                                  // don't nag instantly
+      openChat();
+      const q=`Back? How did ${p.what||p.kind} go?`;
+      const el=addMsg('buddy','⏸️ '+q); el.classList.add('flash'); say(q);
+      ['✅ Done','🕓 Not yet','✖️ Didn\'t do it'].forEach((label,i)=>{
+        const b=document.createElement('div');
+        b.style.cssText='margin-top:6px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+        b.textContent=label;
+        b.onclick=()=>closePending(p.id, i===0?'done':i===1?'waiting':'abandoned', el);
+        el.appendChild(b);
+      });
+      scrollChat();
+    }catch(e){}
+  }
+
+  // 🍽️ MENU READER (batch 86): photograph a menu, hear what's safe and good.
+  async function readMenu(){
+    const avoid=(localStorage.getItem('buddy_avoid')||'').trim();
+    const f=await pickImageFile(); if(!f) return;
+    openChat(); addMsg('me','🍽️ Read this menu');
+    const t=addMsg('buddy','Reading the menu…','think');
+    try{
+      const b64=await shrinkImage(f,1400);
+      const {ok,data}=await api('/menu',{image:b64.split(',')[1],mediaType:'image/jpeg',
+        avoid, country:localStorage.getItem('buddy_country')||'', budget:''});
+      if(!ok||!data.spoken){ settle(t,"Couldn't read that menu — try a clearer photo?"); return; }
+      settle(t,data.spoken); say(data.spoken);
+      (data.safe||[]).slice(0,6).forEach(d=>addMsg('buddy',`✅ ${d.name}${d.english?` — ${d.english}`:''}${d.price?` · ${d.price}`:''}\n${d.why||''}`));
+      (data.avoid||[]).forEach(d=>addMsg('buddy',`⛔ ${d.name} — ${d.reason}`));
+      (data.unsure||[]).forEach(u=>addMsg('buddy',`❓ ${u}`));
+      if((data.avoid||[]).length||(data.unsure||[]).length){
+        const w='Ask the staff about anything marked with a question mark — I can only read what the menu says.';
+        addMsg('buddy',w); say(w);
+      }
+      scrollChat();
+    }catch(e){ settle(t,"Couldn't read that menu — try again?"); }
+  }
+  // Shared image picker so vision skills stop duplicating this.
+  function pickImageFile(){
+    return new Promise(resolve=>{
+      const i=document.createElement('input');
+      i.type='file'; i.accept='image/*'; i.capture='environment';
+      i.onchange=()=>resolve(i.files&&i.files[0]);
+      i.click();
+    });
+  }
+  // 🗣️ TRANSLATE MEMORY (batch 86)
+  async function saveConversation(tag){
+    if(!window.lastConvoTurns||!lastConvoTurns.length){
+      const m="No conversation to save yet — use translate mode first, then say save that."; addMsg('buddy',m); say(m); return;
+    }
+    if(!tag){
+      tag=await pick('Save this conversation as…',[
+        {label:'🏨 The hotel',value:'hotel'},{label:'🚕 The driver',value:'driver'},
+        {label:'🍽️ The restaurant',value:'restaurant'},{label:'🛍️ The seller',value:'seller'},
+      ]);
+      if(!tag) return;
+    }
+    openChat(); const t=addMsg('buddy','Writing that up…','think');
+    try{
+      const {ok,data}=await api('/convomemory',{action:'save',tag,turns:lastConvoTurns,
+        place:localStorage.getItem('buddy_city')||''});
+      if(!ok){ settle(t,"Couldn't save that conversation."); return; }
+      settle(t,`📝 Saved as "${tag}": ${data.summary}`);
+      (data.commitments||[]).forEach(c=>addMsg('buddy',`🤝 ${c.what} — ${c.detail}`));
+      say(`Saved. ${(data.commitments||[]).length} thing${(data.commitments||[]).length===1?'':'s'} agreed.`);
+      scrollChat();
+    }catch(e){ settle(t,"Couldn't save that conversation."); }
+  }
+  async function recallConversation(query){
+    openChat(); addMsg('me','🗣️ '+(query||'past conversations'));
+    try{
+      const {data}=await api('/convomemory',{action:'recall',query:query||''});
+      const hits=data.hits||[];
+      if(!hits.length){ const m="Nothing saved matching that yet."; addMsg('buddy',m); say(m); return; }
+      hits.forEach(c=>{
+        addMsg('buddy',`📝 ${c.tag}${c.place?` · ${c.place}`:''} · ${new Date(c.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}\n${c.summary}`);
+        (c.commitments||[]).forEach(cm=>{
+          const el=addMsg('buddy',`🤝 ${cm.what} — ${cm.detail}`);
+          if(cm.theirWords){
+            el.style.cursor='pointer';
+            el.onclick=()=>{ const card=addMsg('buddy',`"${cm.theirWords}"\n— ${new Date(c.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}`);
+              card.style.cssText+='font-size:20px;line-height:1.5;padding:16px'; scrollChat(); };
+          }
+        });
+      });
+      const first=hits[hits.length-1];
+      say(first.summary);
+      addMsg('buddy','Tap any agreement to show it in their language.');
+      scrollChat();
+    }catch(e){ addMsg('buddy','Conversation memory unreachable.'); }
+  }
+  // 🎫 BOOKINGS (batch 86)
+  async function bookingsView(query){
+    openChat(); addMsg('me','🎫 My bookings');
+    try{
+      const {data}=await api('/bookings',{action:'find',query:query||''});
+      const list=data.bookings||[];
+      if(data.imminent){ const el=addMsg('buddy','⏰ '+data.imminent); el.classList.add('flash'); }
+      if(!list.length){
+        const m='No bookings saved. After you book something, say "add a booking" and I\'ll keep the reference.';
+        addMsg('buddy',m); say(m);
+      } else {
+        list.forEach(b=>{
+          const el=addMsg('buddy',`🎫 ${b.type||'Booking'}: ${b.what||''}\n${b.when||''}${b.ref?`\nRef: ${b.ref}`:''}${b.notes?`\n${b.notes}`:''} · tap to remove`);
+          el.style.cursor='pointer';
+          el.onclick=async()=>{ if(confirm('Remove this booking?')){ await api('/bookings',{action:'remove',id:b.id}); el.textContent='✓ removed'; } };
+        });
+        say(`${list.length} booking${list.length===1?'':'s'} saved.`);
+      }
+      const add=addMsg('buddy','➕ Add a booking'); add.style.cursor='pointer';
+      add.onclick=()=>addBooking();
+      scrollChat();
+    }catch(e){ addMsg('buddy','Bookings unreachable — is the brain deployed?'); }
+  }
+  async function addBooking(){
+    const type=await pick('What kind of booking?',[
+      {label:'✈️ Flight',value:'Flight'},{label:'🏨 Accommodation',value:'Stay'},
+      {label:'🍽️ Restaurant',value:'Restaurant'},{label:'🎫 Tour or ticket',value:'Ticket'},
+      {label:'🚕 Transfer',value:'Transfer'}]);
+    if(!type) return;
+    const what=prompt(`${type} — what is it? (e.g. "Brisbane to Denpasar", "Villa Ubud")`,''); if(!what) return;
+    const when=prompt('When? (e.g. "12 Sep 9:40am")','')||'';
+    const ref=prompt('Booking reference (optional)','')||'';
+    const notes=prompt('Anything else worth remembering? (seat, terminal, contact)','')||'';
+    const {ok,data}=await api('/bookings',{action:'add',booking:{type,what,when,ref,notes}});
+    const m=ok?`🎫 Saved: ${type} — ${what}${ref?` (${ref})`:''}`:"Couldn't save that.";
+    addMsg('buddy',m); say(ok?'Booking saved.':'That didn\'t save.'); scrollChat();
+  }
+  // 📋 EMERGENCY DOCS (batch 86)
+  async function docsView(){
+    openChat(); addMsg('me','📋 My documents');
+    const LABELS={insurer:'Insurer',policyNumber:'Policy number',insurancePhone:'Insurance phone',
+      embassyPhone:'Embassy phone',embassyAddress:'Embassy address',passportNumber:'Passport number',
+      bloodType:'Blood type',emergencyContact:'Emergency contact',medicalNotes:'Medical notes'};
+    try{
+      const {data}=await api('/docs',{action:'get'});
+      const d=data.docs||{};
+      (data.fields||[]).forEach(f=>{
+        const has=d[f];
+        const el=addMsg('buddy',`${has?'✅':'⚪'} ${LABELS[f]||f}${has?`: ${d[f]}`:' — tap to add'}`);
+        el.style.cursor='pointer';
+        el.onclick=async()=>{
+          const v=prompt(`${LABELS[f]||f}:`, d[f]||'');
+          if(v==null) return;
+          await api('/docs',{action:'set',field:f,value:v});
+          el.textContent = v ? `✅ ${LABELS[f]||f}: ${v}` : `⚪ ${LABELS[f]||f} — tap to add`;
+        };
+      });
+      addMsg('buddy','Stored on your own server. Ask me for any of these when you need them.');
+      say('Your documents are on screen.');
+    }catch(e){ addMsg('buddy','Documents unreachable — is the brain deployed?'); }
+  }
+
+  // 🔑 SERVICE KEYS (batch 84): set API keys from the phone. No Render
+  // dashboard, no redeploy — the server reads them live from durable storage.
+  async function keysView(){
+    openChat(); addMsg('me','🔑 Service keys');
+    try{
+      const {data}=await api('/keys',{});
+      (data.fields||[]).forEach(f=>{
+        const mark = f.set ? (f.source==='app'?'✅':'✅ (Render)') : '⚪';
+        const el=addMsg('buddy',`${mark} ${f.label}\n${f.hint}`);
+        el.style.cursor='pointer';
+        el.onclick=async()=>{
+          const v=await pick(f.label, [
+            {label:'✏️  Set / replace key',value:'set'},
+            ...(f.set?[{label:'🧪  Test it',value:'test'},{label:'🗑️  Clear it',value:'clear'}]:[]),
+          ], {allowSpeech:false, allowType:false});
+          if(v==='set'){
+            const key=prompt(`${f.label}\n\nGet it from: ${f.where}\n\nPaste the key:`,'');
+            if(key==null) return;
+            const r=await api('/keys',{action:'set',id:f.id,value:key});
+            addMsg('buddy', r.data && r.data.set ? `✅ ${f.label} saved — testing…` : `🗑️ ${f.label} cleared.`);
+            if(r.data && r.data.set){
+              const t=await api('/keys',{action:'test',id:f.id});
+              const ok=t.data&&t.data.ok;
+              const m=`${ok?'✅':'❌'} ${f.label}: ${(t.data&&t.data.detail)||'no response'}`;
+              addMsg('buddy',m); say(m);
+            }
+            scrollChat();
+          }
+          if(v==='test'){
+            const t=await api('/keys',{action:'test',id:f.id});
+            const ok=t.data&&t.data.ok;
+            const m=`${ok?'✅':'❌'} ${f.label}: ${(t.data&&t.data.detail)||'no response'}`;
+            addMsg('buddy',m); say(m); scrollChat();
+          }
+          if(v==='clear'){
+            await api('/keys',{action:'set',id:f.id,value:''});
+            addMsg('buddy',`🗑️ ${f.label} cleared.`); scrollChat();
+          }
+        };
+      });
+      addMsg('buddy','Tap any service to set, test or clear its key. ✅ (Render) means it came from an environment variable.');
+      say('Your service keys are on screen — tap one to change it.');
+    }catch(e){ addMsg('buddy','Keys unreachable — is the brain deployed?'); }
+  }
+
   // 🔍 DIAGNOSTICS (batch 70): under Settings, off by default. For testing.
   async function diagView(cat){
     openChat(); addMsg('me','🔍 Diagnostics'+(cat&&cat!=='all'?' · '+cat:''));
@@ -1276,7 +1822,7 @@
     if(document.getElementById('backBtn')) return;
     const b=document.createElement('div');
     b.id='backBtn'; b.textContent='⬅';
-    b.style.cssText='position:fixed;left:14px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:1400;'+
+    b.style.cssText='position:fixed;left:14px;top:calc(12px + env(safe-area-inset-top));z-index:1400;'+
       'width:46px;height:46px;border-radius:50%;background:rgba(20,26,54,.92);color:#fff;'+
       'border:1px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;'+
       'font-size:19px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s;'+
@@ -1498,6 +2044,9 @@
       document.addEventListener('visibilitychange',()=>{
         if(document.hidden){ cancelAnimationFrame(_glRAF); _glRAF=null; }
         else if(_gl&&!_glRAF) draw();
+        // Coming back from another app is exactly when a pending flow resumes.
+        if(!document.hidden && localStorage.buddy_awaiting) setTimeout(resumePending, 800);
+        if(!document.hidden && localStorage.buddy_planresume) setTimeout(resumePlan, 1000);
       });
       if('IntersectionObserver' in window){
         try{
@@ -1590,7 +2139,7 @@
   function applyLooks(){
     setTimeout(applyFont,0);
     const orb=localStorage.buddy_orbstyle||'aurora';
-    let th=localStorage.buddy_theme||'aurora';
+    let th=localStorage.buddy_bg||'aurora';
     if(th==='auto') th=contextTheme();
     if(orb==='aurora') document.body.removeAttribute('data-orb'); else document.body.setAttribute('data-orb',orb);
     if(th==='aurora') document.body.removeAttribute('data-theme'); else document.body.setAttribute('data-theme',th);
@@ -1604,8 +2153,8 @@
   async function chooseTheme(){
     const v=await pick('Pick your background', BG_THEMES, {allowSpeech:false, allowType:false});
     if(!v) return;
-    localStorage.buddy_theme=v; applyLooks();
-    toast('Theme: '+(BG_THEMES.find(o=>o.value===v)||{}).label);
+    localStorage.buddy_bg=v; applyLooks();
+    toast('Background: '+(BG_THEMES.find(o=>o.value===v)||{}).label);
   }
   // ✍️ FONT PACKS (batch 78): each theme has a typeface that suits it.
   // "Match my theme" is the default — the world picks its own lettering.
@@ -1630,7 +2179,7 @@
   function applyFont(){
     let f=localStorage.buddy_font||'auto';
     if(f==='auto'){
-      let th=localStorage.buddy_theme||'aurora';
+      let th=localStorage.buddy_bg||'aurora';
       if(th==='auto') th=contextTheme();
       f=THEME_FONT[th]||'default';
     }
@@ -1649,7 +2198,7 @@
   function applySign(sign){
     const s=String(sign||'').toLowerCase().trim();
     const key=SIGN_WORLDS[s]; if(!key) return false;
-    localStorage.buddy_orbstyle=key; localStorage.buddy_theme=key;
+    localStorage.buddy_orbstyle=key; localStorage.buddy_bg=key;
     applyLooks(); orb3dStart();
     try{ api('/memory',{action:'add',text:'star sign: '+key}).catch(()=>{}); }catch(e){}
     return true;
@@ -1666,7 +2215,7 @@
     if(what==='random'){
       const o=ORB_STYLES[Math.floor(Math.random()*ORB_STYLES.length)].value;
       const t=BG_THEMES[Math.floor(Math.random()*BG_THEMES.length)].value;
-      localStorage.buddy_orbstyle=o; localStorage.buddy_theme=t; applyLooks(); orb3dStart();
+      localStorage.buddy_orbstyle=o; localStorage.buddy_bg=t; applyLooks(); orb3dStart();
       toast('Try this on for size ✨');
     }
   }
@@ -2026,6 +2575,8 @@
     if(dest) acts.push({label:'🗺️ Directions instead', go:()=>openMaps(dest)});
     handoffCard(dest?('Ride to '+dest):'Get a ride','Your card stays in their app — you tap confirm there.',acts);
     say(dest?('Opening a ride to '+dest+'. Confirm it in the app.'):'Which ride app?');
+    if(dest) handoffWithWait('ride', 'ride to '+dest, {
+      spoken:'Once you\'ve booked the ride, tell me and I\'ll track the rest.'});
   }
   // MESSAGES — WhatsApp with the text pre-typed.
   function waHandoff(number, message){
@@ -2050,14 +2601,15 @@
     say('Pulling up transit times for '+dest+'.');
   }
   // BOOKINGS — open the right page, ready to confirm. Honest: no auto-booking.
-  function bookHandoff(what, when, people){
+  async function bookHandoff(what, when, people){
     const q=encodeURIComponent(`${what||'restaurant'} booking ${localStorage.getItem('buddy_city')||''}`.trim());
-    handoffCard('Book '+(what||'a table'),
-      [when?('when: '+when):'',people?(people+' people'):''].filter(Boolean).join(' · ')+' — I can open it; you confirm and pay in their app.',[
-      {label:'🔎 Find & open booking page', go:()=>{ window.location.href=`https://www.google.com/search?q=${q}`; }},
-      {label:'📞 Call the place instead', go:()=>{ const box=document.getElementById('chatText'); if(box){ box.value='find '+(what||'restaurant')+' near me'; sendChat(); } }},
-    ]);
-    say("I can open the booking page — you'll tap confirm there. No app can pay on your behalf.");
+    const label=[what||'a table', when?('· '+when):'', people?('· '+people+' people'):''].filter(Boolean).join(' ');
+    await handoffWithWait('booking', label, {
+      when,
+      spoken:`Booking page for ${label} is ready. You'll confirm and pay there — I'll wait.`,
+      label:'🔎 Open booking page →',
+      go:()=>{ window.location.href=`https://www.google.com/search?q=${q}`; },
+    });
   }
 
   // 🧠 UNIVERSAL MEMORY WRITE (batch 65): a brain that reads memory but never
@@ -2257,7 +2809,7 @@
     }
     // First run: learn who this is (profiles — Jess gets her own Vision).
     if(!localStorage.buddy_myname){
-      const nm=prompt("G'day! What should Vision call you?","Shaun");
+      const nm=prompt("G'day! I'm Vision — what should I call you?","");
       if(nm&&nm.trim()){ localStorage.buddy_myname=nm.trim(); api('/profile',{name:nm.trim()}).catch(()=>{}); }
     }
     const MYNAME=localStorage.buddy_myname||'Shaun';
@@ -3134,6 +3686,7 @@
     const text=prompt(`Speak or type the line (either ${myLang} or ${theirLang}):`); if(!text) return;
     await converseTurn(text,myLang,theirLang);
   }
+  window.lastConvoTurns = window.lastConvoTurns || [];
   async function converseTurn(text,myLang,theirLang){
     addMsg('me',text);
     const t=addMsg('buddy','Translating…','think');
@@ -3144,7 +3697,18 @@
       const note=data.note?`\n${data.note}`:'';
       t.classList.remove('think'); t.textContent=`${data.translation} ${dir}${tone}${note}`;
       say(data.translation);
+      // Batch 86: keep the turns so the conversation can be saved and recalled.
+      try{
+        const incoming = data.direction==='to-me';
+        lastConvoTurns.push({who: incoming?'them':'me', lang: incoming?(data.detected||theirLang):myLang, text});
+        lastConvoTurns.push({who: incoming?'me':'them', lang: incoming?myLang:theirLang, text:data.translation});
+        while(lastConvoTurns.length>40) lastConvoTurns.shift();
+      }catch(e){}
       // offer to continue the back-and-forth
+      if(lastConvoTurns.length>=6 && !converseTurn._offered){
+        converseTurn._offered=true;
+        brain.suggest('→ Save this conversation', ()=>saveConversation());
+      }
       const more=addMsg('buddy','— tap to add the next line —'); more.style.cursor='pointer';
       more.onclick=async()=>{ const n=prompt('Next line:'); if(n){ more.remove(); await converseTurn(n,myLang,theirLang);} };
     }catch(e){ t.classList.remove('think'); t.textContent="Didn't catch that — try again."; }
@@ -3599,11 +4163,18 @@
       t.appendChild(d);
     });
   }
-  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); applyGlassChip(); mountTips(); mountBack(); applyLooks(); applyFont(); orb3dStart(); setInterval(()=>{ if(localStorage.buddy_theme==='auto') applyLooks(); }, 900000); if(lifelogOn()) lifelogStart(); });
+  document.addEventListener('DOMContentLoaded', async ()=>{ await autoConfig(); renderGlance(); heroInit(); applyGlassChip(); mountTips(); mountBack(); applyLooks(); applyFont(); orb3dStart(); resumePending(); resumePlan(); setInterval(()=>{ if(localStorage.buddy_bg==='auto') applyLooks(); }, 900000); if(lifelogOn()) lifelogStart(); });
   function openChat(){
     try{ history.pushState({vision:'layer'},''); }catch(e){} updateBackBtn();
     document.getElementById('chat').classList.add('open');
-    if(chatHistory.length===0){ addMsg('buddy', openingBrief()); watcherNews(); }
+    if(chatHistory.length===0){
+      addMsg('buddy', openingBrief()); watcherNews();
+      // Batch 87: lead with what's imminent — a flight tomorrow matters more
+      // than anything he was about to ask.
+      api('/state').then(({data})=>{
+        if(data&&data.upcoming){ const el=addMsg('buddy','🎫 '+data.upcoming); el.classList.add('flash'); say(data.upcoming); }
+      }).catch(()=>{});
+    }
     setTimeout(()=>document.getElementById('chatText').focus(), 150);
   }
   // Lead with what actually matters right now instead of a generic greeting.
@@ -3804,6 +4375,17 @@
       if(skill==='esim'){ await esimInfo(a); return true; }
       if(skill==='livelook'){ liveLook(); return true; }
       if(skill==='dayview'){ await dayView(a.offset!=null?Number(a.offset):(a.date?0:0)); return true; }
+      if(skill==='memoryhealth'){ await memoryHealth(); return true; }
+      if(skill==='logbug'){ await logBug(a.report||''); return true; }
+      if(skill==='bugs'){ await bugsView(); return true; }
+      if(skill==='plan'){ await runPlan(a.goal||original); return true; }
+      if(skill==='menu'){ await readMenu(); return true; }
+      if(skill==='savechat'){ await saveConversation(a.tag||''); return true; }
+      if(skill==='recallchat'){ await recallConversation(a.query||original); return true; }
+      if(skill==='bookings'){ await bookingsView(a.query||''); return true; }
+      if(skill==='docs'){ await docsView(); return true; }
+      if(skill==='splitbill'){ await splitBill(); return true; }
+      if(skill==='favourite'){ const box=document.getElementById('chatText'); if(box){ box.value='favourite that'; sendChat(); } return true; }
       if(skill==='lifelog'){ await lifelogToday(); return true; }
       if(skill==='spend'){ await spendCheck(); return true; }
       if(skill==='sharedmoments'){ await sharedMoments(); return true; }
@@ -3926,11 +4508,20 @@
     }
     if(m51=text.match(/^(?:go to |show me |give me )?(heaven|hell)(?: mode| theme)?$/i)){
       const w=m51[1].toLowerCase();
-      localStorage.buddy_orbstyle=w; localStorage.buddy_theme=w; applyLooks(); orb3dStart();
+      localStorage.buddy_orbstyle=w; localStorage.buddy_bg=w; applyLooks(); orb3dStart();
       const m = w==='hell' ? 'Welcome to hell, mate. Mind the embers.' : 'Sanctified. Try not to get too comfortable.';
       addMsg('buddy',m); say(m); return;
     }
     if(/^(change|pick|choose) (the )?(font|lettering|typeface)$/i.test(text)){ chooseFont(); return; }
+    if(m51=text.match(/^save (?:that|this)(?: conversation)?(?: as (?:the )?(.{2,30}))?$/i)){
+      saveConversation(m51[1]?m51[1].trim():''); return;
+    }
+    if(/^(stop|cancel)( that| it| the plan)?$/i.test(text) && runningPlan){
+      runningPlan.cancelled=true; finishPlan('Stopped.'); return;
+    }
+    if(m51=text.match(/^(?:log|report)\s*(?:a\s*)?bug\b[:\s-]*(.*)$/i)){ logBug(m51[1].trim()); return; }
+    if(/^(my bugs|bug log|show (me )?(the )?bugs)$/i.test(text)){ bugsView(); return; }
+    if(/^(what do you know|memory health|my memory|tidy (up )?(my )?memory)$/i.test(text)){ memoryHealth(); return; }
     // LOOKS (batch 73)
     if(/^(change|pick|choose|set) (the )?(look|theme|style|orb|background|colou?rs?)$/i.test(text)){ chooseLooks(); return; }
     if(m51=text.match(/^(?:make|set) (?:the )?orb (\w+)$/i)){
@@ -3943,7 +4534,7 @@
     if(m51=text.match(/^(?:set|use|switch to) (?:the )?(\w+) (?:theme|background)$/i)){
       const want=m51[1].toLowerCase();
       const hit=BG_THEMES.find(o=>o.value===want||o.label.toLowerCase().includes(want));
-      if(hit){ localStorage.buddy_theme=hit.value; applyLooks(); const m='Background set to '+hit.label+'.'; addMsg('buddy',m); say(m); }
+      if(hit){ localStorage.buddy_bg=hit.value; applyLooks(); const m='Background set to '+hit.label+'.'; addMsg('buddy',m); say(m); }
       else { const m="I've got aurora, digital, jarvis, matrix, alien, machine and nature."; addMsg('buddy',m); say(m); }
       return;
     }

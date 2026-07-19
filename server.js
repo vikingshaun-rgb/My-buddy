@@ -45,10 +45,18 @@ app.use((req, res, next) => {
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const KEY = process.env.ANTHROPIC_API_KEY;
 const APP_TOKEN = process.env.APP_SHARED_TOKEN;
-const GMAPS_KEY = process.env.GOOGLE_MAPS_API_KEY; // optional
-const FLIGHT_KEY = process.env.AVIATIONSTACK_KEY;  // optional (flight tracking)
-const ICLOUD_USER = process.env.ICLOUD_USER;       // optional (email briefing) e.g. you@icloud.com
-const ICLOUD_APP_PW = process.env.ICLOUD_APP_PW;   // app-specific password (NOT your real password)
+// Optional service keys (batch 84). These are LIVE LOOKUPS, not constants:
+// a key set from the phone lands in the durable store and takes effect on the
+// next request — no redeploy, no Render dashboard. Env vars remain the
+// fallback, so nothing breaks if the store is empty.
+function envKey(name, fallback) {
+  try { if (STORE && STORE.keys && STORE.keys[name]) return STORE.keys[name]; } catch {}
+  return fallback;
+}
+Object.defineProperty(globalThis, "GMAPS_KEY", { get: () => envKey("GOOGLE_MAPS_API_KEY", process.env.GOOGLE_MAPS_API_KEY) });
+Object.defineProperty(globalThis, "FLIGHT_KEY", { get: () => envKey("AVIATIONSTACK_KEY", process.env.AVIATIONSTACK_KEY) });
+Object.defineProperty(globalThis, "ICLOUD_USER", { get: () => envKey("ICLOUD_USER", process.env.ICLOUD_USER) });
+Object.defineProperty(globalThis, "ICLOUD_APP_PW", { get: () => envKey("ICLOUD_APP_PW", process.env.ICLOUD_APP_PW) });
 
 if (!KEY || !APP_TOKEN) {
   console.error("Set ANTHROPIC_API_KEY and APP_SHARED_TOKEN");
@@ -85,7 +93,7 @@ function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: f
 function rememberBrief(uid, b) { if (typeof b === "string" && b.trim()) { STORE.briefs[uid] = { text: b.slice(0, 900), at: Date.now() }; saveStore(); } }
 function briefOf(uid) { return STORE.briefs[uid] || null; }
 
-app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3) }); });
+app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid) }); });
 app.post("/state", requireAuth, (req, res) => {
   const uid = uidOf(req);
   const f = (req.body || {}).flags || {}; const cur = flagsOf(uid);
@@ -596,8 +604,12 @@ function buddyPersona(ctx) {
     // CAPABILITY MANIFEST — without this the brain thinks it's blind and sends
     // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
     ctx.styleLine || "",
+    ctx.core || "",
     ctx.recall || "",
     ctx.recentDays ? `HOW HIS LAST COUPLE OF DAYS WENT (context only, don't recite): ${ctx.recentDays}` : "",
+    ctx.upcoming ? `WHAT'S COMING UP FOR HIM (mention only if relevant): ${ctx.upcoming}` : "",
+    ctx.pending || "",
+    ctx.pending ? `UNFINISHED BUSINESS: ${ctx.pending}` : "",
     "YOUR CAPABILITIES — you are not a text-only chatbot. You sit on top of a working app with real tools:",
     "• Maps & places: you CAN find nearby places (restaurants, cafes, bars, banks, ATMs, pharmacies, shops), give walking/driving/transit directions, look up landmarks, save and return to pinned spots, and walk Shaun back when he's lost. Google Maps is connected.",
     "• Location: you CAN get his current location from the phone.",
@@ -916,8 +928,9 @@ app.post("/route", requireAuth, async (req, res) => {
   const stateNote = (typeof brief === "string" && brief.trim())
     ? `\n\nWhat Vision already knows about Shaun's situation (use it to FILL IN arguments he didn't say out loud — his country, currency, allergies, saved spots, tracked flight):\n${brief.slice(0, 900)}`
     : "";
+  const _core = coreBrief(uidOf(req));
   const recallNote = _recall
-    ? `\n\nWhat Vision REMEMBERS about him that may be relevant (use it to fill in arguments he didn't say — a place he loved, a country he visited, a price he paid, something he photographed):\n${_recall}`
+    ? `${_core ? `\n\n${_core}` : ""}\n\nWhat Vision REMEMBERS about him that may be relevant (use it to fill in arguments he didn't say — a place he loved, a country he visited, a price he paid, something he photographed):\n${_recall}`
     : "";
   const contextNote = hist.length
     ? "\n\nRecent conversation (use it to resolve follow-ups like 'that one', 'the closest', 'a bank instead', 'yes', 'do it' — infer what Shaun means from context):\n" +
@@ -976,6 +989,17 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"livelook\" (live look / watch what I'm seeing / narrate the scene / keep looking and tell me what's there — continuous camera narration on or off; args: none), " +
       "\"readpage\" (read/summarise a link or web page — any message containing a URL to read, 'read this', 'summarise this page'; args: url), " +
       "\"dayview\" (my day / what did I do on X / show me yesterday / my timeline for a date; args: date, offset), " +
+      "\"memoryhealth\" (what do you know about me, memory health, tidy up my memory, what have you learned; args: none), " +
+      "\"logbug\" (log a bug / something's broken / that's wrong / report a problem — anything reporting Vision itself misbehaving; args: report = what he said was wrong), " +
+      "\"bugs\" (my bugs / show the bug log / what have I reported; args: none), " +
+      "\"plan\" (a whole outing in one go — 'sort dinner tonight', 'plan my afternoon', 'organise getting to the airport', 'find me somewhere to eat and get me there' — anything needing SEVERAL steps; args: goal = what he said), " +
+      "\"menu\" (read/translate a menu, what can I eat here, what is good on this menu; args: none — he photographs it), " +
+      "\"savechat\" (save/remember this conversation, save that as the hotel manager, log what we agreed; args: tag), " +
+      "\"recallchat\" (what did the driver say, what did we agree with X, what did the hotel manager promise; args: query), " +
+      "\"bookings\" (my bookings, what have I booked, my reservations, booking reference, add a booking; args: query), " +
+      "\"docs\" (my documents, insurance policy, embassy number, passport number, emergency details; args: none), " +
+      "\"splitbill\" (split the bill, divide the cost, what does each person owe; args: none), " +
+      "\"favourite\" (favourite that, save this place, that place was great; args: none), " +
       "\"lifelog\" (my day / timeline / where have I been / what did I do today; args: none), " +
       "\"spend\" (what has Vision cost / my AI spend / usage bill; args: none), " +
       "\"sharedmoments\" (our moments / what did we do together / shared memories with partner; args: none), " +
@@ -1030,7 +1054,11 @@ app.post("/chat", requireAuth, async (req, res) => {
       name: (typeof b.name === "string" && b.name.trim()) ? b.name.trim().slice(0, 40) : (profileOf(uidOf(req)).name || "Shaun"),
       style: profileOf(uidOf(req)).style || "",
       recall: recallBrief(uidOf(req), message || ""),
+      core: coreBrief(uidOf(req)),
       recentDays: daySummaryBrief(uidOf(req), 2),
+      upcoming: upcomingBrief(uidOf(req)),
+      pending: pendingBrief(uidOf(req)),
+      pending: pendingBrief(uidOf(req)),
     };
     rememberBrief(uidOf(req), ctx.brief);
 
@@ -2045,6 +2073,9 @@ app.post("/v1/chat/completions", requireAuth, async (req, res) => {
   const b = req.body || {};
   const oaiMessages = Array.isArray(b.messages) ? b.messages : [];
   try {
+    // Fast path: real token-by-token streaming (batch 85). Tools force the
+    // buffered path because tool_calls must be assembled before dispatch.
+    const wantsStream = !!b.stream && !(Array.isArray(b.tools) && b.tools.length);
     // Split system messages out (Anthropic takes system separately).
     const clientSystem = oaiMessages.filter(m => m.role === "system")
       .map(m => typeof m.content === "string" ? m.content : "").join(" ").trim();
@@ -2082,6 +2113,7 @@ app.post("/v1/chat/completions", requireAuth, async (req, res) => {
       `You are ${AINAME}, ${NAME}'s warm AI companion, now speaking through smart glasses.`,
       "Replies are spoken aloud: SHORT, natural, no markdown, no lists — one to three sentences unless asked for more.",
       `Be genuinely useful first, friendly second. Address them as ${NAME} when natural.`,
+      coreBrief(nuid),
       recallBrief(nuid, typeof lastUserText?.content === "string" ? lastUserText.content : ""),
       nprof.style ? `STYLE REQUEST: speak in this style — ${nprof.style}. Honour the tone; never let style override substance or honesty.` : "",
       "If tools are provided in this request, use them when they fit rather than guessing.",
@@ -2101,6 +2133,60 @@ app.post("/v1/chat/completions", requireAuth, async (req, res) => {
         ...clientTools,
       ],
     };
+    if (wantsStream) {
+      // Ask Claude for a stream and relay each delta straight through as
+      // OpenAI-shaped SSE. First word reaches the ear in ~400ms instead of
+      // waiting for the whole answer to finish generating.
+      const up = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": KEY, "anthropic-version": ANTHROPIC_VERSION },
+        body: JSON.stringify({ ...body, stream: true }),
+      });
+      if (!up.ok || !up.body) {
+        const why = await up.text().catch(() => "");
+        dlog(null, "errors", `shim stream ${up.status}`, String(why).slice(0, 120));
+        return res.status(502).json({ error: { message: "upstream_failed", type: "server_error" } });
+      }
+      res.setHeader("content-type", "text/event-stream");
+      res.setHeader("cache-control", "no-cache");
+      res.setHeader("connection", "keep-alive");
+      const sid = "chatcmpl-" + Date.now();
+      const created = Math.floor(Date.now() / 1000);
+      const send = (delta, fin) => res.write("data: " + JSON.stringify({
+        id: sid, object: "chat.completion.chunk", created, model: body.model,
+        choices: [{ index: 0, delta, finish_reason: fin || null }],
+      }) + "\n\n");
+      send({ role: "assistant" });
+      const reader = up.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "", usage = null;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.startsWith("data:")) continue;
+            const raw = line.slice(5).trim();
+            if (!raw || raw === "[DONE]") continue;
+            let ev; try { ev = JSON.parse(raw); } catch { continue; }
+            if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") {
+              send({ content: ev.delta.text });
+            } else if (ev.type === "message_delta" && ev.usage) {
+              usage = { input_tokens: usage?.input_tokens ?? 0, output_tokens: ev.usage.output_tokens ?? 0 };
+            } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
+              usage = { input_tokens: ev.message.usage.input_tokens ?? 0, output_tokens: 0 };
+            }
+          }
+        }
+      } catch (e) { dlog(null, "errors", "shim stream broke", String(e.message || e).slice(0, 80)); }
+      if (usage) recordUsage(body.model, usage);
+      send({}, "stop");
+      res.write("data: [DONE]\n\n");
+      return res.end();
+    }
     const { status, text } = await callClaude(body);
     if (status !== 200) {
       // Optional passthrough fallback — the request is ALREADY OpenAI format.
@@ -2447,6 +2533,16 @@ function recallBrief(uid, text) {
 }
 
 // Today's timeline in one line — used proactively in the opening brief.
+// What's coming up — surfaced in the brief without being asked.
+function upcomingBrief(uid) {
+  const list = (STORE.bookings || {})[uid] || [];
+  const now = Date.now();
+  const soon = list.filter(b => b.whenISO && Date.parse(b.whenISO) > now && Date.parse(b.whenISO) - now < 172800000)
+    .sort((a, b) => Date.parse(a.whenISO) - Date.parse(b.whenISO));
+  if (!soon.length) return "";
+  const b = soon[0];
+  return `Coming up: ${b.type || "booking"} ${b.what || ""} ${b.when || ""}${b.ref ? ` (ref ${b.ref})` : ""}.`;
+}
 function todayShape(uid) {
   const mem = STORE.mem[uid] || [];
   const since = new Date(); since.setHours(0, 0, 0, 0);
@@ -2476,6 +2572,742 @@ app.post("/autocomplete", requireAuth, async (req, res) => {
     }));
     res.json({ suggestions });
   } catch { res.json({ suggestions: [] }); }
+});
+
+// Scan recent mail for a confirmation matching a pending flow. This is the one
+// place the handoff CAN be detected automatically — the confirmation email.
+app.post("/flowcheck", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const list = ((STORE.flows || {})[uid] || []).filter(f => f.status === "waiting");
+  if (!list.length) return res.json({ found: [] });
+  if (!mailReady()) return res.json({ found: [], note: "email not set up" });
+  try {
+    const msgs = await withInbox(async (client) => {
+      const out = [];
+      const uids = await client.search({ since: new Date(Date.now() - 3 * 86400000) });
+      for await (const msg of client.fetch((uids || []).slice(-15).reverse(), { envelope: true })) {
+        const from = msg.envelope?.from?.[0];
+        out.push({ subject: msg.envelope?.subject || "", from: from?.name || from?.address || "" });
+      }
+      return out;
+    });
+    if (!msgs || !msgs.length) return res.json({ found: [] });
+    const digest = msgs.map(m => `${m.subject} | ${m.from}`).join("\n").slice(0, 2000);
+    const body = {
+      model: "claude-haiku-4-5-20251001", max_tokens: 300,
+      system: 'Match pending tasks to confirmation emails. JSON only: {"matches":[{"id":"flow id","detail":"reference or key detail from the subject"}]}. Only match when clearly the same thing. No markdown.',
+      messages: [{ role: "user", content: `Pending:\n${list.map(f => `${f.id}: ${f.kind} — ${f.what}`).join("\n")}\n\nRecent email subjects:\n${digest}` }],
+    };
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.json({ found: [] });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const found = [];
+    for (const m of (p.matches || [])) {
+      const f = list.find(x => x.id === m.id);
+      if (f) { f.status = "done"; f.detail = m.detail || "confirmed by email"; f.closedAt = Date.now();
+        const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+        mem.push({ t: `${f.kind}: ${f.what} — ${f.detail} (confirmed)`, at: Date.now() });
+        while (mem.length > 400) mem.shift();
+        found.push({ ...f }); }
+    }
+    if (found.length) saveStore();
+    res.json({ found });
+  } catch { res.json({ found: [] }); }
+});
+
+// --- 🧪 DISTILLATION (batch 94) ---
+// Memory fills in about four days of real use, then silently discards the
+// OLDEST facts — the first place he loved, the first deal he struck. This is
+// the fix: a nightly pass that promotes patterns into permanent facts, lets
+// unreinforced noise fade, and keeps the pool lean enough to stay fast.
+//
+// Three tiers, following how the good systems do it:
+//   CORE      — durable truths about him. Never expire. Always in the brief.
+//   EPISODIC  — what happened. Decays unless reinforced.
+//   NOISE     — routine chatter. Pruned first.
+const CORE_PREFIX = "core: ";
+
+function memAge(m) { return (Date.now() - (m.at || 0)) / 86400000; }        // days
+function isCore(m) { return String(m.t || "").startsWith(CORE_PREFIX); }
+
+// Score what deserves to survive. Reinforcement beats recency: something he
+// keeps coming back to matters more than something that merely happened today.
+function survivalScore(m, all) {
+  if (isCore(m)) return 1e6;
+  const t = String(m.t || "").toLowerCase();
+  let s = 0;
+  // things he chose to keep
+  if (/^(loved place|favourite|remember|note to self|reminder|booking|document)/.test(t)) s += 40;
+  if (/^conversation with|agreed|commitment/.test(t)) s += 35;
+  if (/^day \d{4}-/.test(t)) s += 30;                       // distilled day summaries
+  if (/^(completed|abandoned):/.test(t)) s += 20;            // follow-through signal
+  if (/^(moment|saw:|read:|receipt:)/.test(t)) s += 15;
+  if (/^log:/.test(t)) s += 2;                              // life-log breadcrumbs are cheap
+  // reinforcement: how often does this subject recur?
+  const words = t.split(/[^a-z0-9]+/).filter(w => w.length > 4).slice(0, 6);
+  let echoes = 0;
+  for (const other of all) {
+    if (other === m) continue;
+    const ot = String(other.t || "").toLowerCase();
+    if (words.some(w => ot.includes(w))) echoes++;
+  }
+  s += Math.min(echoes, 10) * 4;
+  // age penalty, gentler on the valuable kinds
+  s -= Math.min(memAge(m), 120) * (s > 30 ? 0.15 : 0.6);
+  return s;
+}
+
+async function distil(uid) {
+  const mem = STORE.mem[uid] || [];
+  if (mem.length < 120) return { skipped: "not enough to distil" };
+  const recent = mem.filter(m => !isCore(m) && memAge(m) <= 14);
+  if (recent.length < 40) return { skipped: "too little recent activity" };
+
+  // 1. PROMOTE — ask the model what has become durably TRUE about him.
+  let promoted = [];
+  try {
+    const sample = recent.slice(-160).map(m => `${when(m.at)}: ${m.t}`).join("\n").slice(0, 7000);
+    const existing = mem.filter(isCore).map(m => m.t.slice(CORE_PREFIX.length)).join(" | ").slice(0, 1200);
+    const body = {
+      model: "claude-haiku-4-5-20251001", max_tokens: 600,
+      system:
+        "You distil an assistant's raw memory into durable facts about its user. " +
+        'JSON only: {"facts":["short present-tense facts worth keeping forever"]}. ' +
+        "A fact qualifies ONLY if the raw memory shows it repeatedly or he stated it deliberately: " +
+        "preferences, people, places he returns to, restrictions, habits, how he likes things done. " +
+        "NOT one-offs, NOT events, NOT anything he did once. Max 8 facts, each under 15 words. " +
+        "Do not repeat facts already known. If nothing qualifies, return an empty list. No markdown.",
+      messages: [{ role: "user", content: `Already known: ${existing || "nothing yet"}\n\nRaw memory:\n${sample}` }],
+    };
+    const { status, text } = await callClaude(body);
+    if (status === 200) {
+      const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+      const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      promoted = (Array.isArray(p.facts) ? p.facts : []).slice(0, 8).filter(f => String(f).trim().length > 3);
+    }
+  } catch {}
+  for (const f of promoted) {
+    if (!mem.some(m => isCore(m) && m.t.toLowerCase().includes(String(f).toLowerCase().slice(0, 25)))) {
+      mem.push({ t: CORE_PREFIX + f, at: Date.now() });
+    }
+  }
+
+  // 2. PRUNE — drop the weakest, but only once we're actually near the cap.
+  let pruned = 0;
+  if (mem.length > 300) {
+    const scored = mem.map(m => ({ m, s: survivalScore(m, mem) })).sort((a, b) => b.s - a.s);
+    const keep = scored.slice(0, 280).map(x => x.m);
+    pruned = mem.length - keep.length;
+    // preserve original chronology so recall's recency maths still works
+    keep.sort((a, b) => (a.at || 0) - (b.at || 0));
+    STORE.mem[uid] = keep;
+  }
+  STORE.lastDistil = STORE.lastDistil || {};
+  STORE.lastDistil[uid] = { at: Date.now(), promoted: promoted.length, pruned };
+  saveStore();
+  dlog(uid, "memory", `distilled: +${promoted.length} core facts, -${pruned} pruned`, promoted.slice(0, 3));
+  return { promoted, pruned, size: (STORE.mem[uid] || []).length };
+}
+
+// Core facts ride in EVERY brief — they're what make advice feel personal.
+function coreBrief(uid) {
+  const core = (STORE.mem[uid] || []).filter(isCore).slice(-12).map(m => m.t.slice(CORE_PREFIX.length));
+  return core.length ? `WHAT YOU KNOW TO BE TRUE ABOUT HIM: ${core.join(" · ")}` : "";
+}
+
+app.post("/distil", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  if ((req.body || {}).action === "status") {
+    const mem = STORE.mem[uid] || [];
+    return res.json({
+      total: mem.length, core: mem.filter(isCore).length,
+      last: (STORE.lastDistil || {})[uid] || null,
+      facts: mem.filter(isCore).slice(-12).map(m => m.t.slice(CORE_PREFIX.length)),
+    });
+  }
+  if ((req.body || {}).action === "forget" && req.body.fact) {
+    const q = String(req.body.fact).toLowerCase();
+    const before = (STORE.mem[uid] || []).length;
+    STORE.mem[uid] = (STORE.mem[uid] || []).filter(m => !(isCore(m) && m.t.toLowerCase().includes(q)));
+    saveStore();
+    return res.json({ removed: before - STORE.mem[uid].length });
+  }
+  const out = await distil(uid);
+  res.json(out);
+});
+
+// Nightly sweep for everyone, plus a catch-up 5 min after boot.
+setInterval(() => { for (const uid of Object.keys(STORE.mem || {})) distil(uid).catch(() => {}); }, 86400000);
+setTimeout(() => { for (const uid of Object.keys(STORE.mem || {})) distil(uid).catch(() => {}); }, 300000);
+
+// --- 🐞 BUG LOG (batch 92) ---
+// He finds bugs I can't — screenshots have caught fourteen so far. This turns
+// "the orb looked wrong" into a snapshot I can actually act on, and triages
+// known limits so he stops sending me things that aren't broken.
+app.post("/bug", requireAuth, async (req, res) => {
+  const { action, report, snapshot, id } = req.body || {};
+  const uid = uidOf(req);
+  STORE.bugs = STORE.bugs || {};
+  const list = STORE.bugs[uid] = STORE.bugs[uid] || [];
+
+  if (action === "log") {
+    const b = { id: "bug" + Date.now(), at: Date.now(), report: String(report || "").slice(0, 500),
+                snapshot: snapshot || {}, status: "open" };
+    // Triage: is this a known limit, or something genuinely broken?
+    try {
+      const body = {
+        model: "claude-haiku-4-5-20251001", max_tokens: 320,
+        system:
+          "You triage bug reports for Vision, a web-based AI travel companion (Safari on iPhone, Node server on Render). " +
+          "KNOWN HARD LIMITS that are NOT bugs: cannot run in the background or listen when closed; cannot read Safari " +
+          "history, battery, or Bluetooth; cannot tap Apple Pay or pay for anything; cannot phone a human; timers only " +
+          "ring while open; no push notifications; cannot see inside other apps; live location needs the screen on. " +
+          'JSON only: {"verdict":"known-limit|likely-bug|needs-info","spoken":"one honest sentence back to him",' +
+          '"forClaude":"one line describing what to investigate, or empty if it is a known limit"}. No markdown.',
+        messages: [{ role: "user", content: `He reports: "${report}"\nContext: ${JSON.stringify(snapshot || {}).slice(0, 900)}` }],
+      };
+      const { status, text } = await callClaude(body);
+      if (status === 200) {
+        const raw = (JSON.parse(text).content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+        const t = JSON.parse(raw.replace(/```json|```/g, "").trim());
+        b.verdict = t.verdict; b.spoken = t.spoken; b.forClaude = t.forClaude;
+      }
+    } catch {}
+    list.push(b); while (list.length > 60) list.shift();
+    saveStore();
+    dlog(uid, "errors", `bug logged: ${String(report).slice(0, 60)}`, b.verdict || "");
+    return res.json({ ok: true, bug: b });
+  }
+  if (action === "list") return res.json({ bugs: list.filter(b => b.status === "open").slice(-20).reverse(), total: list.length });
+  if (action === "close" && id) {
+    const b = list.find(x => x.id === id); if (b) { b.status = "fixed"; b.closedAt = Date.now(); saveStore(); }
+    return res.json({ ok: true });
+  }
+  if (action === "clear") { STORE.bugs[uid] = list.filter(b => b.status !== "fixed"); saveStore(); return res.json({ ok: true }); }
+  if (action === "export") {
+    // One block, formatted for pasting straight into a conversation with me.
+    const open = list.filter(b => b.status === "open");
+    const lines = open.map((b, i) => {
+      const s2 = b.snapshot || {};
+      return `${i + 1}. [${new Date(b.at).toLocaleString("en-AU")}] ${b.report}\n` +
+        `   verdict: ${b.verdict || "untriaged"}${b.forClaude ? ` — ${b.forClaude}` : ""}\n` +
+        `   build: ${s2.build || "?"} | skill: ${s2.lastSkill || "-"} | theme: ${s2.theme || "-"} | orb: ${s2.orb || "-"}\n` +
+        `   said: ${s2.lastUser || "-"}\n   replied: ${String(s2.lastReply || "-").slice(0, 160)}` +
+        (s2.diag ? `\n   diag: ${String(s2.diag).slice(0, 300)}` : "");
+    }).join("\n\n");
+    return res.json({ text: open.length ? `VISION BUG LOG — ${open.length} open\n\n${lines}` : "No open bugs logged.", count: open.length });
+  }
+  res.status(400).json({ error: "bad action" });
+});
+
+// --- 🎯 ORCHESTRATOR (batch 89) ---
+// One command, a whole journey. Vision plans the steps, runs what it can, and
+// STOPS to ask only where a real choice exists or where it must hand over.
+// The judgement that matters: decide vs ask. Guessing his dinner is rude;
+// asking which route to take is worse.
+app.post("/plan", requireAuth, async (req, res) => {
+  const { goal, place, country } = req.body || {};
+  if (!goal) return res.status(400).json({ error: "goal required" });
+  const uid = uidOf(req);
+  const mem = recallFor(uid, goal, 6).map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  // Favourites and loved places matter most for "my favourite" / "the usual".
+  const loved = ((STORE.mem[uid] || []).filter(m => /loved place|favourite/i.test(String(m.t)))
+    .slice(-5).map(m => m.t).join(" | "));
+  const prof = profileOf(uid);
+  const core = coreBrief(uid);
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 700,
+    system:
+      "You plan a short journey for a traveller's assistant. Reply JSON ONLY: " +
+      '{"spoken":"one sentence saying what you\'re about to do","steps":[{"skill":"skill name","args":{},"why":"3-6 words",' +
+      '"mode":"auto|ask|handoff","question":"only if mode=ask — what to ask him","options":[{"label":"short","value":"what to use"}]}]}. ' +
+      "Available skills — use ONLY these: " +
+      "FIND & GO: nearby, findfood, navigate, transit, ride, unlost, backto, rememberspot, meetmiddle, whereis. " +
+      "EAT & BUY: menu, allergy, booktable, logspend, scamcheck, gooddeal, currency, splitbill, favourite. " +
+      "PLAN & TRAVEL: tripplan, tripday, tripbudget, packlist, activities, stay, flightsearch, flight, esim, arrival, itinerary, planday, bookings. " +
+      "SEE & READ: capture, livelook, landmark, seenrecall, readpage, converse, sayphrase. " +
+      "REMEMBER: memory, dayview, lifelog, debrief, journal, savechat, recallchat, docs, spend. " +
+      "TELL PEOPLE: whatsapp, tellpartner, onmyway, text, call, sharepin, livelocation, couplespend, sharedmoments. " +
+      "LATER: watcher, timer. OTHER: weather, etiquette, safety, survival, music, mailbrief, readtexts, orderupdate, status. " +
+      "TIME-SHIFTED STEPS: if something should happen LATER (leave at 6:30, check in tomorrow, " +
+      "remind him the day before), use the watcher or timer skill with the time in args — do NOT try to do it now. " +
+      "MODE RULES — this is the important part: " +
+      "'auto' = do it now without asking (looking things up, checking weather, reading a menu, logging something). " +
+      "'ask' = a genuine choice only he can make (which restaurant, what time, how many people, spend a lot or a little) — " +
+      "give 2-4 concrete options. " +
+      "'handoff' = it leaves your hands (booking, paying, ordering a ride) — he'll confirm when he's back. " +
+      "Use what you REMEMBER about him to avoid asking things you already know (his allergies, places he's loved, his usual style). " +
+      "If he says 'my favourite' or 'the usual', look it up in what you remember rather than asking which one. " +
+      "If he mentions his partner, include telling her as a step. " +
+      "NEVER invent a capability: you can open a dialer but cannot speak to a human; you can open a booking or " +
+      "airline page but cannot pay. Use handoff for those and say so plainly. " +
+      "STEP RESULTS: later steps can use what earlier ones found — write {{prev}} in an argument to mean " +
+      "'whatever the previous step produced' (e.g. booking the restaurant that step 1 found). " +
+      "ABORT SENSIBLY: order steps so that if an early lookup finds nothing, the rest would be pointless — " +
+      "the runner will stop and ask him rather than carry on blindly. " +
+      "3-6 steps maximum. Prefer fewer, better steps. Do not narrate obvious steps. No markdown.",
+    messages: [{ role: "user", content:
+      `${prof.name || "He"} said: "${goal}"\nWhere: ${place || country || "unknown"}\n` +
+      (mem ? `What you remember that's relevant: ${mem}\n` : "You don't know much about him yet — ask rather than assume.\n") +
+      (core ? `${core}\n` : "") +
+      (loved ? `Places he has told you he loves: ${loved}\n` : "") +
+      (prof.partner ? `His partner is ${prof.partner}.` : "") }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "plan_failed" });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const steps = (Array.isArray(p.steps) ? p.steps : []).slice(0, 6);
+    // Remember the plan itself — an abandoned plan is as informative as a finished one.
+    const mm = STORE.mem[uid] = STORE.mem[uid] || [];
+    mm.push({ t: `plan: "${String(goal).slice(0, 80)}" -> ${steps.map(x => x.skill).join(" → ")}`, at: Date.now() });
+    while (mm.length > 400) mm.shift(); saveStore();
+    dlog(uid, "routing", `plan: ${goal}`.slice(0, 60), steps.map(x => `${x.skill}:${x.mode}`));
+    res.json({ spoken: p.spoken || "", steps });
+  } catch { res.status(502).json({ error: "plan_failed" }); }
+});
+
+// --- ⏸️ PENDING FLOWS (batch 88) ---
+// The honest version of "automatic": Vision can't tap Apple Pay for you, but it
+// can HOLD THE THREAD across the handoff — set the task up, wait, notice you're
+// back, capture the outcome, and carry on. Nothing gets silently lost.
+app.post("/flow", requireAuth, async (req, res) => {
+  const { action, kind, what, resumeWith, id, outcome, detail } = req.body || {};
+  const uid = uidOf(req);
+  STORE.flows = STORE.flows || {};
+  const list = STORE.flows[uid] = STORE.flows[uid] || [];
+
+  if (action === "start") {
+    const f = { id: "f" + Date.now(), at: Date.now(), kind: kind || "task", what: what || "",
+                resumeWith: resumeWith || "", status: "waiting", asked: 0 };
+    list.push(f); while (list.length > 20) list.shift();
+    saveStore();
+    return res.json({ ok: true, flow: f });
+  }
+  if (action === "pending") {
+    // Anything still hanging, oldest first — this is what makes it resume.
+    const open = list.filter(f => f.status === "waiting").sort((a, b) => a.at - b.at);
+    return res.json({ pending: open, count: open.length });
+  }
+  if (action === "resolve" && id) {
+    const f = list.find(x => x.id === id);
+    if (f) {
+      f.status = outcome === "done" ? "done" : outcome === "abandoned" ? "abandoned" : "done";
+      f.detail = detail || ""; f.closedAt = Date.now();
+      // Completed flows become memory — that's how the AI learns the pattern.
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      mem.push({ t: `${f.kind}: ${f.what}${f.detail ? ` — ${f.detail}` : ""} (${f.status})`, at: Date.now() });
+      while (mem.length > 400) mem.shift();
+      saveStore();
+    }
+    return res.json({ ok: true });
+  }
+  if (action === "asked" && id) {
+    const f = list.find(x => x.id === id);
+    if (f) { f.asked = (f.asked || 0) + 1; f.lastAsked = Date.now();
+      if (f.asked >= 3) { f.status = "abandoned"; }   // stop nagging after three
+      saveStore(); }
+    return res.json({ ok: true });
+  }
+  res.status(400).json({ error: "bad action" });
+});
+
+// Pending work, phrased for the brief. Real anticipation: it remembers you were
+// mid-something and picks it back up.
+function pendingBrief(uid) {
+  const list = ((STORE.flows || {})[uid] || []).filter(f => f.status === "waiting");
+  if (!list.length) return "";
+  const f = list.sort((a, b) => a.at - b.at)[0];
+  const mins = Math.round((Date.now() - f.at) / 60000);
+  const ago = mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`;
+  return `He started this and never confirmed it (${ago}): ${f.kind} — ${f.what}. Ask how it went, once, naturally.`;
+}
+
+// --- 🐞 BUG LOG (batch 92) ---
+// He finds bugs I can't — screenshots have caught fourteen so far. This turns
+// "the orb looked wrong" into a snapshot I can actually act on, and triages
+// known limits so he stops sending me things that aren't broken.
+app.post("/bug", requireAuth, async (req, res) => {
+  const { action, report, snapshot, id } = req.body || {};
+  const uid = uidOf(req);
+  STORE.bugs = STORE.bugs || {};
+  const list = STORE.bugs[uid] = STORE.bugs[uid] || [];
+
+  if (action === "log") {
+    const b = { id: "bug" + Date.now(), at: Date.now(), report: String(report || "").slice(0, 500),
+                snapshot: snapshot || {}, status: "open" };
+    // Triage: is this a known limit, or something genuinely broken?
+    try {
+      const body = {
+        model: "claude-haiku-4-5-20251001", max_tokens: 320,
+        system:
+          "You triage bug reports for Vision, a web-based AI travel companion (Safari on iPhone, Node server on Render). " +
+          "KNOWN HARD LIMITS that are NOT bugs: cannot run in the background or listen when closed; cannot read Safari " +
+          "history, battery, or Bluetooth; cannot tap Apple Pay or pay for anything; cannot phone a human; timers only " +
+          "ring while open; no push notifications; cannot see inside other apps; live location needs the screen on. " +
+          'JSON only: {"verdict":"known-limit|likely-bug|needs-info","spoken":"one honest sentence back to him",' +
+          '"forClaude":"one line describing what to investigate, or empty if it is a known limit"}. No markdown.',
+        messages: [{ role: "user", content: `He reports: "${report}"\nContext: ${JSON.stringify(snapshot || {}).slice(0, 900)}` }],
+      };
+      const { status, text } = await callClaude(body);
+      if (status === 200) {
+        const raw = (JSON.parse(text).content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+        const t = JSON.parse(raw.replace(/```json|```/g, "").trim());
+        b.verdict = t.verdict; b.spoken = t.spoken; b.forClaude = t.forClaude;
+      }
+    } catch {}
+    list.push(b); while (list.length > 60) list.shift();
+    saveStore();
+    dlog(uid, "errors", `bug logged: ${String(report).slice(0, 60)}`, b.verdict || "");
+    return res.json({ ok: true, bug: b });
+  }
+  if (action === "list") return res.json({ bugs: list.filter(b => b.status === "open").slice(-20).reverse(), total: list.length });
+  if (action === "close" && id) {
+    const b = list.find(x => x.id === id); if (b) { b.status = "fixed"; b.closedAt = Date.now(); saveStore(); }
+    return res.json({ ok: true });
+  }
+  if (action === "clear") { STORE.bugs[uid] = list.filter(b => b.status !== "fixed"); saveStore(); return res.json({ ok: true }); }
+  if (action === "export") {
+    // One block, formatted for pasting straight into a conversation with me.
+    const open = list.filter(b => b.status === "open");
+    const lines = open.map((b, i) => {
+      const s2 = b.snapshot || {};
+      return `${i + 1}. [${new Date(b.at).toLocaleString("en-AU")}] ${b.report}\n` +
+        `   verdict: ${b.verdict || "untriaged"}${b.forClaude ? ` — ${b.forClaude}` : ""}\n` +
+        `   build: ${s2.build || "?"} | skill: ${s2.lastSkill || "-"} | theme: ${s2.theme || "-"} | orb: ${s2.orb || "-"}\n` +
+        `   said: ${s2.lastUser || "-"}\n   replied: ${String(s2.lastReply || "-").slice(0, 160)}` +
+        (s2.diag ? `\n   diag: ${String(s2.diag).slice(0, 300)}` : "");
+    }).join("\n\n");
+    return res.json({ text: open.length ? `VISION BUG LOG — ${open.length} open\n\n${lines}` : "No open bugs logged.", count: open.length });
+  }
+  res.status(400).json({ error: "bad action" });
+});
+
+// --- 🎯 ORCHESTRATOR (batch 89) ---
+// One command, a whole journey. Vision plans the steps, runs what it can, and
+// STOPS to ask only where a real choice exists or where it must hand over.
+// The judgement that matters: decide vs ask. Guessing his dinner is rude;
+// asking which route to take is worse.
+app.post("/plan", requireAuth, async (req, res) => {
+  const { goal, place, country } = req.body || {};
+  if (!goal) return res.status(400).json({ error: "goal required" });
+  const uid = uidOf(req);
+  const mem = recallFor(uid, goal, 6).map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  // Favourites and loved places matter most for "my favourite" / "the usual".
+  const loved = ((STORE.mem[uid] || []).filter(m => /loved place|favourite/i.test(String(m.t)))
+    .slice(-5).map(m => m.t).join(" | "));
+  const prof = profileOf(uid);
+  const core = coreBrief(uid);
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 700,
+    system:
+      "You plan a short journey for a traveller's assistant. Reply JSON ONLY: " +
+      '{"spoken":"one sentence saying what you\'re about to do","steps":[{"skill":"skill name","args":{},"why":"3-6 words",' +
+      '"mode":"auto|ask|handoff","question":"only if mode=ask — what to ask him","options":[{"label":"short","value":"what to use"}]}]}. ' +
+      "Available skills — use ONLY these: " +
+      "FIND & GO: nearby, findfood, navigate, transit, ride, unlost, backto, rememberspot, meetmiddle, whereis. " +
+      "EAT & BUY: menu, allergy, booktable, logspend, scamcheck, gooddeal, currency, splitbill, favourite. " +
+      "PLAN & TRAVEL: tripplan, tripday, tripbudget, packlist, activities, stay, flightsearch, flight, esim, arrival, itinerary, planday, bookings. " +
+      "SEE & READ: capture, livelook, landmark, seenrecall, readpage, converse, sayphrase. " +
+      "REMEMBER: memory, dayview, lifelog, debrief, journal, savechat, recallchat, docs, spend. " +
+      "TELL PEOPLE: whatsapp, tellpartner, onmyway, text, call, sharepin, livelocation, couplespend, sharedmoments. " +
+      "LATER: watcher, timer. OTHER: weather, etiquette, safety, survival, music, mailbrief, readtexts, orderupdate, status. " +
+      "TIME-SHIFTED STEPS: if something should happen LATER (leave at 6:30, check in tomorrow, " +
+      "remind him the day before), use the watcher or timer skill with the time in args — do NOT try to do it now. " +
+      "MODE RULES — this is the important part: " +
+      "'auto' = do it now without asking (looking things up, checking weather, reading a menu, logging something). " +
+      "'ask' = a genuine choice only he can make (which restaurant, what time, how many people, spend a lot or a little) — " +
+      "give 2-4 concrete options. " +
+      "'handoff' = it leaves your hands (booking, paying, ordering a ride) — he'll confirm when he's back. " +
+      "Use what you REMEMBER about him to avoid asking things you already know (his allergies, places he's loved, his usual style). " +
+      "If he says 'my favourite' or 'the usual', look it up in what you remember rather than asking which one. " +
+      "If he mentions his partner, include telling her as a step. " +
+      "NEVER invent a capability: you can open a dialer but cannot speak to a human; you can open a booking or " +
+      "airline page but cannot pay. Use handoff for those and say so plainly. " +
+      "STEP RESULTS: later steps can use what earlier ones found — write {{prev}} in an argument to mean " +
+      "'whatever the previous step produced' (e.g. booking the restaurant that step 1 found). " +
+      "ABORT SENSIBLY: order steps so that if an early lookup finds nothing, the rest would be pointless — " +
+      "the runner will stop and ask him rather than carry on blindly. " +
+      "3-6 steps maximum. Prefer fewer, better steps. Do not narrate obvious steps. No markdown.",
+    messages: [{ role: "user", content:
+      `${prof.name || "He"} said: "${goal}"\nWhere: ${place || country || "unknown"}\n` +
+      (mem ? `What you remember that's relevant: ${mem}\n` : "You don't know much about him yet — ask rather than assume.\n") +
+      (core ? `${core}\n` : "") +
+      (loved ? `Places he has told you he loves: ${loved}\n` : "") +
+      (prof.partner ? `His partner is ${prof.partner}.` : "") }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "plan_failed" });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const steps = (Array.isArray(p.steps) ? p.steps : []).slice(0, 6);
+    // Remember the plan itself — an abandoned plan is as informative as a finished one.
+    const mm = STORE.mem[uid] = STORE.mem[uid] || [];
+    mm.push({ t: `plan: "${String(goal).slice(0, 80)}" -> ${steps.map(x => x.skill).join(" → ")}`, at: Date.now() });
+    while (mm.length > 400) mm.shift(); saveStore();
+    dlog(uid, "routing", `plan: ${goal}`.slice(0, 60), steps.map(x => `${x.skill}:${x.mode}`));
+    res.json({ spoken: p.spoken || "", steps });
+  } catch { res.status(502).json({ error: "plan_failed" }); }
+});
+
+// --- ⏸️ PENDING FLOWS (batch 88) ---
+// Vision can't tap Apple Pay for you — nobody can. But it CAN hold the thread
+// open across the handoff: set the task up, hand you to the app, and pick the
+// journey back up when you return instead of forgetting it happened.
+app.post("/pending", requireAuth, async (req, res) => {
+  const { action, flow, id, outcome, detail } = req.body || {};
+  const uid = uidOf(req);
+  STORE.pending = STORE.pending || {};
+  const list = STORE.pending[uid] = STORE.pending[uid] || [];
+
+  if (action === "open" && flow) {
+    // ownedByPlan: the plan will do the asking, so resumePending stays quiet.
+    const p = { id: "p" + Date.now(), at: Date.now(), state: "waiting", ...flow };
+    list.push(p); while (list.length > 20) list.shift();
+    saveStore();
+    dlog(uid, "routing", `pending opened: ${p.kind} ${p.what || ""}`);
+    return res.json({ ok: true, pending: p });
+  }
+  if (action === "active") {
+    // Anything still waiting that ISN'T owned by a running plan — the plan asks
+    // about its own steps, so we never double-prompt for one action.
+    const waiting = list.filter(p => p.state === "waiting" && !p.ownedByPlan);
+    return res.json({ pending: waiting.slice(-3).reverse(), count: waiting.length });
+  }
+  if (action === "close" && id) {
+    const p = list.find(x => x.id === id);
+    if (p) {
+      p.state = outcome === "done" ? "done" : outcome === "abandoned" ? "abandoned" : "done";
+      p.closedAt = Date.now(); if (detail) p.detail = detail;
+      // A completed flow is a fact worth keeping — it teaches the brain what he
+      // actually follows through on.
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      mem.push({ t: `${p.state === "done" ? "completed" : "abandoned"}: ${p.kind} ${p.what || ""}${detail ? ` — ${detail}` : ""}`, at: Date.now() });
+      while (mem.length > 400) mem.shift();
+      saveStore();
+    }
+    return res.json({ ok: true, pending: p || null });
+  }
+  if (action === "nextstep" && id) {
+    // What would naturally come next, given what he just finished.
+    const p = list.find(x => x.id === id);
+    if (!p) return res.json({ moves: [] });
+    const mem = recallFor(uid, `${p.kind} ${p.what || ""}`, 3).map(m => m.t).join(" | ");
+    const body = {
+      model: "claude-haiku-4-5-20251001", max_tokens: 220,
+      system: 'He has just finished a task in another app and come back. Propose what naturally comes NEXT in the journey. ' +
+        'JSON only: {"spoken":"one short sentence acknowledging it and offering the next step","moves":[{"label":"max 5 words","say":"the phrase to send"}]} with 1-3 moves. ' +
+        'Examples: after booking a restaurant offer directions at the right time, a reminder, and telling their partner; after booking a flight offer storing the reference, a check-in reminder, and airport transfer; after paying for something offer logging the spend. No markdown.',
+      messages: [{ role: "user", content: `Finished: ${p.kind} — ${p.what || ""} ${p.when || ""}\nOutcome: ${p.state}${p.detail ? ` (${p.detail})` : ""}` + (mem ? `\nRelevant history: ${mem}` : "") }],
+    };
+    try {
+      const { status, text } = await callClaude(body);
+      if (status !== 200) return res.json({ moves: [] });
+      const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+      return res.json(JSON.parse(raw.replace(/```json|```/g, "").trim()));
+    } catch { return res.json({ moves: [] }); }
+  }
+  res.status(400).json({ error: "bad action" });
+});
+
+// Pending work belongs in the brief — that's how a flow survives being left.
+function pendingBrief(uid) {
+  const list = ((STORE.pending || {})[uid] || []).filter(p => p.state === "waiting");
+  if (!list.length) return "";
+  const p = list[list.length - 1];
+  const mins = Math.round((Date.now() - p.at) / 60000);
+  return `UNFINISHED: he was ${p.kind} "${p.what || ""}" ${mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)}h ago`} and hasn't confirmed it went through. Ask, briefly, if it makes sense.`;
+}
+
+// --- 🍽️ MENU READER (batch 86) ---
+// Photograph a menu: translated, checked against what he must avoid, with
+// what's actually worth ordering. Pairs the vision and allergy work together.
+app.post("/menu", requireAuth, async (req, res) => {
+  const { image, mediaType, avoid, country, budget } = req.body || {};
+  if (!image) return res.status(400).json({ error: "image required" });
+  const uid = uidOf(req);
+  const mem = recallFor(uid, "food eaten liked dish restaurant", 4).map(m => m.t).join(" | ");
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 900,
+    system: "You read menus for a traveller. JSON only: " +
+      '{"spoken":"2-3 sentences aloud: what kind of menu, roughly what things cost, your top pick and why",' +
+      '"safe":[{"name":"dish as written","english":"what it is","price":"as printed","why":"one line"}],' +
+      '"avoid":[{"name":"dish","reason":"which of his restrictions it breaks"}],' +
+      '"unsure":["anything you cannot verify against his restrictions"]}. ' +
+      "Be honest in unsure — if you cannot tell whether a dish contains something he must avoid, say so rather than guessing. No markdown.",
+    messages: [{ role: "user", content: [
+      { type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } },
+      { type: "text", text: `Menu${country ? ` in ${country}` : ""}. He must avoid: ${avoid || "nothing stated"}.` +
+        `${budget ? ` Budget around ${budget}.` : ""}${mem ? ` What he's enjoyed before: ${mem}` : ""}` }] }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "read_failed" });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const m2 = STORE.mem[uid] = STORE.mem[uid] || [];
+    m2.push({ t: `menu read: ${p.spoken}`.slice(0, 240), at: Date.now() });
+    while (m2.length > 400) m2.shift(); saveStore();
+    res.json(p);
+  } catch { res.status(502).json({ error: "read_failed" }); }
+});
+
+// --- 🗣️ TRANSLATE MEMORY (batch 86) ---
+// Save a conversation you've had through translation: a distilled summary in
+// BOTH languages plus any COMMITMENTS (price, time, what's included). Never
+// raw audio. Tag it, recall it, and hold up their own words later.
+app.post("/convomemory", requireAuth, async (req, res) => {
+  const { action, tag, turns, query, place } = req.body || {};
+  const uid = uidOf(req);
+  STORE.convos = STORE.convos || {};
+  const list = STORE.convos[uid] = STORE.convos[uid] || [];
+
+  if (action === "save") {
+    if (!Array.isArray(turns) || !turns.length) return res.status(400).json({ error: "turns required" });
+    const script = turns.slice(-30).map(t => `${t.who || "?"} (${t.lang || "?"}): ${t.text}`).join("\n").slice(0, 4000);
+    // What he's agreed with this person before — so repeat dealings compound.
+    const prior = recallFor(uid, `conversation ${tag || ""} ${place || ""}`, 3).map(m => m.t).join(" | ");
+    const body = {
+      model: "claude-haiku-4-5-20251001", max_tokens: 500,
+      system: 'Distil a translated conversation for Shaun\'s records. JSON only: ' +
+        '{"summary":"2-3 sentences of what was discussed","commitments":[{"what":"the agreement","detail":"price/time/inclusions","theirWords":"their exact words in THEIR language","englishWords":"the English"}],' +
+        '"phrases":["any phrase that worked well, in their language"],"followUp":"one thing worth checking later, or empty"}. ' +
+        'Commitments are only things actually AGREED — prices settled, times promised, what is included. No markdown.',
+      messages: [{ role: "user", content: `Conversation${place ? ` at ${place}` : ""}:\n${script}` +
+        (prior ? `\n\nEarlier dealings worth cross-checking (flag it if this contradicts a previous agreement): ${prior}` : "") }],
+    };
+    try {
+      const { status, text } = await callClaude(body);
+      if (status !== 200) return res.status(502).json({ error: "distil_failed" });
+      const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+      const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      const rec = { tag: (tag || "conversation").toLowerCase().trim(), at: Date.now(), place: place || "", ...p };
+      list.push(rec); while (list.length > 60) list.shift();
+      // also into the shared pool so ALL skills can recall it
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      const commits = (p.commitments || []).map(c => `${c.what}: ${c.detail}`).join("; ");
+      mem.push({ t: `conversation with ${rec.tag}${place ? ` at ${place}` : ""}: ${p.summary}${commits ? ` — agreed: ${commits}` : ""}`, at: Date.now() });
+      while (mem.length > 400) mem.shift();
+      saveStore();
+      return res.json({ ok: true, ...rec });
+    } catch { return res.status(502).json({ error: "distil_failed" }); }
+  }
+  if (action === "recall") {
+    const q = String(query || "").toLowerCase();
+    const hits = q ? list.filter(c => c.tag.includes(q) || String(c.summary).toLowerCase().includes(q)
+      || (c.commitments || []).some(x => String(x.what + x.detail).toLowerCase().includes(q))) : list.slice(-5);
+    return res.json({ hits: hits.slice(-5) });
+  }
+  if (action === "list") return res.json({ tags: [...new Set(list.map(c => c.tag))], count: list.length });
+  res.status(400).json({ error: "bad action" });
+});
+
+// --- 🎫 BOOKINGS (batch 86) ---
+// Vision helps you book, then remembers it: reference, time, seat, gate.
+app.post("/bookings", requireAuth, (req, res) => {
+  const { action, booking, id, query } = req.body || {};
+  const uid = uidOf(req);
+  STORE.bookings = STORE.bookings || {};
+  const list = STORE.bookings[uid] = STORE.bookings[uid] || [];
+  if (action === "add" && booking) {
+    const b = { id: "b" + Date.now(), at: Date.now(), ...booking };
+    list.push(b); while (list.length > 80) list.shift();
+    const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+    mem.push({ t: `booking: ${b.type || "reservation"} ${b.what || ""} ${b.when || ""}${b.ref ? ` ref ${b.ref}` : ""}`, at: Date.now() });
+    while (mem.length > 400) mem.shift();
+    saveStore();
+    return res.json({ ok: true, booking: b });
+  }
+  if (action === "remove" && id) { STORE.bookings[uid] = list.filter(b => b.id !== id); saveStore(); return res.json({ ok: true }); }
+  if (action === "find") {
+    const q = String(query || "").toLowerCase();
+    const hits = q ? list.filter(b => JSON.stringify(b).toLowerCase().includes(q)) : list;
+    const now = Date.now();
+    const upcoming = hits.filter(b => !b.whenISO || Date.parse(b.whenISO) > now - 86400000)
+      .sort((a, b) => (Date.parse(a.whenISO || 0) || 9e15) - (Date.parse(b.whenISO || 0) || 9e15));
+    // Proactive: name what's imminent so the app can lead with it.
+    const soon = upcoming.filter(b => b.whenISO && Date.parse(b.whenISO) - Date.now() < 172800000);
+    return res.json({ bookings: upcoming.slice(0, 12), total: list.length,
+      imminent: soon.length ? `${soon[0].type || "Booking"}: ${soon[0].what || ""} ${soon[0].when || ""}` : "" });
+  }
+  res.status(400).json({ error: "bad action" });
+});
+
+// --- 📋 EMERGENCY DOCS (batch 86) ---
+// Insurance, embassy, passport details — the things you need when it's gone wrong.
+app.post("/docs", requireAuth, (req, res) => {
+  const { action, field, value } = req.body || {};
+  const uid = uidOf(req);
+  STORE.docs = STORE.docs || {};
+  const d = STORE.docs[uid] = STORE.docs[uid] || {};
+  const FIELDS = ["insurer", "policyNumber", "insurancePhone", "embassyPhone", "embassyAddress",
+                  "passportNumber", "bloodType", "emergencyContact", "medicalNotes"];
+  if (action === "set" && FIELDS.includes(field)) {
+    const v = String(value || "").trim();
+    if (v) d[field] = v.slice(0, 200); else delete d[field];
+    // A pointer in the shared pool so "what's my insurance" reaches the brain
+    // via normal recall, without ever putting the value itself in memory.
+    if (v) {
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      if (!mem.some(m => String(m.t).startsWith(`document on file: ${field}`))) {
+        mem.push({ t: `document on file: ${field} — ask for my documents to see it`, at: Date.now() });
+        while (mem.length > 400) mem.shift();
+      }
+    }
+    saveStore(); return res.json({ ok: true });
+  }
+  if (action === "get") return res.json({ docs: d, fields: FIELDS });
+  res.status(400).json({ error: "bad action" });
+});
+
+// --- 🔑 SERVICE KEYS (batch 84) ---
+// Set optional API keys from the phone. Stored in the durable store, live on
+// the next request. Values are never sent back — only whether they're set.
+const KEY_FIELDS = [
+  { id: "GOOGLE_MAPS_API_KEY", label: "Google Maps", hint: "Unlocks nearby, navigate, stays, autocomplete", where: "console.cloud.google.com → Credentials" },
+  { id: "AVIATIONSTACK_KEY",  label: "Flight tracking", hint: "Live flight status", where: "aviationstack.com → free API key" },
+  { id: "ICLOUD_USER",        label: "iCloud email", hint: "Your @icloud.com address for briefings", where: "your Apple ID" },
+  { id: "ICLOUD_APP_PW",      label: "iCloud app password", hint: "App-specific password, NOT your real one", where: "appleid.apple.com → Sign-In & Security" },
+];
+app.post("/keys", requireAuth, async (req, res) => {
+  const { action, id, value } = req.body || {};
+  STORE.keys = STORE.keys || {};
+  if (action === "set" && id && KEY_FIELDS.some(k => k.id === id)) {
+    const v = String(value || "").trim();
+    if (v) STORE.keys[id] = v; else delete STORE.keys[id];
+    saveStore();
+    dlog(uidOf(req), "services", `key ${v ? "set" : "cleared"}: ${id}`);
+    return res.json({ ok: true, set: !!v });
+  }
+  if (action === "test" && id) {
+    // Prove the key works before he walks away thinking it's fixed.
+    try {
+      if (id === "AVIATIONSTACK_KEY") { const r = await aviationFetch({ access_key: FLIGHT_KEY, limit: "1" }); return res.json({ ok: r.ok, detail: r.ok ? "live" : "rejected — wrong key or quota spent" }); }
+      if (id === "GOOGLE_MAPS_API_KEY") {
+        const u = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+        u.searchParams.set("address", "Brisbane"); u.searchParams.set("key", GMAPS_KEY || "");
+        const j = await (await fetch(u)).json();
+        return res.json({ ok: j.status === "OK", detail: j.status === "OK" ? "live" : (j.error_message || j.status) });
+      }
+      if (id === "ICLOUD_USER" || id === "ICLOUD_APP_PW") {
+        if (!mailReady()) return res.json({ ok: false, detail: "needs both address and app password" });
+        const ok = await withInbox(async () => true);
+        return res.json({ ok: !!ok, detail: ok ? "live" : "sign-in failed" });
+      }
+    } catch (e) { return res.json({ ok: false, detail: String(e.message || e).slice(0, 80) }); }
+    return res.json({ ok: false, detail: "no test for this key" });
+  }
+  // list: which are set, and from where — never the values themselves
+  res.json({
+    fields: KEY_FIELDS.map(k => ({
+      ...k,
+      set: !!(STORE.keys && STORE.keys[k.id]) || !!process.env[k.id],
+      source: (STORE.keys && STORE.keys[k.id]) ? "app" : (process.env[k.id] ? "render" : "none"),
+    })),
+  });
 });
 
 // --- 🔍 DIAGNOSTICS (batch 70) ---
