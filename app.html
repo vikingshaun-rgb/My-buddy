@@ -303,6 +303,214 @@
     #glassChip{cursor:pointer;opacity:.55;transition:opacity .3s, text-shadow .3s}
     #glassChip.on{opacity:1;text-shadow:0 0 10px rgba(60,220,200,.9), 0 0 22px rgba(60,220,200,.5);animation:glassGlow 2.6s ease-in-out infinite}
     @keyframes glassGlow{0%,100%{text-shadow:0 0 10px rgba(60,220,200,.9), 0 0 22px rgba(60,220,200,.5)}50%{text-shadow:0 0 16px rgba(60,220,200,1), 0 0 34px rgba(60,220,200,.7)}}
+  /* ===== BATCH 73: ORB STYLES + THEMED BACKGROUNDS =====
+     Drawn from the visual language of Jarvis (concentric HUD rings), the
+     Matrix (falling glyphs), sci-fi ship AIs (scanning arcs), and overgrown-
+     nature aesthetics. Everything is CSS — no images, no libraries. */
+
+  /* --- ORB: JARVIS — concentric rings, arc reactor blue, HUD sweep --- */
+  body[data-orb="jarvis"] #orb{
+    background:radial-gradient(circle at 50% 50%, #DFF6FF 0%, #7FD4FF 22%, #1E7FC9 48%, #062845 78%, #01111f 100%);
+    box-shadow:0 0 22px rgba(90,200,255,.6), 0 0 60px rgba(60,160,255,.3), inset 0 0 22px rgba(160,225,255,.45);
+    animation:orbFloat 6s ease-in-out infinite}
+  body[data-orb="jarvis"] #orb::before{
+    background:none;border:2px solid rgba(120,215,255,.55);border-top-color:transparent;border-left-color:transparent;
+    inset:-10px;filter:none;animation:orbSpin 3.2s linear infinite}
+  body[data-orb="jarvis"] #orb::after{
+    background:none;border:1px solid rgba(120,215,255,.3);border-bottom-color:transparent;
+    inset:-20px;filter:none;animation:orbSpin 6s linear infinite reverse}
+
+  /* --- ORB: WISP — soft drifting spirit-light --- */
+  body[data-orb="wisp"] #orb{
+    background:radial-gradient(circle at 42% 38%, #FFFFFF, #CFF6E4 30%, #57D6A8 58%, #0d3b2c 100%);
+    box-shadow:0 0 30px rgba(90,240,190,.55), 0 0 80px rgba(60,200,160,.28);
+    animation:wispDrift 9s ease-in-out infinite}
+  body[data-orb="wisp"] #orb::before{
+    background:radial-gradient(circle, rgba(140,255,215,.5), transparent 65%);
+    filter:blur(14px);inset:-24px;animation:wispPulse 4s ease-in-out infinite}
+  body[data-orb="wisp"] #orb::after{display:none}
+  @keyframes wispDrift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(6px,-8px) scale(1.04)}66%{transform:translate(-5px,-4px) scale(.98)}}
+  @keyframes wispPulse{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+
+  /* --- ORB: MATRIX — green code sphere --- */
+  body[data-orb="matrix"] #orb{
+    background:radial-gradient(circle at 45% 35%, #D9FFE3, #46F08A 32%, #0B7A38 62%, #021a0c 100%);
+    box-shadow:0 0 26px rgba(70,240,138,.6), 0 0 70px rgba(40,200,110,.3), inset 0 0 20px rgba(0,0,0,.55)}
+  body[data-orb="matrix"] #orb::before{
+    background:repeating-linear-gradient(180deg, rgba(70,255,140,.55) 0 2px, transparent 2px 7px);
+    filter:blur(1px);inset:0;border-radius:50%;animation:matrixFall 1.6s linear infinite;opacity:.55}
+  body[data-orb="matrix"] #orb::after{display:none}
+  @keyframes matrixFall{to{background-position:0 14px}}
+
+  /* --- ORB: ALIEN — iridescent organic bio-light --- */
+  body[data-orb="alien"] #orb{
+    background:radial-gradient(circle at 38% 32%, #F6E4FF, #C77DFF 30%, #6A00F4 60%, #1a0033 100%);
+    box-shadow:0 0 28px rgba(190,120,255,.65), 0 0 80px rgba(140,60,255,.35);
+    animation:alienBreathe 5s ease-in-out infinite}
+  body[data-orb="alien"] #orb::before{
+    background:conic-gradient(from 0deg, #00F5D4, #7B2CBF, #F72585, #4CC9F0, #00F5D4);
+    filter:blur(12px) saturate(1.8);inset:-12px;animation:orbSpin 9s linear infinite}
+  @keyframes alienBreathe{0%,100%{transform:scale(1) rotate(0)}50%{transform:scale(1.06) rotate(4deg)}}
+
+  /* --- ORB: MACHINE — brushed metal, industrial --- */
+  body[data-orb="machine"] #orb{
+    background:conic-gradient(from 210deg, #6b7280, #d1d5db 12%, #4b5563 28%, #9ca3af 45%, #374151 62%, #e5e7eb 80%, #6b7280);
+    box-shadow:0 0 16px rgba(255,255,255,.25), inset 0 -10px 26px rgba(0,0,0,.6), inset 0 6px 14px rgba(255,255,255,.4)}
+  body[data-orb="machine"] #orb::before{
+    background:none;border:3px dashed rgba(255,180,60,.55);inset:-9px;filter:none;animation:orbSpin 12s linear infinite}
+  body[data-orb="machine"] #orb::after{
+    background:radial-gradient(circle, rgba(255,170,50,.25), transparent 70%);filter:blur(6px);inset:-16px;animation:none}
+
+  /* --- ORB: NATURE — overgrown, mossy, glowing seed --- */
+  body[data-orb="nature"] #orb{
+    background:radial-gradient(circle at 40% 34%, #FFF6C9, #C6E86B 28%, #4E8B2B 58%, #14300d 100%);
+    box-shadow:0 0 24px rgba(180,230,110,.5), 0 0 60px rgba(90,160,60,.3), inset 0 -8px 20px rgba(10,40,10,.6);
+    animation:orbFloat 7s ease-in-out infinite}
+  body[data-orb="nature"] #orb::before{
+    background:conic-gradient(#3f6212, #84cc16, #365314, #a3e635, #3f6212);
+    filter:blur(11px) saturate(1.3);inset:-10px;animation:orbSpin 16s linear infinite}
+
+  /* ===== THEMED BACKGROUNDS ===== */
+  body[data-theme="digital"]::before{
+    background:linear-gradient(rgba(80,200,255,.10) 1px, transparent 1px) 0 0/100% 34px,
+               linear-gradient(90deg, rgba(80,200,255,.10) 1px, transparent 1px) 0 0/34px 100%,
+               radial-gradient(60% 50% at 50% 20%, rgba(60,160,255,.18), transparent 70%);
+    opacity:.5;filter:none;animation:gridDrift 24s linear infinite}
+  @keyframes gridDrift{to{background-position:0 34px, 34px 0, 0 0}}
+
+  body[data-theme="matrix"]::before{
+    background:repeating-linear-gradient(180deg, rgba(60,255,130,.16) 0 2px, transparent 2px 5px),
+               radial-gradient(70% 60% at 50% 0%, rgba(20,140,60,.28), transparent 75%);
+    opacity:.45;filter:none;animation:rain 2.2s linear infinite}
+  @keyframes rain{to{background-position:0 5px, 0 0}}
+
+  body[data-theme="alien"]::before{
+    background:radial-gradient(45% 40% at 25% 30%, #7B2CBF, transparent 70%),
+               radial-gradient(40% 35% at 75% 25%, #00F5D4, transparent 70%),
+               radial-gradient(50% 45% at 55% 80%, #F72585, transparent 70%);
+    opacity:.16;filter:blur(45px);animation:ambient 20s ease-in-out infinite alternate}
+
+  body[data-theme="machine"]::before{
+    background:repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 12px),
+               radial-gradient(60% 50% at 50% 30%, rgba(255,170,50,.14), transparent 70%);
+    opacity:.5;filter:none;animation:none}
+
+  body[data-theme="nature"]::before{
+    background:radial-gradient(40% 35% at 15% 20%, #4E8B2B, transparent 70%),
+               radial-gradient(45% 40% at 85% 35%, #86efac, transparent 70%),
+               radial-gradient(55% 50% at 50% 90%, #14532d, transparent 70%);
+    opacity:.22;filter:blur(40px);animation:ambient 30s ease-in-out infinite alternate}
+
+  body[data-theme="jarvis"]::before{
+    background:radial-gradient(circle at 50% 45%, transparent 28%, rgba(90,200,255,.09) 29%, transparent 30%),
+               radial-gradient(circle at 50% 45%, transparent 40%, rgba(90,200,255,.07) 41%, transparent 42%),
+               radial-gradient(circle at 50% 45%, transparent 54%, rgba(90,200,255,.05) 55%, transparent 56%),
+               radial-gradient(60% 55% at 50% 45%, rgba(30,120,200,.16), transparent 75%);
+    opacity:.6;filter:none;animation:hudPulse 6s ease-in-out infinite}
+  @keyframes hudPulse{0%,100%{opacity:.45}50%{opacity:.75}}
+
+  /* ===== BATCH 74: SIX MORE WORLDS ===== */
+
+  /* --- NEON NOIR (Blade Runner): rain-streaked dark, magenta/cyan bleed --- */
+  body[data-theme="noir"]::before{
+    background:repeating-linear-gradient(96deg, rgba(255,255,255,.05) 0 1px, transparent 1px 26px),
+               radial-gradient(45% 40% at 22% 18%, #FF2E88, transparent 68%),
+               radial-gradient(42% 38% at 78% 30%, #00E5FF, transparent 68%),
+               radial-gradient(60% 55% at 50% 92%, #12002b, transparent 72%);
+    opacity:.24;filter:blur(28px);animation:noirRain 7s linear infinite}
+  @keyframes noirRain{to{background-position:0 26px, 0 0, 0 0, 0 0}}
+  body[data-orb="noir"] #orb{
+    background:radial-gradient(circle at 40% 34%, #FFE3F4, #FF2E88 34%, #7A0038 66%, #10001a 100%);
+    box-shadow:0 0 26px rgba(255,46,136,.7), 0 0 70px rgba(0,229,255,.35), inset 0 0 18px rgba(0,0,0,.5)}
+  body[data-orb="noir"] #orb::before{
+    background:conic-gradient(#FF2E88, #00E5FF, #FF2E88);filter:blur(13px) saturate(1.7);
+    inset:-11px;animation:orbSpin 5s linear infinite}
+
+  /* --- DESERT TECH (Dune): warm sand + brass, readable in bright sun --- */
+  body[data-theme="desert"]::before{
+    background:radial-gradient(50% 45% at 30% 20%, #E8B95F, transparent 70%),
+               radial-gradient(45% 40% at 75% 40%, #C97B3C, transparent 70%),
+               radial-gradient(60% 50% at 50% 95%, #4a2c12, transparent 75%);
+    opacity:.2;filter:blur(38px);animation:ambient 34s ease-in-out infinite alternate}
+  body[data-orb="desert"] #orb{
+    background:radial-gradient(circle at 40% 32%, #FFF3D6, #E8B95F 32%, #B4762A 62%, #2a1806 100%);
+    box-shadow:0 0 22px rgba(232,185,95,.6), 0 0 60px rgba(201,123,60,.3), inset 0 -8px 20px rgba(40,20,0,.6)}
+  body[data-orb="desert"] #orb::before{
+    background:conic-gradient(#E8B95F, #8C5A2B, #F3D9A4, #B4762A, #E8B95F);
+    filter:blur(10px);inset:-9px;animation:orbSpin 18s linear infinite}
+
+  /* --- CRT TERMINAL: amber phosphor, scanlines, screen curve --- */
+  body[data-theme="crt"]::before{
+    background:repeating-linear-gradient(180deg, rgba(255,176,0,.14) 0 1px, transparent 1px 4px),
+               radial-gradient(75% 65% at 50% 45%, rgba(255,176,0,.14), transparent 78%),
+               radial-gradient(120% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.6) 100%);
+    opacity:.5;filter:none;animation:crtFlicker 4s steps(30) infinite}
+  @keyframes crtFlicker{0%,96%{opacity:.5}97%{opacity:.42}98%{opacity:.56}100%{opacity:.5}}
+  body[data-orb="crt"] #orb{
+    background:radial-gradient(circle at 45% 38%, #FFF0C9, #FFB000 34%, #8A5A00 66%, #1a1000 100%);
+    box-shadow:0 0 24px rgba(255,176,0,.65), 0 0 60px rgba(255,140,0,.28), inset 0 0 16px rgba(0,0,0,.5)}
+  body[data-orb="crt"] #orb::before{
+    background:repeating-linear-gradient(180deg, rgba(255,200,80,.6) 0 1px, transparent 1px 5px);
+    inset:0;border-radius:50%;filter:blur(.5px);opacity:.55;animation:matrixFall 2.4s linear infinite}
+  body[data-orb="crt"] #orb::after{display:none}
+
+  /* --- DEEP SEA: near-black with drifting bioluminescence --- */
+  body[data-theme="deepsea"]::before{
+    background:radial-gradient(35% 30% at 20% 30%, #0FF4C6, transparent 70%),
+               radial-gradient(30% 28% at 80% 55%, #3A86FF, transparent 70%),
+               radial-gradient(70% 60% at 50% 100%, #001220, transparent 70%);
+    opacity:.18;filter:blur(50px);animation:ambient 40s ease-in-out infinite alternate}
+  body[data-orb="deepsea"] #orb{
+    background:radial-gradient(circle at 42% 36%, #DFFFF7, #0FF4C6 32%, #06788F 62%, #001018 100%);
+    box-shadow:0 0 28px rgba(15,244,198,.6), 0 0 80px rgba(58,134,255,.3);
+    animation:wispDrift 11s ease-in-out infinite}
+  body[data-orb="deepsea"] #orb::before{
+    background:radial-gradient(circle, rgba(15,244,198,.45), transparent 66%);
+    filter:blur(16px);inset:-22px;animation:wispPulse 5s ease-in-out infinite}
+  body[data-orb="deepsea"] #orb::after{display:none}
+
+  /* --- PAPER: the anti-sci-fi. Cream, ink, calm. --- */
+  body[data-theme="paper"]::before{
+    background:repeating-linear-gradient(0deg, rgba(120,90,50,.05) 0 1px, transparent 1px 28px),
+               radial-gradient(80% 70% at 50% 30%, rgba(230,214,184,.5), transparent 75%);
+    opacity:.5;filter:none;animation:none}
+  body[data-orb="paper"] #orb{
+    background:radial-gradient(circle at 42% 34%, #FFFDF6, #E8DCC0 38%, #B9A57C 68%, #6b5a37 100%);
+    box-shadow:0 0 14px rgba(180,160,120,.4), inset 0 -6px 16px rgba(90,70,40,.35);
+    animation:orbFloat 8s ease-in-out infinite}
+  body[data-orb="paper"] #orb::before{
+    background:none;border:2px solid rgba(120,95,55,.35);inset:-8px;filter:none;
+    animation:orbSpin 24s linear infinite}
+  body[data-orb="paper"] #orb::after{display:none}
+
+  /* --- SOLAR: molten heat-map, high visibility outdoors --- */
+  body[data-theme="solar"]::before{
+    background:radial-gradient(45% 40% at 30% 25%, #FF9E00, transparent 70%),
+               radial-gradient(40% 35% at 75% 35%, #FF206E, transparent 70%),
+               radial-gradient(60% 55% at 50% 95%, #2b0a00, transparent 72%);
+    opacity:.22;filter:blur(42px);animation:ambient 26s ease-in-out infinite alternate}
+  body[data-orb="solar"] #orb{
+    background:radial-gradient(circle at 40% 32%, #FFF3B0, #FFB703 34%, #E85D04 62%, #370617 100%);
+    box-shadow:0 0 30px rgba(255,158,0,.7), 0 0 80px rgba(232,93,4,.35);
+    animation:alienBreathe 4.5s ease-in-out infinite}
+  body[data-orb="solar"] #orb::before{
+    background:conic-gradient(#FFB703, #FF206E, #FF9E00, #E85D04, #FFB703);
+    filter:blur(12px) saturate(1.5);inset:-11px;animation:orbSpin 6s linear infinite}
+
+  /* ===== ORB ACTIVITY STATES (batch 74) — tell what it's doing at a glance ===== */
+  #orb.thinking{animation:thinkSpin 1.1s cubic-bezier(.5,0,.5,1) infinite}
+  #orb.thinking::before{animation:orbSpin 1s linear infinite}
+  @keyframes thinkSpin{0%,100%{transform:scale(1) rotate(0)}50%{transform:scale(1.05) rotate(180deg)}}
+  #orb.searching{animation:searchScan 1.6s ease-in-out infinite}
+  @keyframes searchScan{0%,100%{transform:translateX(0) scale(1)}25%{transform:translateX(-7px) scale(.98)}75%{transform:translateX(7px) scale(1.02)}}
+  #orb.recalling{animation:recallPulse 2s ease-in-out infinite}
+  #orb.recalling::after{animation:recallRipple 2s ease-out infinite}
+  @keyframes recallPulse{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.03);filter:brightness(1.35)}}
+  @keyframes recallRipple{0%{transform:scale(.9);opacity:.7}100%{transform:scale(1.5);opacity:0}}
+  #orb.watching{animation:watchScan 3s linear infinite}
+  @keyframes watchScan{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}
+  #orb.watching::before{animation:orbSpin 2.4s linear infinite}
+
     /* Batch 69: helper tooltips — what a tile does + what to say out loud */
     .tile{position:relative}
     .tip-dot{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;
@@ -451,6 +659,7 @@
   <div class="group" onclick="toggleCat(this)"><h2>Settings</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Settings</h3><p>Backend, themes &amp; more</p></div>
+    <div class="tile" onclick="chooseLooks()"><span class="badge live">live</span><div class="ic">🎨</div><h3>Looks</h3><p>Orb & background</p></div>
     <div class="tile" onclick="diagView('all')"><span class="badge live">live</span><div class="ic">🔍</div><h3>Diagnostics</h3><p>Logs for testing</p></div>
     <div class="tile" onclick="runHealth(true)" data-tip="status"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
     <div class="tile" onclick="location.href='./trainer.html'"><span class="badge live">live</span><div class="ic">🎓</div><h3>Learn commands</h3><p>Practice out loud</p></div>
@@ -879,6 +1088,353 @@
     }catch(e){ addMsg('buddy','Diagnostics unreachable — is the brain deployed?'); }
   }
 
+  // ===== 🔮 3D ORB (batch 74): real WebGL, no library =====
+  // A raymarched sphere with Phong lighting, fresnel rim, animated surface
+  // noise and an ambient bounce light. Falls back to the CSS orb if WebGL
+  // isn't available. Palettes match the themes so both stay in step.
+  const ORB3D_PALETTES={
+    aurora:  {core:[1.0,0.78,0.25], rim:[0.70,0.30,1.0],  amb:[0.30,0.10,0.45], rough:0.35, wobble:0.14},
+    jarvis:  {core:[0.55,0.85,1.0],  rim:[0.20,0.60,1.0],  amb:[0.02,0.14,0.28], rough:0.18, wobble:0.06},
+    wisp:    {core:[0.62,0.98,0.82], rim:[0.20,0.85,0.60], amb:[0.03,0.20,0.14], rough:0.55, wobble:0.30},
+    matrix:  {core:[0.35,1.0,0.55],  rim:[0.05,0.65,0.25], amb:[0.01,0.16,0.06], rough:0.25, wobble:0.10},
+    alien:   {core:[0.85,0.55,1.0],  rim:[0.00,0.96,0.83], amb:[0.16,0.02,0.30], rough:0.40, wobble:0.26},
+    machine: {core:[0.85,0.87,0.90], rim:[1.00,0.66,0.20], amb:[0.10,0.10,0.12], rough:0.08, wobble:0.02},
+    nature:  {core:[0.85,0.95,0.45], rim:[0.30,0.65,0.20], amb:[0.06,0.16,0.05], rough:0.60, wobble:0.22},
+    noir:    {core:[1.0,0.30,0.60],  rim:[0.00,0.90,1.00], amb:[0.16,0.00,0.20], rough:0.22, wobble:0.12},
+    desert:  {core:[1.0,0.85,0.55],  rim:[0.75,0.45,0.18], amb:[0.20,0.11,0.03], rough:0.50, wobble:0.16},
+    crt:     {core:[1.0,0.72,0.10],  rim:[0.90,0.45,0.00], amb:[0.16,0.09,0.00], rough:0.30, wobble:0.08},
+    deepsea: {core:[0.35,0.98,0.85], rim:[0.20,0.50,1.00], amb:[0.00,0.08,0.16], rough:0.45, wobble:0.24},
+    paper:   {core:[0.98,0.95,0.86], rim:[0.60,0.50,0.32], amb:[0.18,0.16,0.12], rough:0.85, wobble:0.05},
+    solar:   {core:[1.0,0.80,0.25],  rim:[1.00,0.25,0.35], amb:[0.24,0.06,0.00], rough:0.30, wobble:0.28},
+  };
+  let _gl=null, _glProg=null, _glCanvas=null, _glRAF=null, _glStart=Date.now(), _glState=0;
+  const ORB_VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+  const ORB_FS=[
+  'precision highp float;',
+  'uniform vec2 res; uniform float t; uniform vec3 core,rim,amb;',
+  'uniform float rough,wobble,act;',
+  // cheap 3D value noise for the animated surface
+  'float hash(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}',
+  'float noise(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);',
+  ' float n=mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),',
+  ' mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);',
+  ' return n;}',
+  'float fbm(vec3 p){return .55*noise(p)+.28*noise(p*2.1)+.17*noise(p*4.3);}',
+  'void main(){',
+  ' vec2 uv=(gl_FragCoord.xy-.5*res)/min(res.x,res.y)*2.2;',
+  ' float r=length(uv);',
+  ' if(r>1.18){gl_FragColor=vec4(0.);return;}',
+  // sphere normal
+  ' float z=sqrt(max(0.,1.-r*r));',
+  ' vec3 n=normalize(vec3(uv,z));',
+  // animated surface displacement -> shading detail
+  ' float surf=fbm(n*2.6+vec3(0.,t*.22,t*.13));',
+  ' vec3 nn=normalize(n+wobble*(surf-.5)*1.4);',
+  // key light, fill light, ambient bounce
+  ' vec3 L1=normalize(vec3(-.45,.65,.75));',
+  ' vec3 L2=normalize(vec3(.7,-.3,.4));',
+  ' float d1=max(dot(nn,L1),0.), d2=max(dot(nn,L2),0.)*.35;',
+  ' vec3 V=vec3(0.,0.,1.);',
+  ' vec3 H=normalize(L1+V);',
+  ' float spec=pow(max(dot(nn,H),0.),mix(90.,6.,rough))*(1.-rough*.75);',
+  // fresnel rim glow
+  ' float fres=pow(1.-max(dot(n,V),0.),2.6);',
+  ' vec3 col=core*(d1+d2)*(.55+.45*surf)+amb*(1.-d1*.6);',
+  ' col+=rim*fres*1.45;',
+  ' col+=vec3(spec)*1.25;',
+  // activity: 0 idle, 1 listening, 2 speaking, 3 thinking
+  ' if(act>0.5&&act<1.5) col*=1.0+.35*sin(t*7.0);',
+  ' if(act>1.5&&act<2.5) col*=1.0+.22*sin(t*4.0+n.y*3.0);',
+  ' if(act>2.5) col*=1.0+.30*sin(t*11.0+n.x*5.0);',
+  // soft edge + inner shadow at the terminator
+  ' float edge=smoothstep(1.06,.94,r);',
+  ' col*=mix(.35,1.0,smoothstep(-.2,.6,dot(nn,L1)));',
+  ' gl_FragColor=vec4(col*edge,edge);',
+  '}'].join('\n');
+
+  function orb3dSupported(){
+    try{ const c=document.createElement('canvas');
+      return !!(c.getContext('webgl')||c.getContext('experimental-webgl')); }catch(e){ return false; }
+  }
+  function orb3dStart(){
+    if(localStorage.buddy_orb3d==='off') return orb3dStop();
+    const host=document.getElementById('orb'); if(!host||!orb3dSupported()) return;
+    if(!_glCanvas){
+      _glCanvas=document.createElement('canvas');
+      _glCanvas.style.cssText='position:absolute;inset:-14px;width:calc(100% + 28px);height:calc(100% + 28px);border-radius:50%;pointer-events:none';
+      host.appendChild(_glCanvas);
+      host.style.background='transparent'; host.style.boxShadow='none';
+    }
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    const size=Math.round((host.offsetWidth+28)*dpr)||160;
+    _glCanvas.width=size; _glCanvas.height=size;
+    _gl=_glCanvas.getContext('webgl',{alpha:true,premultipliedAlpha:false,antialias:true});
+    if(!_gl){ return; }
+    const sh=(type,src)=>{ const s=_gl.createShader(type); _gl.shaderSource(s,src); _gl.compileShader(s); return s; };
+    const prog=_gl.createProgram();
+    _gl.attachShader(prog,sh(_gl.VERTEX_SHADER,ORB_VS));
+    _gl.attachShader(prog,sh(_gl.FRAGMENT_SHADER,ORB_FS));
+    _gl.linkProgram(prog);
+    if(!_gl.getProgramParameter(prog,_gl.LINK_STATUS)){ _glCanvas.remove(); _glCanvas=null; return; }
+    _glProg=prog; _gl.useProgram(prog);
+    const buf=_gl.createBuffer(); _gl.bindBuffer(_gl.ARRAY_BUFFER,buf);
+    _gl.bufferData(_gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),_gl.STATIC_DRAW);
+    const loc=_gl.getAttribLocation(prog,'p'); _gl.enableVertexAttribArray(loc);
+    _gl.vertexAttribPointer(loc,2,_gl.FLOAT,false,0,0);
+    _gl.enable(_gl.BLEND); _gl.blendFunc(_gl.SRC_ALPHA,_gl.ONE_MINUS_SRC_ALPHA);
+    const U=k=>_gl.getUniformLocation(prog,k);
+    const draw=()=>{
+      if(!_gl||!_glProg){ return; }
+      const style=localStorage.buddy_orbstyle||'aurora';
+      const P=ORB3D_PALETTES[style]||ORB3D_PALETTES.aurora;
+      _gl.viewport(0,0,_glCanvas.width,_glCanvas.height);
+      _gl.uniform2f(U('res'),_glCanvas.width,_glCanvas.height);
+      _gl.uniform1f(U('t'),(Date.now()-_glStart)/1000);
+      _gl.uniform3f(U('core'),P.core[0],P.core[1],P.core[2]);
+      _gl.uniform3f(U('rim'),P.rim[0],P.rim[1],P.rim[2]);
+      _gl.uniform3f(U('amb'),P.amb[0],P.amb[1],P.amb[2]);
+      _gl.uniform1f(U('rough'),P.rough);
+      _gl.uniform1f(U('wobble'),P.wobble);
+      _gl.uniform1f(U('act'),_glState);
+      _gl.clear(_gl.COLOR_BUFFER_BIT);
+      _gl.drawArrays(_gl.TRIANGLE_STRIP,0,4);
+      _glRAF=requestAnimationFrame(draw);
+    };
+    cancelAnimationFrame(_glRAF); draw();
+  }
+  function orb3dStop(){
+    cancelAnimationFrame(_glRAF); _glRAF=null;
+    if(_glCanvas){ _glCanvas.remove(); _glCanvas=null; }
+    _gl=null; _glProg=null;
+    const host=document.getElementById('orb');
+    if(host){ host.style.background=''; host.style.boxShadow=''; }
+  }
+  function orb3dState(s){ _glState = s==='listening'?1 : s==='speaking'?2 : s==='thinking'?3 : 0; }
+  async function toggle3d(){
+    const on=localStorage.buddy_orb3d!=='off';
+    localStorage.buddy_orb3d = on?'off':'on';
+    if(on){ orb3dStop(); toast('Flat orb — lighter on battery.'); }
+    else { orb3dStart(); toast('3D orb on ✨'); }
+  }
+
+  // 🎨 LOOKS (batch 73): orb styles + themed backgrounds, switchable live.
+  const ORB_STYLES=[
+    {label:'🌈 Aurora (default)',value:'aurora'},
+    {label:'🔵 Jarvis — HUD rings',value:'jarvis'},
+    {label:'💚 Wisp — drifting spirit',value:'wisp'},
+    {label:'🟢 Matrix — code sphere',value:'matrix'},
+    {label:'🟣 Alien — bio-light',value:'alien'},
+    {label:'⚙️ Machine — brushed metal',value:'machine'},
+    {label:'🌿 Nature — overgrown seed',value:'nature'},
+    {label:'🌆 Neon noir — rain & neon',value:'noir'},
+    {label:'🏜️ Desert tech — sand & brass',value:'desert'},
+    {label:'📟 CRT — amber phosphor',value:'crt'},
+    {label:'🌊 Deep sea — bioluminescent',value:'deepsea'},
+    {label:'📜 Paper — calm & analogue',value:'paper'},
+    {label:'☀️ Solar — molten heat',value:'solar'},
+  ];
+  const BG_THEMES=[
+    {label:'🌌 Aurora (default)',value:'aurora'},
+    {label:'🔷 Digital — grid',value:'digital'},
+    {label:'🔵 Jarvis — HUD arcs',value:'jarvis'},
+    {label:'🟩 Matrix — code rain',value:'matrix'},
+    {label:'👽 Alien — iridescent',value:'alien'},
+    {label:'⚙️ Machine — industrial',value:'machine'},
+    {label:'🌿 Nature — overgrown',value:'nature'},
+    {label:'🌆 Neon noir — rain & neon',value:'noir'},
+    {label:'🏜️ Desert tech — sand & brass',value:'desert'},
+    {label:'📟 CRT — amber phosphor',value:'crt'},
+    {label:'🌊 Deep sea — bioluminescent',value:'deepsea'},
+    {label:'📜 Paper — calm & analogue',value:'paper'},
+    {label:'☀️ Solar — molten heat',value:'solar'},
+    {label:'🕰️ Follow my day (auto)',value:'auto'},
+  ];
+  // 🕰️ CONTEXTUAL THEME (batch 74): the background follows your actual life —
+  // time of day, the weather outside, where you are. Nothing else does this,
+  // because nothing else knows your day.
+  function contextTheme(){
+    const hr=new Date().getHours();
+    const wx=(localStorage.buddy_lastweather||'').toLowerCase();
+    const country=(localStorage.getItem('buddy_country')||'').toLowerCase();
+    if(/rain|shower|storm|drizzle/.test(wx)) return 'noir';          // actually raining
+    if(/vietnam|thailand|indonesia|cambodia|laos/.test(country)) return hr>=18||hr<6?'noir':'solar';
+    if(hr>=5&&hr<8)   return 'desert';    // dawn — warm and low
+    if(hr>=8&&hr<17)  return 'digital';   // day — bright and clear
+    if(hr>=17&&hr<20) return 'solar';     // golden hour
+    return 'deepsea';                     // night — dark and calm
+  }
+  // 🔮 ORB ACTIVITY (batch 74): thinking / searching / recalling / watching.
+  // Tell what Vision's doing at a glance, without reading a word.
+  function orbActivity(state){
+    if(state==='thinking') orb3dState('thinking'); else if(!state) orb3dState(null);
+    const o=document.getElementById('orb'); if(!o) return;
+    ['thinking','searching','recalling','watching'].forEach(c=>o.classList.remove(c));
+    if(state) o.classList.add(state);
+  }
+  function applyLooks(){
+    const orb=localStorage.buddy_orbstyle||'aurora';
+    let th=localStorage.buddy_theme||'aurora';
+    if(th==='auto') th=contextTheme();
+    if(orb==='aurora') document.body.removeAttribute('data-orb'); else document.body.setAttribute('data-orb',orb);
+    if(th==='aurora') document.body.removeAttribute('data-theme'); else document.body.setAttribute('data-theme',th);
+  }
+  async function chooseOrb(){
+    const v=await pick('Pick your orb', ORB_STYLES, {allowSpeech:false, allowType:false});
+    if(!v) return;
+    localStorage.buddy_orbstyle=v; applyLooks(); orb3dStart();
+    toast('Orb: '+(ORB_STYLES.find(o=>o.value===v)||{}).label);
+  }
+  async function chooseTheme(){
+    const v=await pick('Pick your background', BG_THEMES, {allowSpeech:false, allowType:false});
+    if(!v) return;
+    localStorage.buddy_theme=v; applyLooks();
+    toast('Theme: '+(BG_THEMES.find(o=>o.value===v)||{}).label);
+  }
+  async function chooseLooks(){
+    const what=await pick('What would you like to change?',[
+      {label:'🔮 The orb',value:'orb'},{label:'🖼️ The background',value:'theme'},
+      {label:'✨ Surprise me',value:'random'},
+      {label:(localStorage.buddy_orb3d==='off'?'🔮 Turn 3D orb ON':'▫️ Turn 3D orb OFF (save battery)'),value:'3d'}],{allowSpeech:false,allowType:false});
+    if(what==='3d') return toggle3d();
+    if(what==='orb') return chooseOrb();
+    if(what==='theme') return chooseTheme();
+    if(what==='random'){
+      const o=ORB_STYLES[Math.floor(Math.random()*ORB_STYLES.length)].value;
+      const t=BG_THEMES[Math.floor(Math.random()*BG_THEMES.length)].value;
+      localStorage.buddy_orbstyle=o; localStorage.buddy_theme=t; applyLooks(); orb3dStart();
+      toast('Try this on for size ✨');
+    }
+  }
+
+  // 👆 TAP PICKER (batch 72): a voice-first app should never make you type a
+  // choice it already knows. Big tappable options, speech for anything else,
+  // keyboard only if you insist.
+  function pick(question, options, opts){
+    opts=opts||{};
+    return new Promise(resolve=>{
+      const back=document.createElement('div');
+      back.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1200;opacity:0;transition:opacity .2s';
+      const sheet=document.createElement('div');
+      sheet.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:1201;background:#111733;border-top:1px solid rgba(255,255,255,.14);border-radius:20px 20px 0 0;padding:20px 18px 30px;transform:translateY(110%);transition:transform .28s cubic-bezier(.2,.8,.2,1);max-height:76vh;overflow-y:auto';
+      const q=document.createElement('div');
+      q.style.cssText='font-size:17px;font-weight:700;margin-bottom:14px';
+      q.textContent=question; sheet.appendChild(q);
+      const done=(v)=>{ back.style.opacity='0'; sheet.style.transform='translateY(110%)'; setTimeout(()=>{ back.remove(); sheet.remove(); },280); resolve(v); };
+      (options||[]).forEach(o=>{
+        const label=typeof o==='string'? o : o.label;
+        const value=typeof o==='string'? o : (o.value!=null?o.value:o.label);
+        const b=document.createElement('div');
+        b.style.cssText='padding:15px 16px;margin-bottom:9px;border-radius:14px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.10);font-size:16px;font-weight:600;cursor:pointer';
+        b.textContent=label; b.onclick=()=>done(value); sheet.appendChild(b);
+      });
+      if(opts.allowSpeech!==false){
+        const mic=document.createElement('div');
+        mic.style.cssText='padding:15px 16px;margin-top:6px;border-radius:14px;background:rgba(245,166,35,.16);border:1px solid rgba(245,166,35,.4);font-size:16px;font-weight:600;cursor:pointer;text-align:center';
+        mic.textContent='🎤 Say it instead';
+        mic.onclick=()=>{
+          const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+          if(!SR){ mic.textContent='Voice not available here'; return; }
+          mic.textContent='🎙️ Listening…';
+          try{ const r=new SR(); r.lang='en-AU'; r.interimResults=false;
+            r.onresult=e=>done(e.results[0][0].transcript.trim());
+            r.onerror=()=>{ mic.textContent='Didn\'t catch that — tap to retry'; }; r.start();
+          }catch(e){ mic.textContent='Mic failed — tap an option'; }
+        };
+        sheet.appendChild(mic);
+      }
+      if(opts.allowType!==false){
+        const typ=document.createElement('div');
+        typ.style.cssText='padding:12px;margin-top:4px;text-align:center;opacity:.6;font-size:14px;cursor:pointer';
+        typ.textContent='⌨️ type instead';
+        typ.onclick=()=>{ const v=prompt(question, opts.default||''); if(v!=null) done(v.trim()); };
+        sheet.appendChild(typ);
+      }
+      const cancel=document.createElement('div');
+      cancel.style.cssText='padding:12px;margin-top:2px;text-align:center;opacity:.45;font-size:14px;cursor:pointer';
+      cancel.textContent='cancel'; cancel.onclick=()=>done(null); sheet.appendChild(cancel);
+      back.onclick=()=>done(null);
+      document.body.appendChild(back); document.body.appendChild(sheet);
+      requestAnimationFrame(()=>{ back.style.opacity='1'; sheet.style.transform='none'; });
+    });
+  }
+  // 🔤 ADDRESS PICKER: two letters and it suggests. Saved places first, then
+  // live Google suggestions biased to where you are.
+  function pickPlace(question){
+    return new Promise(resolve=>{
+      const back=document.createElement('div');
+      back.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1200;opacity:0;transition:opacity .2s';
+      const sheet=document.createElement('div');
+      sheet.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:1201;background:#111733;border-top:1px solid rgba(255,255,255,.14);border-radius:20px 20px 0 0;padding:18px 16px 26px;transform:translateY(110%);transition:transform .28s cubic-bezier(.2,.8,.2,1);max-height:80vh;overflow-y:auto';
+      const q=document.createElement('div');
+      q.style.cssText='font-size:17px;font-weight:700;margin-bottom:12px'; q.textContent=question;
+      const inp=document.createElement('input');
+      inp.type='text'; inp.placeholder='Type 2 letters, or tap a saved place…';
+      inp.style.cssText='width:100%;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:inherit;font-size:16px;margin-bottom:10px';
+      const list=document.createElement('div');
+      const done=(v)=>{ back.style.opacity='0'; sheet.style.transform='translateY(110%)'; setTimeout(()=>{ back.remove(); sheet.remove(); },280); resolve(v); };
+      const row=(label,sub,value,icon)=>{
+        const b=document.createElement('div');
+        b.style.cssText='padding:13px 14px;margin-bottom:8px;border-radius:12px;background:rgba(255,255,255,.08);cursor:pointer';
+        b.innerHTML='<div style="font-weight:600;font-size:15px">'+(icon||'')+' '+label+'</div>'+(sub?'<div style="opacity:.6;font-size:13px;margin-top:2px">'+sub+'</div>':'');
+        b.onclick=()=>done(value); return b;
+      };
+      const renderSaved=()=>{
+        list.innerHTML='';
+        let saved={}; try{ saved={...favPlacesGet(),...placesGet()}; }catch(e){}
+        const keys=Object.keys(saved).slice(0,6);
+        if(keys.length){
+          const h5=document.createElement('div');
+          h5.style.cssText='opacity:.55;font-size:12px;margin:4px 0 8px'; h5.textContent='YOUR PLACES';
+          list.appendChild(h5);
+          keys.forEach(k=>list.appendChild(row(k, saved[k], saved[k]||k, '⭐')));
+        }
+      };
+      renderSaved();
+      let timer=null;
+      inp.oninput=()=>{
+        clearTimeout(timer);
+        const v=inp.value.trim();
+        if(v.length<2){ renderSaved(); return; }
+        timer=setTimeout(()=>{
+          const st=brain.state();
+          api('/autocomplete',{q:v,lat:st.lat,lng:st.lng}).then(({data})=>{
+            list.innerHTML='';
+            const sugg=(data&&data.suggestions)||[];
+            sugg.forEach(sg=>list.appendChild(row(sg.label, sg.sub, sg.value, '📍')));
+            list.appendChild(row('Use "'+v+'" as typed','', v, '✏️'));
+          }).catch(()=>{ list.innerHTML=''; list.appendChild(row('Use "'+v+'"','', v, '📍')); });
+        }, 260);
+      };
+      const mic=document.createElement('div');
+      mic.style.cssText='padding:14px;margin-top:6px;border-radius:12px;background:rgba(245,166,35,.16);border:1px solid rgba(245,166,35,.4);font-weight:600;text-align:center;cursor:pointer';
+      mic.textContent='🎤 Say the place';
+      mic.onclick=()=>{
+        const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+        if(!SR){ mic.textContent='Voice not available'; return; }
+        mic.textContent='🎙️ Listening…';
+        try{ const r=new SR(); r.lang='en-AU'; r.interimResults=false;
+          r.onresult=e=>{ inp.value=e.results[0][0].transcript.trim(); mic.textContent='🎤 Say the place'; inp.oninput(); };
+          r.onerror=()=>{ mic.textContent='Try again'; }; r.start();
+        }catch(e){ mic.textContent='Mic failed'; }
+      };
+      const cancel=document.createElement('div');
+      cancel.style.cssText='padding:12px;margin-top:4px;text-align:center;opacity:.45;font-size:14px;cursor:pointer';
+      cancel.textContent='cancel'; cancel.onclick=()=>done(null);
+      sheet.appendChild(q); sheet.appendChild(inp); sheet.appendChild(list); sheet.appendChild(mic); sheet.appendChild(cancel);
+      back.onclick=()=>done(null);
+      document.body.appendChild(back); document.body.appendChild(sheet);
+      requestAnimationFrame(()=>{ back.style.opacity='1'; sheet.style.transform='none'; setTimeout(()=>inp.focus(),320); });
+    });
+  }
+  const PICKS={
+    travelMode:[{label:'🚶 Walk',value:'walking'},{label:'🚗 Drive / motorbike',value:'driving'},{label:'🚆 Transit',value:'transit'},{label:'🚲 Bike',value:'bicycling'}],
+    people:[{label:'Just me',value:'1'},{label:'2 people',value:'2'},{label:'3 people',value:'3'},{label:'4 people',value:'4'},{label:'5+',value:'5'}],
+    days:[{label:'Weekend (2 days)',value:'2'},{label:'3 days',value:'3'},{label:'5 days',value:'5'},{label:'A week',value:'7'},{label:'2 weeks',value:'14'}],
+    when:[{label:'Tonight',value:'tonight'},{label:'Tomorrow',value:'tomorrow'},{label:'This weekend',value:'this weekend'},{label:'Next week',value:'next week'}],
+    bookWhat:[{label:'🍽️ Restaurant',value:'restaurant'},{label:'🎫 Tour or ticket',value:'tour'},{label:'💇 Appointment',value:'appointment'},{label:'🏨 Accommodation',value:'hotel'}],
+    music:[{label:'Apple Music',value:'apple'},{label:'Spotify',value:'spotify'},{label:'YouTube',value:'youtube'}],
+  };
+
   // 💡 HELPER TOOLTIPS (batch 69): every tile can explain itself — what it
   // does, the honest limits, and the exact words to say. Tap a phrase to run it.
   const TIPS={
@@ -971,6 +1527,7 @@
   async function lifelogToday(){
     openChat(); addMsg('me','📓 My day so far');
     try{
+      orbActivity('recalling');
       const {data}=await api('/memory',{action:'all'});
       const logs=(data.recent||[]).filter(r=>String(r.t).startsWith('log:'));
       if(!logs.length){ const m='Nothing logged yet today. Say "start life log" and I\'ll keep a timeline as we go.'; addMsg('buddy',m); say(m); return; }
@@ -1019,7 +1576,7 @@
     let stream;
     try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false}); }
     catch(e){ const m='I need camera permission to capture a moment.'; addMsg('buddy',m); say(m); return; }
-    capturing=true; keepAwakeSafe();
+    capturing=true; keepAwakeSafe(); orbActivity('watching');
     const secs=Math.min(Math.max(Number(seconds)||30,10),60);
     openChat(); addMsg('me','🎬 Capture this'+(note?' — '+note:''));
     const t=addMsg('buddy',`Watching for ${secs}s — I'll write up what happens. (No video kept.)`,'think');
@@ -1040,7 +1597,7 @@
       }
     }catch(e){}
     try{ stream.getTracks().forEach(x=>x.stop()); }catch(e){}
-    releaseAwakeSafe(); capturing=false;
+    releaseAwakeSafe(); capturing=false; orbActivity(null);
     if(!frames.length){ settle(t,"Couldn't get a clear view — try again?"); return; }
     try{
       const {ok,data}=await api('/moment',{frames,note:note||'',
@@ -1116,8 +1673,8 @@
     say('WhatsApp ready — tap to open it.');
   }
   // TRANSIT — real departure options via Maps transit mode.
-  function transitHandoff(dest){
-    if(!dest){ dest=prompt('Travel to where?'); if(!dest) return; }
+  async function transitHandoff(dest){
+    if(!dest){ dest=await pickPlace('Travel to where?'); if(!dest) return; }
     const d=encodeURIComponent(dest);
     handoffCard('Transit to '+dest,'Live times and platforms in Maps.',[
       {label:'🚆 Times & routes now', go:()=>{ window.location.href=`comgooglemaps://?daddr=${d}&directionsmode=transit`;
@@ -1161,9 +1718,9 @@
   async function askThenBook(a){
     a=a||{};
     let what=a.what, when=a.when, people=a.people;
-    if(!what){ what=prompt('Book what? (restaurant, tour, appointment…)','restaurant'); if(!what) return; }
-    if(!when){ when=prompt('What day and time?','tonight 7pm')||''; }
-    if(!people){ people=prompt('How many people?','2')||''; }
+    if(!what){ what=await pick('Book what?', PICKS.bookWhat); if(!what) return; }
+    if(!when){ when=(await pick('When?', PICKS.when))||''; }
+    if(!people){ people=(await pick('How many people?', PICKS.people))||''; }
     bookHandoff(what, when, people);
     try{ api('/memory',{action:'add',text:`wants to book: ${what}${when?(' '+when):''}${people?(' for '+people):''}`}).catch(()=>{}); }catch(e){}
   }
@@ -1381,6 +1938,7 @@
     }catch(e){ toast('Mic failed to start: '+String(e.message||e)); }
   }
   function orbState(st){
+    orb3dState(st);
     const cls = st==='listening'?'listening':(st==='speaking'?'speaking':'');
     const o=document.getElementById('orb'); if(o) o.className=cls;
     const e=document.getElementById('edgeGlow'); if(e) e.className=cls;
@@ -1698,9 +2256,9 @@
 
   // ✈️ Find flights — Vision's advice + a prefilled Google Flights link.
   // Honest: no free live-fare API exists, so the numbers come from the link.
-  function findFlights(a){
+  async function findFlights(a){
     a=a||{};
-    const to=a.to||prompt('Flights to where?'); if(!to) return;
+    const to=a.to||await pickPlace('Flights to where?'); if(!to) return;
     const from=a.from||prompt('Flying from?','Brisbane')||'Brisbane';
     const when=a.when||'';
     openChat(); addMsg('me',`✈️ Flights ${from} → ${to}${when?' '+when:''}`);
@@ -1716,7 +2274,7 @@
   async function findStay(a){
     a=a||{};
     openChat();
-    const area=a.area|| (localStorage.getItem('buddy_city')||'') || prompt('Stay where? (city or area)');
+    const area=a.area|| (localStorage.getItem('buddy_city')||'') || await pickPlace('Stay where?');
     addMsg('me',`🏨 Somewhere to stay${area?' in '+area:''}`);
     const t=addMsg('buddy','Looking at places to stay…','think');
     let payload={ area, what:a.what||'' };
@@ -1753,8 +2311,8 @@
   // 🗺️ Plan my trip — builds AND SAVES a day-by-day plan (buddy_trip).
   async function planTrip(a){
     a=a||{};
-    const destination=a.destination||prompt('Plan a trip where?'); if(!destination) return;
-    const days=a.days||prompt('How many days?','5');
+    const destination=a.destination||await pickPlace('Plan a trip where?'); if(!destination) return;
+    const days=a.days||await pick('How many days?', PICKS.days);
     openChat(); addMsg('me',`🗺️ Plan ${days} days in ${destination}`);
     const t=addMsg('buddy','Building your trip — give me a moment…','think');
     try{
@@ -1792,7 +2350,7 @@
   async function packList(a){
     a=a||{};
     let plan=null; try{ plan=JSON.parse(localStorage.getItem('buddy_trip')||'null'); }catch{}
-    const destination=a.destination||plan?.destination||prompt('Packing for where?'); if(!destination) return;
+    const destination=a.destination||plan?.destination||await pickPlace('Packing for where?'); if(!destination) return;
     openChat(); addMsg('me','🎒 Packing list — '+destination);
     const t=addMsg('buddy','Thinking about what you\'ll actually need…','think');
     try{
@@ -1807,8 +2365,8 @@
   // 💵 Trip budget
   async function tripBudget(a){
     a=a||{};
-    const destination=a.destination||prompt('Budget for where?'); if(!destination) return;
-    const days=a.days||prompt('How many days?','7');
+    const destination=a.destination||await pickPlace('Budget for where?'); if(!destination) return;
+    const days=a.days||await pick('How many days?', PICKS.days);
     openChat(); addMsg('me',`💵 Budget — ${days} days in ${destination}`);
     const t=addMsg('buddy','Running the numbers…','think');
     try{
@@ -1824,7 +2382,7 @@
   // 📶 Data & eSIM
   async function esimInfo(a){
     a=a||{};
-    const country=a.country||localStorage.getItem('buddy_country')||prompt('Data for which country?'); if(!country) return;
+    const country=a.country||localStorage.getItem('buddy_country')||await pickPlace('Data for which country?'); if(!country) return;
     openChat(); addMsg('me','📶 Data & eSIM — '+country);
     const t=addMsg('buddy','Checking current options…','think');
     try{
@@ -2071,8 +2629,8 @@
 
   // ================= MUSIC: multi-service launcher =================
   function musicService(){ return localStorage.getItem('buddy_music')||'apple'; }
-  function setMusicService(){
-    const s=(prompt("Preferred music app? Type: apple / spotify / youtube", musicService())||'').trim().toLowerCase();
+  async function setMusicService(){
+    const s=(await pick('Which music app?', PICKS.music)||'').trim().toLowerCase();
     if(['apple','spotify','youtube'].includes(s)){ localStorage.setItem('buddy_music',s); say(`Music set to ${s}.`); }
     else say("Pick apple, spotify, or youtube.");
   }
@@ -2265,9 +2823,9 @@
   }
 
   // ---- Split the bill (client-side; optional convert to home currency) ----
-  function splitBill(){
+  async function splitBill(){
     const total=Number(prompt("Total bill amount? (number)")); if(!total) return;
-    const people=Number(prompt("Split between how many people?","2")); if(!people||people<1) return;
+    const people=Number(await pick('Split between how many?', PICKS.people)); if(!people||people<1) return;
     const per=total/people;
     const home=localStorage.getItem('buddy_home')||'';
     const cur=prompt("Currency of the bill? (optional, for a home-currency estimate)","")||'';
@@ -2448,7 +3006,7 @@
   async function scamCheck(){
     const item=prompt("What are you buying? (e.g. tuk-tuk to airport, bowl of pho, SIM card)"); if(!item) return;
     const price=prompt("What price are they asking? (just the number)"); if(!price) return;
-    const currency=prompt("Which currency? (e.g. VND, THB, AUD)","")||"";
+    const currency=await pick('Which currency?',[{label:'🇻🇳 Vietnamese Dong (VND)',value:'VND'},{label:'🇹🇭 Thai Baht (THB)',value:'THB'},{label:'🇦🇺 Australian Dollar (AUD)',value:'AUD'},{label:'🇺🇸 US Dollar (USD)',value:'USD'},{label:'🇮🇩 Indonesian Rupiah (IDR)',value:'IDR'}])||"";
     openChat(); addMsg('me',`🛡️ ${item} — ${price} ${currency}`);
     const t=addMsg('buddy','Checking local prices…','think');
     try{
@@ -2676,7 +3234,7 @@
       t.appendChild(d);
     });
   }
-  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); applyGlassChip(); mountTips(); if(lifelogOn()) lifelogStart(); });
+  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); applyGlassChip(); mountTips(); applyLooks(); orb3dStart(); setInterval(()=>{ if(localStorage.buddy_theme==='auto') applyLooks(); }, 900000); if(lifelogOn()) lifelogStart(); });
   function openChat(){
     document.getElementById('chat').classList.add('open');
     if(chatHistory.length===0){ addMsg('buddy', openingBrief()); watcherNews(); }
@@ -2703,6 +3261,7 @@
   // Batch 60: replace a thinking bubble with its answer IN PLACE — the message
   // stays in the log permanently instead of being removed. Nothing flashes past.
   function settle(bubble, text){
+    orbActivity(null);
     try{
       if(!bubble){ return addMsg('buddy', text); }
       bubble.classList.remove('think'); bubble.textContent = text; scrollChat(); return bubble;
@@ -2737,6 +3296,7 @@
     brain.lastAsked = original || '';
     const handled = await dispatchSkillInner(skill, a, original);
     if(handled){ brain.lastTopic = skill; prefRecord('skill', skill); brain.save(); renderGlance();
+      orbActivity(null);
       nextMoves(skill);       // batch 63: every skill offers the obvious next step
       rememberSkill(skill, original);  // batch 65: every skill deposits a memory
       maybeCapture(skill);             // batch 67: adaptive — only if it earns it
@@ -2995,6 +3555,22 @@
     if(/^(start|turn on|give me) suggestions?$/i.test(text)){
       localStorage.buddy_nextmoves='on'; const m="Suggestions back on."; addMsg('buddy',m); say(m); return;
     }
+    // LOOKS (batch 73)
+    if(/^(change|pick|choose|set) (the )?(look|theme|style|orb|background|colou?rs?)$/i.test(text)){ chooseLooks(); return; }
+    if(m51=text.match(/^(?:make|set) (?:the )?orb (\w+)$/i)){
+      const want=m51[1].toLowerCase();
+      const hit=ORB_STYLES.find(o=>o.value===want||o.label.toLowerCase().includes(want));
+      if(hit){ localStorage.buddy_orbstyle=hit.value; applyLooks(); orb3dStart(); const m='Orb set to '+hit.label+'.'; addMsg('buddy',m); say(m); }
+      else { const m="I've got aurora, jarvis, wisp, matrix, alien, machine and nature."; addMsg('buddy',m); say(m); }
+      return;
+    }
+    if(m51=text.match(/^(?:set|use|switch to) (?:the )?(\w+) (?:theme|background)$/i)){
+      const want=m51[1].toLowerCase();
+      const hit=BG_THEMES.find(o=>o.value===want||o.label.toLowerCase().includes(want));
+      if(hit){ localStorage.buddy_theme=hit.value; applyLooks(); const m='Background set to '+hit.label+'.'; addMsg('buddy',m); say(m); }
+      else { const m="I've got aurora, digital, jarvis, matrix, alien, machine and nature."; addMsg('buddy',m); say(m); }
+      return;
+    }
     // TIMERS + REMINDERS (batch 61)
     if(m51=text.match(/^(?:set (?:a )?)?timer (?:for )?(\d+(?:\.\d+)?)\s*(min|mins|minute|minutes|hour|hours|sec|secs|second|seconds)\b(?:\s+(?:for|to|called)\s+(.{2,40}))?$/i)){
       let n=Number(m51[1]); const unit=m51[2].toLowerCase();
@@ -3204,7 +3780,7 @@
   async function goodDeal(){
     const item=prompt("What is it? (e.g. silk scarf, massage, cocktail)","")||"";
     const price=prompt("Price they're asking? (number)"); if(!price) return;
-    const currency=prompt("Currency? (e.g. THB, VND)","")||""; if(!currency) return;
+    const currency=await pick('Which currency?',[{label:'🇻🇳 Dong (VND)',value:'VND'},{label:'🇹🇭 Baht (THB)',value:'THB'},{label:'🇦🇺 AUD',value:'AUD'},{label:'🇺🇸 USD',value:'USD'},{label:'🇮🇩 Rupiah (IDR)',value:'IDR'}])||""; if(!currency) return;
     const home=localStorage.getItem('buddy_home')||'AUD';
     openChat(); addMsg('me',`🏷️ ${item||'this'} — ${price} ${currency}`);
     const t=addMsg('buddy','Checking value…','think');
@@ -3299,9 +3875,9 @@
     }, ()=>{ t.classList.remove('think'); t.textContent='I need location access. In Safari: tap the "aA" in the address bar → Website Settings → Location → Allow. Then try again.'; say('I need location access to look around you. Allow location for this site in Safari settings, then try again.'); });
   }
 
-  function findNearby(){
+  async function findNearby(){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
-    const what=prompt("What are you after nearby? (e.g. coffee, ATM, pharmacy, ramen)","coffee");
+    const what=await pick('What are you after nearby?',[{label:'☕ Coffee',value:'coffee'},{label:'🍜 Food',value:'restaurant'},{label:'🏧 ATM',value:'atm'},{label:'💊 Pharmacy',value:'pharmacy'},{label:'🏪 Shop',value:'convenience store'},{label:'🚻 Toilet',value:'public toilet'}]);
     if(what===null) return;
     busy('nearbySub',true);
     navigator.geolocation.getCurrentPosition(async pos=>{
@@ -3319,14 +3895,14 @@
   function favPlacesGet(){ try{return JSON.parse(localStorage.getItem('buddy_favplaces')||'{}');}catch{return{};} }
   function favPlacesSave(f){ localStorage.setItem('buddy_favplaces',JSON.stringify(f)); }
   function placesSave(o){ localStorage.setItem('buddy_places',JSON.stringify(o)); }
-  function savedPlaces(){
+  async function savedPlaces(){
     const p=placesGet(); const names=Object.keys(p);
     openChat(); addMsg('me','📍 Saved places');
     if(names.length) names.forEach(n=>{ const el=addMsg('buddy',`📍 ${n} — tap to go`); el.style.cursor='pointer'; el.onclick=()=>navigateToPlace(n); });
     else addMsg('buddy','No saved places yet.');
     const add=addMsg('buddy','➕ Add a place (home, gym, hotel…)'); add.style.cursor='pointer';
-    add.onclick=()=>{ const name=(prompt("Name this place (e.g. home, gym, hotel):")||'').trim().toLowerCase(); if(!name) return;
-      const addr=prompt(`Address or place name for "${name}":`); if(!addr) return;
+    add.onclick=async()=>{ const name=((await pick('What kind of place?',[{label:'🏠 Home',value:'home'},{label:'🏨 Hotel',value:'hotel'},{label:'💪 Gym',value:'gym'},{label:'🏢 Work',value:'work'},{label:'🚗 Parked car',value:'parked car'}]))||'').trim().toLowerCase(); if(!name) return;
+      const addr=await pickPlace(`Where is "${name}"?`); if(!addr) return;
       const o=placesGet(); o[name]=addr; placesSave(o); say(`Saved ${name}.`); savedPlaces(); };
   }
   // Batch 59: travel mode is a remembered preference, not a hardcoded guess.
@@ -3343,7 +3919,7 @@
     return '';
   }
   // Ask before opening Maps — with the mode they can change on the spot.
-  function confirmNavigate(dest, mode){
+  async function confirmNavigate(dest, mode){
     const m = mode || travelModeGet();
     openChat();
     const card = addMsg('buddy', `Navigate to ${dest}?\n${TRAVEL_LABEL[m]||m} · tap to go`);
@@ -3351,9 +3927,9 @@
     card.onclick = ()=> navigateWith(dest, m, true);
     const alt = addMsg('buddy', 'Change mode: ' + Object.entries(TRAVEL_LABEL).filter(([k])=>k!==m).map(([k,v])=>v).join('  ·  '));
     alt.style.cursor='pointer'; alt.style.opacity='.85';
-    alt.onclick = ()=>{
-      const pick = prompt('Walk, drive/motorbike, transit or bike?', m);
-      const nm = normMode(pick); if(!nm) return;
+    alt.onclick = async ()=>{
+      const chosen = await pick('How are you getting there?', PICKS.travelMode);
+      const nm = normMode(chosen); if(!nm) return;
       travelModeSave(nm);
       toast('Default set: ' + (TRAVEL_LABEL[nm]||nm));
       navigateWith(dest, nm, true);
@@ -3382,23 +3958,21 @@
     window.location.href=`https://maps.apple.com/?daddr=${d}&dirflg=${f}`;
   }
 
-  function navigateTo(){
-    const saved=placesGet(); const names=Object.keys(saved);
-    const hint=names.length?` (or a saved place: ${names.join(', ')})`:'';
-    const dest=prompt(`Where to?${hint}`);
+  async function navigateTo(){
+    const saved=placesGet();
+    const dest=await pickPlace('Where to?');
     if(!dest) return;
-    // If they typed a saved place name, use its address.
-    const key=dest.trim().toLowerCase();
+    // If they picked a saved place name, use its address.
+    const key=String(dest).trim().toLowerCase();
     const realDest=saved[key]||dest;
-    const mode=normMode(prompt("Walk, drive/motorbike, transit, or bike?",travelModeGet())||travelModeGet())||travelModeGet();
+    const mode=normMode(await pick('How are you getting there?', PICKS.travelMode))||travelModeGet();
     travelModeSave(mode);
     navigateWith(realDest, mode);
   }
   // Trains & buses: jump straight to transit mode (no mode prompt), read line + platform.
-  function transitTo(){
-    const saved=placesGet(); const names=Object.keys(saved);
-    const hint=names.length?` (or a saved place: ${names.join(', ')})`:'';
-    const dest=prompt(`Where to by train or bus?${hint}`);
+  async function transitTo(){
+    const saved=placesGet();
+    const dest=await pickPlace('Where to by train or bus?');
     if(!dest) return;
     const key=dest.trim().toLowerCase();
     navigateWith(saved[key]||dest, 'transit');

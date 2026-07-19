@@ -176,7 +176,7 @@ async function callClaude(body) {
     body: JSON.stringify(body),
   });
   const text = await r.text();
-  try { const j = JSON.parse(text); if (r.status === 200) trackUsage(body.model, j.usage); } catch {}
+  try { const j = JSON.parse(text); if (r.status === 200 && j && j.usage) recordUsage(body.model, j.usage); } catch {}
   return { status: r.status, text };
 }
 
@@ -1076,7 +1076,6 @@ app.post("/chat", requireAuth, async (req, res) => {
     try {
       const j = JSON.parse(raw);
       if (j && j.usage) recordUsage(model, j.usage);
-      trackUsage(model, j.usage);
       reply = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
       // If reply is empty, surface WHY (stop_reason / error / raw) so we can see it.
       if (!reply) {
@@ -2456,6 +2455,28 @@ function todayShape(uid) {
   const places = [...new Set(logs.map(m => (String(m.t).match(/^log:\s*([^0-9—(]+)/) || [])[1]).filter(Boolean).map(p => p.trim()))];
   return places.length ? `Today so far: ${places.slice(0, 4).join(" → ")}.` : "";
 }
+
+// --- 🔤 ADDRESS AUTOCOMPLETE (batch 72) ---
+// Type two or three letters, get real suggestions. Biased to where he is, so
+// "wool" surfaces the Woolworths down the road, not one in Perth.
+app.post("/autocomplete", requireAuth, async (req, res) => {
+  const { q, lat, lng } = req.body || {};
+  if (!GMAPS_KEY) return res.status(501).json({ error: "maps_key_missing" });
+  if (!q || String(q).trim().length < 2) return res.json({ suggestions: [] });
+  try {
+    const u = new URL("https://maps.googleapis.com/maps/api/place/autocomplete/json");
+    u.searchParams.set("input", String(q).slice(0, 120));
+    u.searchParams.set("key", GMAPS_KEY);
+    if (lat != null && lng != null) { u.searchParams.set("location", `${lat},${lng}`); u.searchParams.set("radius", "30000"); }
+    const j = await (await fetch(u)).json();
+    const suggestions = (j.predictions || []).slice(0, 6).map(p => ({
+      label: p.structured_formatting?.main_text || p.description,
+      sub: p.structured_formatting?.secondary_text || "",
+      value: p.description,
+    }));
+    res.json({ suggestions });
+  } catch { res.json({ suggestions: [] }); }
+});
 
 // --- 🔍 DIAGNOSTICS (batch 70) ---
 // What Vision DID — for testing, not for recall. Off by default (it costs a
