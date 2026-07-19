@@ -56,6 +56,24 @@ if (!KEY || !APP_TOKEN) {
 }
 
 // Simple shared-token gate so randoms can't run up your bill.
+// ================= DURABLE MIND (batch 51) =================
+// File-backed store. On Render: add a Disk mounted at /var/data (1GB) so
+// memory survives redeploys. Without it we fall back to ./data, which is
+// EPHEMERAL on Render (wiped each deploy) — /health will say which.
+const fs = require("fs");
+const path = require("path");
+const DATA_DIR = process.env.DATA_DIR || (fs.existsSync("/var/data") ? "/var/data" : "./data");
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+const STORE_FILE = path.join(DATA_DIR, "vision-store.json");
+const DURABLE = DATA_DIR === "/var/data" || !!process.env.DATA_DIR;
+let STORE = { profiles: {}, briefs: {}, flags: {}, mem: {}, watchers: {}, results: {}, seen: {} };
+try { STORE = { ...STORE, ...JSON.parse(fs.readFileSync(STORE_FILE, "utf8")) }; } catch {}
+let _saveT = null;
+function saveStore() { clearTimeout(_saveT); _saveT = setTimeout(() => { try { fs.writeFileSync(STORE_FILE, JSON.stringify(STORE)); } catch {} }, 1500); }
+function uidOf(req) { return String((req.body && req.body.uid) || req.query.uid || "shaun-default").slice(0, 64); }
+function profileOf(uid) { return STORE.profiles[uid] || { name: "Shaun", ainame: "Vision" }; }
+function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: false, whisper: false, saver: false }; }
+
 // --- NATIVE PLUMBING (batch 41): shared brain state across web + glasses ---
 // The web app already sends brain.brief() on every /chat and /route call.
 // Cache the latest one here so the NATIVE shim can inject it — Vision on the
@@ -63,15 +81,37 @@ if (!KEY || !APP_TOKEN) {
 // native-side storage. Flags (quiet/whisper/saver) sync the same way.
 // HONEST NOTE: in-memory — resets on redeploy; the web app re-primes it on
 // first use, so the gap is minutes, not data loss.
-let lastWebBrief = null;                 // { text, at }
-let visionFlags = { quiet: false, whisper: false, saver: false };
-function rememberBrief(b) { if (typeof b === "string" && b.trim()) lastWebBrief = { text: b.slice(0, 900), at: Date.now() }; }
+// Per-user now (batch 51): briefs + flags keyed by uid, persisted in the store.
+function rememberBrief(uid, b) { if (typeof b === "string" && b.trim()) { STORE.briefs[uid] = { text: b.slice(0, 900), at: Date.now() }; saveStore(); } }
+function briefOf(uid) { return STORE.briefs[uid] || null; }
 
-app.get("/state", requireAuth, (req, res) => res.json({ flags: visionFlags, brief: lastWebBrief }));
+app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid) }); });
 app.post("/state", requireAuth, (req, res) => {
-  const f = (req.body || {}).flags || {};
-  for (const k of ["quiet", "whisper", "saver"]) if (k in f) visionFlags[k] = !!f[k];
-  res.json({ flags: visionFlags });
+  const uid = uidOf(req);
+  const f = (req.body || {}).flags || {}; const cur = flagsOf(uid);
+  for (const k of ["quiet", "whisper", "saver"]) if (k in f) cur[k] = !!f[k];
+  saveStore(); res.json({ flags: cur });
+});
+
+// Profile: name, assistant nickname, home, partner — per user, durable.
+app.get("/profile", requireAuth, (req, res) => res.json(profileOf(uidOf(req))));
+app.post("/profile", requireAuth, (req, res) => {
+  const uid = uidOf(req); const b = req.body || {};
+  const p = STORE.profiles[uid] = { ...profileOf(uid) };
+  for (const k of ["name", "ainame", "home", "homeCity", "partner"]) if (typeof b[k] === "string" && b[k].trim()) p[k] = b[k].trim().slice(0, 60);
+  if (typeof b.style === "string") { const st = b.style.trim().slice(0, 140); if (st) p.style = st; else delete p.style; }
+  saveStore(); res.json(p);
+});
+
+// Memory: durable notes/facts with add/search/forget/all.
+app.post("/memory", requireAuth, (req, res) => {
+  const uid = uidOf(req); const { action, text } = req.body || {};
+  const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+  if (action === "add" && text) { mem.push({ t: String(text).slice(0, 500), at: Date.now() }); while (mem.length > 400) mem.shift(); saveStore(); return res.json({ ok: true, count: mem.length }); }
+  if (action === "search" && text) { const q = String(text).toLowerCase(); return res.json({ hits: mem.filter(m => m.t.toLowerCase().includes(q)).slice(-8) }); }
+  if (action === "forget" && text) { const q = String(text).toLowerCase(); const before = mem.length; STORE.mem[uid] = mem.filter(m => !m.t.toLowerCase().includes(q)); saveStore(); return res.json({ removed: before - STORE.mem[uid].length }); }
+  if (action === "all") return res.json({ profile: profileOf(uid), count: mem.length, recent: mem.slice(-12) });
+  res.status(400).json({ error: "bad action" });
 });
 
 function requireAuth(req, res, next) {
@@ -519,6 +559,8 @@ app.post("/survival", requireAuth, async (req, res) => {
 
 // Vision's personality — warm, friendly companion; short & punchy for glasses.
 function buddyPersona(ctx) {
+  const NAME = ctx.name || "Shaun";
+  ctx = { ...ctx, styleLine: ctx.style ? `STYLE REQUEST: speak in this style — ${ctx.style}. Honour the tone while staying honest, accurate and safe; never let style override substance.` : "" };
   return [
     "You are Vision, a warm and friendly AI companion who lives in Shaun's smart glasses.",
     "You talk to Shaun like a helpful, upbeat mate — never robotic, never stiff.",
@@ -529,6 +571,7 @@ function buddyPersona(ctx) {
     "When it's genuinely helpful, end with a short proactive offer — e.g. 'Want me to set a reminder?' or 'Shall I find one nearby?' — but only when it truly adds value. Never tack on a filler question.",
     // CAPABILITY MANIFEST — without this the brain thinks it's blind and sends
     // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
+    ctx.styleLine || "",
     "YOUR CAPABILITIES — you are not a text-only chatbot. You sit on top of a working app with real tools:",
     "• Maps & places: you CAN find nearby places (restaurants, cafes, bars, banks, ATMs, pharmacies, shops), give walking/driving/transit directions, look up landmarks, save and return to pinned spots, and walk Shaun back when he's lost. Google Maps is connected.",
     "• Location: you CAN get his current location from the phone.",
@@ -546,7 +589,7 @@ function buddyPersona(ctx) {
     // knows him rather than meeting him fresh every message.
     ctx.brief ? `WHAT YOU KNOW ABOUT SHAUN'S SITUATION RIGHT NOW: ${ctx.brief} Use this naturally — factor it into answers without reciting it back at him. If he has an allergy or diet restriction listed, it overrides everything when food is involved.` : "",
     ctx.profile ? `What you remember about Shaun (use naturally when relevant, don't recite it): ${ctx.profile}` : "",
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join(" ").split("Shaun").join(NAME);
 }
 
 // Light heuristic: is this a hard question (needs the powerful model) or simple (fast/cheap)?
@@ -837,7 +880,7 @@ app.post("/route", requireAuth, async (req, res) => {
   const { message, history, brief } = req.body || {};
   if (!message) return res.status(400).json({ error: "message required" });
   const hist = Array.isArray(history) ? history.slice(-6) : [];
-  rememberBrief(brief);
+  rememberBrief(uidOf(req), brief);
   const stateNote = (typeof brief === "string" && brief.trim())
     ? `\n\nWhat Vision already knows about Shaun's situation (use it to FILL IN arguments he didn't say out loud — his country, currency, allergies, saved spots, tracked flight):\n${brief.slice(0, 900)}`
     : "";
@@ -897,6 +940,7 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"esim\" (data/eSIM/SIM card for a country, how do I get internet there, roaming options; args: country), " +
       "\"livelook\" (live look / watch what I'm seeing / narrate the scene / keep looking and tell me what's there — continuous camera narration on or off; args: none), " +
       "\"readpage\" (read/summarise a link or web page — any message containing a URL to read, 'read this', 'summarise this page'; args: url), " +
+      "\"watcher\" (watch/keep an eye on/monitor/let me know if-or-when — recurring or threshold alerts: 'watch flights to Bali under 300', 'watch the weather in Da Nang', 'let me know if the dollar hits 17000 dong', 'keep an eye out for gigs this weekend'; args: request = the full request text), " +
       "\"call\" (call/phone/ring a number; args: number), " +
       "\"text\" (text/message/SMS a number; args: number, message). " +
       "Pick the single best skill. Judge INTENT, not just keywords — infer what Shaun actually wants to happen. Use the recent conversation to resolve short follow-ups and fill in args. If he's acting on something just discussed (take me there, the closest, book it, yes), pick the skill that continues that thread. Only use \"chat\" when nothing else genuinely fits. Set confidence honestly: 0.8+ when intent is clear, lower when guessing. " +
@@ -937,8 +981,10 @@ app.post("/chat", requireAuth, async (req, res) => {
       place,
       profile: typeof b.profile === "string" ? b.profile.slice(0, 800) : "",
       brief: typeof b.brief === "string" ? b.brief.slice(0, 900) : "",
+      name: (typeof b.name === "string" && b.name.trim()) ? b.name.trim().slice(0, 40) : (profileOf(uidOf(req)).name || "Shaun"),
+      style: profileOf(uidOf(req)).style || "",
     };
-    rememberBrief(ctx.brief);
+    rememberBrief(uidOf(req), ctx.brief);
 
     // Build the message list: prior history (trimmed) + this turn.
     const history = Array.isArray(b.history) ? b.history.slice(-8) : [];
@@ -947,7 +993,7 @@ app.post("/chat", requireAuth, async (req, res) => {
       { role: "user", content: message },
     ];
 
-    const model = visionFlags.saver ? "claude-haiku-4-5-20251001" : pickModel(message || history.map(h=>h.content).join(" "), b.model);
+    const model = flagsOf(uidOf(req)).saver ? "claude-haiku-4-5-20251001" : pickModel(message || history.map(h=>h.content).join(" "), b.model);
 
     const upstream = await fetch(ANTHROPIC_URL, {
       method: "POST",
@@ -1947,19 +1993,22 @@ app.post("/v1/chat/completions", requireAuth, async (req, res) => {
     // Persona: warm Vision core, honest about the native context — the client's
     // tools are whatever arrived in THIS request, not the web app's tiles.
     const lastUserText = [...convo].reverse().find(m => m.role === "user");
+    const nuid = uidOf(req); const nprof = profileOf(nuid); const nb = briefOf(nuid); const nf = flagsOf(nuid);
+    const NAME = nprof.name || "Shaun"; const AINAME = nprof.ainame || "Vision";
     const sys = [
-      "You are Vision, Shaun's warm AI companion, now speaking through his smart glasses.",
-      "Replies are spoken aloud: SHORT, natural, no markdown, no lists — one to three sentences unless he asks for more.",
-      "Be genuinely useful first, friendly second. Address him as Shaun when natural.",
+      `You are ${AINAME}, ${NAME}'s warm AI companion, now speaking through smart glasses.`,
+      "Replies are spoken aloud: SHORT, natural, no markdown, no lists — one to three sentences unless asked for more.",
+      `Be genuinely useful first, friendly second. Address them as ${NAME} when natural.`,
+      nprof.style ? `STYLE REQUEST: speak in this style — ${nprof.style}. Honour the tone; never let style override substance or honesty.` : "",
       "If tools are provided in this request, use them when they fit rather than guessing.",
       "You can search the web when you need current facts — never claim you lack internet access.",
-      (lastWebBrief && Date.now() - lastWebBrief.at < 86400000) ? `WHAT YOU KNOW ABOUT SHAUN'S SITUATION (synced from his app): ${lastWebBrief.text}` : "",
-      visionFlags.whisper ? "WHISPER MODE is on: answer in ONE short sentence, calm and quiet in tone." : "",
+      (nb && Date.now() - nb.at < 86400000) ? `WHAT YOU KNOW ABOUT ${NAME.toUpperCase()}'S SITUATION (synced from the app): ${nb.text}` : "",
+      nf.whisper ? "WHISPER MODE is on: answer in ONE short sentence, calm and quiet in tone." : "",
       clientSystem,
     ].filter(Boolean).join(" ");
 
     const body = {
-      model: visionFlags.saver ? "claude-haiku-4-5-20251001" : pickModel(typeof lastUserText?.content === "string" ? lastUserText.content : "", null),
+      model: nf.saver ? "claude-haiku-4-5-20251001" : pickModel(typeof lastUserText?.content === "string" ? lastUserText.content : "", null),
       max_tokens: Math.min(Number(b.max_tokens) || 600, 1500),
       system: sys,
       messages: convo,
@@ -2165,7 +2214,8 @@ app.get("/perf", async (req, res) => {
 
   // Model-switch table — pure logic, zero cost.
   const samples = ["what's the weather", "hi", "explain why the baht is falling", "plan my day in Hanoi", "log 15 for lunch", "compare grab and taxis", "translate a menu", "how far is the beach"];
-  const switches = samples.map(p => `<tr><td>${p}</td><td>${(visionFlags.saver ? "claude-haiku-4-5-20251001 (saver)" : pickModel(p, null)).replace("claude-", "")}</td></tr>`).join("");
+  const pflags = flagsOf(uidOf(req));
+  const switches = samples.map(p => `<tr><td>${p}</td><td>${(pflags.saver ? "claude-haiku-4-5-20251001 (saver)" : pickModel(p, null)).replace("claude-", "")}</td></tr>`).join("");
 
   // Usage + spend estimate since deploy.
   const upMin = Math.round(process.uptime() / 60);
@@ -2226,14 +2276,15 @@ app.get("/perf", async (req, res) => {
     <table cellpadding="5" style="font-size:13px">${runRows || "<tr><td>first run</td></tr>"}</table>
     <h3>When the brain switches models</h3>
     <table cellpadding="5" style="font-size:14px;border-collapse:collapse">${switches}</table>
-    <p style="opacity:.6;font-size:13px">Haiku = fast lane, Sonnet = smart lane. Battery saver ${visionFlags.saver ? "is ON — everything forced to Haiku" : "off — routing is automatic"}.</p>
+    <p style="opacity:.6;font-size:13px">Haiku = fast lane, Sonnet = smart lane. Battery saver ${pflags.saver ? "is ON — everything forced to Haiku" : "off — routing is automatic"}.</p>
     <h3>Usage & spend (since deploy, ${upMin} min ago)</h3>
     <table cellpadding="5" style="font-size:14px"><tr><th>model</th><th>calls</th><th>tokens in</th><th>tokens out</th></tr>${rows}</table>
     <p><b>Estimated spend this deploy: $${usdEstimate().toFixed(4)} USD</b></p>
     <p style="opacity:.6;font-size:13px">Estimate from actual token counts. Your API key can't read the real balance — console.anthropic.com is the bill.</p>
     <h3>OpenVision integration</h3>
-    <p style="font-size:14px">Trip-state sync: ${lastWebBrief ? `fresh (${Math.round((Date.now() - lastWebBrief.at) / 60000)} min old)` : "not primed yet — use the web app once"}<br>
-    Modes: whisper ${visionFlags.whisper ? "ON" : "off"} · quiet ${visionFlags.quiet ? "ON" : "off"} · saver ${visionFlags.saver ? "ON" : "off"}</p>
+    <p style="font-size:14px">Trip-state sync: ${briefOf(uidOf(req)) ? `fresh (${Math.round((Date.now() - briefOf(uidOf(req)).at) / 60000)} min old)` : "not primed yet — use the web app once"}<br>
+    Memory store: ${DURABLE ? "💾 durable disk (/var/data)" : "⚠️ EPHEMERAL — add a Render Disk at /var/data to survive redeploys"}<br>
+    Modes: whisper ${pflags.whisper ? "ON" : "off"} · quiet ${pflags.quiet ? "ON" : "off"} · saver ${pflags.saver ? "ON" : "off"}</p>
   </body></html>`);
 });
 
@@ -2269,6 +2320,90 @@ app.post("/readpage", requireAuth, async (req, res) => {
     res.json({ title, spoken: p.spoken || "", points: Array.isArray(p.points) ? p.points.slice(0, 4) : [] });
   } catch (e) { res.status(502).json({ error: "fetch_failed" }); }
 });
+
+// --- 🔭 WATCHERS (batch 51): Vision's overnight eyes. Voice-created monitors
+// parsed by Haiku into {type, args, threshold}; a scheduler runs them hourly;
+// results wait in the store and surface in the opening brief. True unprompted
+// push stays native-territory — this is checks-while-away, tells-on-open.
+app.post("/watchers", requireAuth, async (req, res) => {
+  const uid = uidOf(req); const { action, request, id } = req.body || {};
+  const list = STORE.watchers[uid] = STORE.watchers[uid] || [];
+  if (action === "list") return res.json({ watchers: list, results: (STORE.results[uid] || []).slice(-6) });
+  if (action === "remove" && id) { STORE.watchers[uid] = list.filter(w => w.id !== id); saveStore(); return res.json({ ok: true, count: STORE.watchers[uid].length }); }
+  if (action === "latest") {
+    const seen = STORE.seen[uid] || 0;
+    const fresh = (STORE.results[uid] || []).filter(r => r.at > seen && r.triggered);
+    STORE.seen[uid] = Date.now(); saveStore();
+    return res.json({ fresh });
+  }
+  if (action === "add" && request) {
+    if (list.length >= 8) return res.status(400).json({ error: "watcher_limit", spoken: "You've got eight watchers already — remove one first." });
+    const body = {
+      model: "claude-haiku-4-5-20251001", max_tokens: 250,
+      system: 'Parse a watch request into JSON only: {"type":"flightdeal|weather|events|currency","label":"short human label","args":{...},"threshold":null|number}. flightdeal args {from,to,when?} threshold=max price number if stated. weather args {place,days:5}. events args {area,when:"this weekend"|...}. currency args {from,to} threshold=rate number if stated. No markdown.',
+      messages: [{ role: "user", content: String(request).slice(0, 300) }],
+    };
+    try {
+      const { status, text } = await callClaude(body);
+      if (status !== 200) return res.status(502).json({ error: "parse_failed" });
+      const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+      const w = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      w.id = "w" + Date.now(); w.createdAt = Date.now();
+      list.push(w); saveStore();
+      // run it once right away so there's a result today, not tomorrow
+      runWatcher(uid, w).catch(() => {});
+      return res.json({ ok: true, watcher: w, spoken: `Watching: ${w.label}. I'll have news in your morning brief.` });
+    } catch { return res.status(502).json({ error: "parse_failed" }); }
+  }
+  res.status(400).json({ error: "bad action" });
+});
+
+async function runWatcher(uid, w) {
+  let spoken = "", triggered = false;
+  try {
+    if (w.type === "currency") {
+      const r = await (await fetch(`https://api.frankfurter.app/latest?from=${encodeURIComponent(w.args.from || "AUD")}&to=${encodeURIComponent(w.args.to || "USD")}`)).json();
+      const rate = Object.values(r.rates || {})[0];
+      if (rate != null) {
+        triggered = w.threshold ? rate >= w.threshold : true;
+        spoken = `${w.args.from || "AUD"} is at ${rate} ${w.args.to || ""}${w.threshold ? (triggered ? ` — past your ${w.threshold} mark.` : ` (watching for ${w.threshold}).`) : "."}`;
+      }
+    } else if (w.type === "weather") {
+      const g = await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(w.args.place || "")}&count=1`)).json();
+      const loc = (g.results || [])[0];
+      if (loc) {
+        const f = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&daily=temperature_2m_max,precipitation_probability_max&forecast_days=${Math.min(w.args.days || 5, 7)}`)).json();
+        const d = f.daily || {};
+        const days = (d.time || []).map((t, i) => `${t.slice(5)}: ${Math.round(d.temperature_2m_max[i])}°, ${d.precipitation_probability_max[i]}% rain`).join("; ");
+        spoken = `${w.args.place} next days — ${days}.`; triggered = true;
+      }
+    } else {
+      // flightdeal + events: live web search via the brain
+      const q = w.type === "flightdeal"
+        ? `Current cheapest one-way and return fares ${w.args.from || ""} to ${w.args.to || ""} ${w.args.when || ""}. Reply JSON only: {"price": <lowest typical AUD number>, "note": "one short sentence"}`
+        : `Events on in ${w.args.area || ""} ${w.args.when || "this weekend"}. Reply JSON only: {"note": "one short spoken sentence naming the best 1-2, or say nothing found"}`;
+      const body = { model: "claude-haiku-4-5-20251001", max_tokens: 300, tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }], messages: [{ role: "user", content: q }] };
+      const { status, text } = await callClaude(body);
+      if (status === 200) {
+        const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+        let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { note: raw.slice(0, 200) }; }
+        if (w.type === "flightdeal" && p.price != null) {
+          triggered = w.threshold ? p.price <= w.threshold : true;
+          spoken = `${w.label}: around $${p.price}${w.threshold ? (triggered ? ` — under your $${w.threshold} mark!` : ` (waiting for $${w.threshold}).`) : "."} ${p.note || ""}`;
+        } else { spoken = `${w.label}: ${p.note || "nothing new."}`; triggered = !/nothing/i.test(spoken); }
+      }
+    }
+  } catch { /* one failed run is fine; next hour tries again */ }
+  if (spoken) {
+    const results = STORE.results[uid] = STORE.results[uid] || [];
+    results.push({ at: Date.now(), id: w.id, label: w.label, spoken, triggered });
+    while (results.length > 30) results.shift();
+    saveStore();
+  }
+}
+// Hourly sweep + first run a minute after boot.
+setInterval(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 3600000);
+setTimeout(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 60000);
 
 app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));
 

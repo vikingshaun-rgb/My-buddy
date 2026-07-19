@@ -204,6 +204,7 @@
     <div class="ribbon-row">
       <div class="brand">My<b>Vision</b></div>
       <div class="ribbon-spacer"></div>
+      <span class="chip" id="glassChip" onclick="toggleGlasses()" title="Tap when wearing your glasses">🕶️</span>
       <span class="chip" onclick="openSettings()"><span class="dot warn" id="sysDot"></span><span id="sysTxt">Set up</span></span>
     </div>
     <div class="batt">
@@ -253,18 +254,77 @@
     </div>
   </div>
 
+  <div id="edgeGlow"></div>
   <div id="hero" style="text-align:center;padding:18px 0 8px">
     <div id="orb" onclick="orbTap()"></div>
+    <div id="voiceBars"><span></span><span></span><span></span><span></span><span></span></div>
     <div id="glance" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:12px 16px 0"></div>
   </div>
   <style>
-    #orb{width:92px;height:92px;margin:0 auto;border-radius:50%;cursor:pointer;
-      background:radial-gradient(circle at 35% 30%, #FFD98A, #F5A623 55%, #8a5b00);
-      box-shadow:0 0 26px rgba(245,166,35,.45);transition:box-shadow .3s, transform .2s}
+    /* Batch 54: aurora orb — hue-cycling conic ring, float + breathe movement */
+    #orb{width:96px;height:96px;margin:0 auto;border-radius:50%;cursor:pointer;position:relative;
+      background:radial-gradient(circle at 35% 28%, rgba(255,255,255,.95), rgba(255,255,255,.25) 34%, rgba(10,14,40,.75) 66%, #05081f);
+      box-shadow:0 0 24px rgba(160,80,255,.45), 0 0 70px rgba(80,140,255,.25), inset 0 -8px 22px rgba(0,0,0,.55), inset 0 6px 14px rgba(255,255,255,.35);
+      animation:orbFloat 6s ease-in-out infinite;transition:box-shadow .35s, transform .2s}
     #orb:active{transform:scale(.94)}
-    #orb.listening{box-shadow:0 0 34px rgba(255,80,160,.8);animation:orbPulse 1.2s infinite}
-    #orb.speaking{box-shadow:0 0 34px rgba(60,220,200,.8);animation:orbPulse 1.6s infinite}
-    @keyframes orbPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+    #orb::before{content:"";position:absolute;inset:-6px;border-radius:50%;z-index:-1;
+      background:conic-gradient(#B44CFF, #FF4C9D, #FF5757, #FFD54C, #4CFF88, #4CC9FF, #B44CFF);
+      filter:blur(10px) saturate(1.6);
+      animation:orbSpin 7s linear infinite, orbHue 12s linear infinite}
+    #orb::after{content:"";position:absolute;inset:-18px;border-radius:50%;pointer-events:none;z-index:-2;
+      background:radial-gradient(circle, rgba(140,90,255,.22), transparent 70%);filter:blur(6px);
+      animation:orbHue 12s linear infinite}
+    @keyframes orbSpin{to{transform:rotate(360deg)}}
+    @keyframes orbHue{to{filter:blur(10px) saturate(1.6) hue-rotate(360deg)}}
+    @keyframes orbFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.03)}}
+    #orb.listening{background:radial-gradient(circle at 35% 28%, #FFD2E6, #FF6FB0 45%, #E0448C 65%, #3d0a24);
+      box-shadow:0 0 30px rgba(255,111,176,.8), 0 0 80px rgba(255,80,120,.45), 0 0 150px rgba(255,111,176,.2);
+      animation:orbPulse 1.15s ease-in-out infinite}
+    #orb.listening::before{animation:orbSpin 1.6s linear infinite, orbHue 4s linear infinite}
+    #orb.speaking{background:radial-gradient(circle at 35% 28%, #C8FFF2, #3CDCC8 45%, #18A895 65%, #04251f);
+      box-shadow:0 0 30px rgba(60,220,200,.8), 0 0 80px rgba(60,220,255,.45), 0 0 150px rgba(60,220,200,.2);
+      animation:orbPulse 1.6s ease-in-out infinite}
+    #orb.speaking::before{animation:orbSpin 2.4s linear infinite, orbHue 6s linear infinite}
+    @keyframes orbPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+    @keyframes orbBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.025)}}
+    /* Siri-style edge glow while listening/speaking */
+    #edgeGlow{position:fixed;inset:0;pointer-events:none;z-index:998;opacity:0;transition:opacity .4s}
+    #edgeGlow.listening{opacity:1;box-shadow:inset 0 0 46px 10px rgba(255,111,176,.35);animation:edgePulse 1.15s ease-in-out infinite}
+    #edgeGlow.speaking{opacity:1;box-shadow:inset 0 0 46px 10px rgba(60,220,200,.32);animation:edgePulse 1.6s ease-in-out infinite}
+    @keyframes edgePulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.5)}}
+    /* Message entrance + thinking shimmer */
+    .chat-log .msg{animation:msgIn .28s ease both}
+    @keyframes msgIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+    .msg.think{background:linear-gradient(90deg, rgba(255,255,255,.55), rgba(255,255,255,.95), rgba(255,255,255,.55));
+      background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+      animation:thinkShimmer 1.4s linear infinite}
+    @keyframes thinkShimmer{to{background-position:-200% 0}}
+    /* Glasses chip glow */
+    #glassChip{cursor:pointer;opacity:.55;transition:opacity .3s, text-shadow .3s}
+    #glassChip.on{opacity:1;text-shadow:0 0 10px rgba(60,220,200,.9), 0 0 22px rgba(60,220,200,.5);animation:glassGlow 2.6s ease-in-out infinite}
+    @keyframes glassGlow{0%,100%{text-shadow:0 0 10px rgba(60,220,200,.9), 0 0 22px rgba(60,220,200,.5)}50%{text-shadow:0 0 16px rgba(60,220,200,1), 0 0 34px rgba(60,220,200,.7)}}
+    /* Batch 55: voice bars (choreographed — web can't read live mic amplitude) */
+    #voiceBars{display:flex;gap:4px;justify-content:center;align-items:flex-end;height:22px;margin-top:10px;opacity:0;transition:opacity .3s}
+    #voiceBars span{width:4px;border-radius:2px;background:linear-gradient(#FF6FB0,#B44CFF);height:6px}
+    #voiceBars.listening{opacity:1}
+    #voiceBars.listening span{animation:vbar 1s ease-in-out infinite}
+    #voiceBars.listening span:nth-child(2){animation-delay:.15s}
+    #voiceBars.listening span:nth-child(3){animation-delay:.3s}
+    #voiceBars.listening span:nth-child(4){animation-delay:.45s}
+    #voiceBars.listening span:nth-child(5){animation-delay:.6s}
+    @keyframes vbar{0%,100%{height:6px}50%{height:20px}}
+    /* Ambient aurora wash behind everything */
+    body::before{content:"";position:fixed;inset:-20%;z-index:-1;pointer-events:none;opacity:.07;
+      background:radial-gradient(40% 35% at 20% 25%, #B44CFF, transparent 70%),
+                 radial-gradient(35% 30% at 80% 20%, #4CC9FF, transparent 70%),
+                 radial-gradient(45% 40% at 60% 85%, #FF4C9D, transparent 70%);
+      filter:blur(50px);animation:ambient 26s ease-in-out infinite alternate}
+    @keyframes ambient{from{transform:translate(0,0) rotate(0deg)}to{transform:translate(4%, -3%) rotate(8deg)}}
+    /* Living status dot + watcher-news flash */
+    .dot.ok{animation:dotBreathe 3s ease-in-out infinite}
+    @keyframes dotBreathe{0%,100%{box-shadow:0 0 4px rgba(60,220,140,.6)}50%{box-shadow:0 0 10px rgba(60,220,140,1)}}
+    .msg.flash{animation:msgIn .28s ease both, newsGlow 1.4s ease-out}
+    @keyframes newsGlow{0%{box-shadow:0 0 0 rgba(180,76,255,0)}30%{box-shadow:0 0 22px rgba(180,76,255,.55)}100%{box-shadow:0 0 0 rgba(180,76,255,0)}}
     .chip{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);
       border-radius:999px;padding:5px 12px;font-size:13px}
   </style>
@@ -276,6 +336,7 @@
     <div class="tile" onclick="landmarkLook()"><span class="badge live">live</span><div class="ic">🏛️</div><h3>What is this place?</h3><p>Landmark &amp; history</p></div>
     <div class="tile" onclick="liveLook()"><span class="badge live">live</span><div class="ic">👁️</div><h3>Live look</h3><p>Vision narrates the scene</p></div>
     <div class="tile" onclick="readPage()"><span class="badge live">live</span><div class="ic">🔗</div><h3>Read a link</h3><p>Paste → summary, saved</p></div>
+    <div class="tile" onclick="watcherList()"><span class="badge live">live</span><div class="ic">🔭</div><h3>Watchers</h3><p>Overnight eyes</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
     <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>Translate offline</h3><p>No signal — opens Google</p></div>
@@ -577,6 +638,38 @@
   function keepAwakeSafe(){ try{ if(typeof keepAwake==='function') keepAwake(); }catch(e){} }
   function releaseAwakeSafe(){ try{ if(typeof releaseAwake==='function') releaseAwake(); }catch(e){} }
 
+  // 🔭 Watchers (batch 51): Vision's overnight eyes.
+  async function watcherAdd(request){
+    openChat(); addMsg('me','🔭 '+request);
+    const t=addMsg('buddy','Setting up the watcher…','think');
+    try{
+      const {ok,status,data}=await api('/watchers',{action:'add',request});
+      t.remove();
+      if(status===400&&data.spoken){ addMsg('buddy',data.spoken); say(data.spoken); return; }
+      if(!ok){ addMsg('buddy','Couldn\'t set that watcher up — try rewording it?'); return; }
+      addMsg('buddy',data.spoken); say(data.spoken);
+    }catch(e){ t.remove(); addMsg('buddy','Couldn\'t set that watcher up — is the brain deployed?'); }
+  }
+  async function watcherList(){
+    openChat(); addMsg('me','🔭 My watchers');
+    try{
+      const {data}=await api('/watchers',{action:'list'});
+      if(!data.watchers||!data.watchers.length){ const m='No watchers yet. Try: "watch flights Brisbane to Bali under 300 dollars".'; addMsg('buddy',m); say(m); return; }
+      data.watchers.forEach(w=>{ const el=addMsg('buddy','🔭 '+w.label+' — tap to remove');
+        el.style.cursor='pointer';
+        el.onclick=async()=>{ if(confirm('Remove watcher: '+w.label+'?')){ await api('/watchers',{action:'remove',id:w.id}); el.style.opacity='.4'; el.textContent='✓ removed — '+w.label; } }; });
+      (data.results||[]).slice(-3).forEach(r=>addMsg('buddy','• '+r.spoken));
+      say(`${data.watchers.length} watcher${data.watchers.length>1?'s':''} running — they're on screen.`);
+    }catch(e){ addMsg('buddy','Watchers unreachable — is the brain deployed?'); }
+  }
+  // Fresh watcher news lands in the opening brief.
+  async function watcherNews(){
+    try{ const {data}=await api('/watchers',{action:'latest'});
+      (data.fresh||[]).slice(0,3).forEach(r=>{ const el=addMsg('buddy','🔭 '+r.spoken); el.classList.add('flash'); });
+      if(data.fresh&&data.fresh.length){ chimeNews(); say(data.fresh[0].spoken); }
+    }catch(e){}
+  }
+
   // 🔗 Read a link (batch 50): paste any URL — Vision fetches it server-side,
   // summarises, speaks, and remembers it. Manual version of the future Safari
   // extension.
@@ -661,6 +754,23 @@
   // iOS Safari blocks speech until a user-gesture speak "unlocks" it — prime once on first tap.
   // Declared up here (before unlockVoice touches them) so the auto-arm is safe.
   let handsFree=false, rec=null, buddySpeaking=false;
+  // Batch 55 earcons: soft generated tones, no files. Silent in quiet mode.
+  let _ac=null;
+  function tone(freq,dur,when,vol){
+    if(localStorage.buddy_quiet==='on') return;
+    try{
+      _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
+      const o=_ac.createOscillator(), g=_ac.createGain();
+      o.frequency.value=freq; o.type='sine';
+      g.gain.setValueAtTime(0.0001,_ac.currentTime+(when||0));
+      g.gain.exponentialRampToValueAtTime(vol||0.06,_ac.currentTime+(when||0)+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,_ac.currentTime+(when||0)+(dur||0.12));
+      o.connect(g); g.connect(_ac.destination);
+      o.start(_ac.currentTime+(when||0)); o.stop(_ac.currentTime+(when||0)+(dur||0.12)+0.05);
+    }catch(e){}
+  }
+  function chimeArm(){ tone(660,.1,0); tone(880,.12,.09); }
+  function chimeNews(){ tone(880,.1,0); tone(1174,.14,.1); }
   let voiceUnlocked=false;
   function unlockVoice(){
     if(voiceUnlocked) return; voiceUnlocked=true;
@@ -673,13 +783,20 @@
     if(wantMic && SR && !handsFree){
       handsFree=true;
       const btn=document.getElementById('micBtn'); if(btn) btn.textContent='🔴';
-      micState('armed');
+      micState('armed'); chimeArm();
     }
+    // First run: learn who this is (profiles — Jess gets her own Vision).
+    if(!localStorage.buddy_myname){
+      const nm=prompt("G'day! What should Vision call you?","Shaun");
+      if(nm&&nm.trim()){ localStorage.buddy_myname=nm.trim(); api('/profile',{name:nm.trim()}).catch(()=>{}); }
+    }
+    const MYNAME=localStorage.buddy_myname||'Shaun';
+    const AINAME=localStorage.buddy_ainame||'Vision';
     // Startup greeting — doubles as a systems check: hearing it proves speech,
     // speaker and app are all alive.
     const h=new Date().getHours();
     const partOfDay = h<12 ? 'morning' : (h<18 ? 'arvo' : 'evening');
-    say(`G'day Shaun — Vision online this ${partOfDay}. ` +
+    say(`G'day ${MYNAME} — ${AINAME} online this ${partOfDay}. ` +
         (wantMic && SR ? "Mic's live, just talk." : 'Tap the mic when you need me.'));
     // Failsafe: if iOS silently drops the greeting, onend never fires and the mic
     // would never start. Kick it off anyway once the greeting should have finished.
@@ -715,7 +832,22 @@
       r.start();
     }catch(e){ toast('Mic failed to start: '+String(e.message||e)); }
   }
-  function orbState(st){ const o=document.getElementById('orb'); if(!o) return; o.className = st==='listening'?'listening':(st==='speaking'?'speaking':''); }
+  function orbState(st){
+    const cls = st==='listening'?'listening':(st==='speaking'?'speaking':'');
+    const o=document.getElementById('orb'); if(o) o.className=cls;
+    const e=document.getElementById('edgeGlow'); if(e) e.className=cls;
+    const v=document.getElementById('voiceBars'); if(v) v.className = cls==='listening'?'listening':'';
+  }
+  // 🕶️ Glasses chip: HONEST — web can't detect the glasses (no Bluetooth
+  // visibility in Safari), so this is a wearing-them toggle that glows.
+  // Native fork replaces it with real auto-detection.
+  function toggleGlasses(){
+    const on = localStorage.buddy_glasses==='on';
+    localStorage.buddy_glasses = on?'off':'on';
+    applyGlassChip();
+    toast(on?'Glasses off.':'🕶️ Marked as wearing — auto-detect arrives with the native app.');
+  }
+  function applyGlassChip(){ const c=document.getElementById('glassChip'); if(c) c.className = 'chip'+(localStorage.buddy_glasses==='on'?' on':''); }
   // Glance cards: the brain, visible. Refreshed after every skill.
   function renderGlance(){
     const g=document.getElementById('glance'); if(!g) return;
@@ -1935,7 +2067,8 @@
     const t=document.getElementById('heroTitle');
     const h=new Date().getHours();
     const part=h<12?'Morning':(h<18?'Arvo':'Evening');
-    if(t) t.innerHTML=`${part}, Shaun.<br><span>Vision's ready.</span>`;
+    const MY=localStorage.buddy_myname||'Shaun'; const AI=localStorage.buddy_ainame||'Vision';
+    if(t) t.innerHTML=`${part}, ${MY}.<br><span>${AI}'s ready.</span>`;
     const sub=document.getElementById('heroSub'); if(!sub) return;
     if(!cfg.url||!cfg.tok) return; // keep the setup instruction until set up
     const s2=brain.state(); const bits=[];
@@ -1947,10 +2080,10 @@
     const tip=tips[Math.floor(Math.random()*tips.length)];
     sub.textContent = bits.length? bits.join(' · ')+' — '+tip : 'Tap the orb and talk. '+tip;
   }
-  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); });
+  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); applyGlassChip(); });
   function openChat(){
     document.getElementById('chat').classList.add('open');
-    if(chatHistory.length===0){ addMsg('buddy', openingBrief()); }
+    if(chatHistory.length===0){ addMsg('buddy', openingBrief()); watcherNews(); }
     setTimeout(()=>document.getElementById('chatText').focus(), 150);
   }
   // Lead with what actually matters right now instead of a generic greeting.
@@ -1959,8 +2092,9 @@
     const s=brain.state(); const h=new Date().getHours();
     const hi = h<12?'Morning':(h<18?'Arvo':'Evening');
     const lines=[];
-    if(s.city||s.country) lines.push(`${hi} Shaun — you're in ${[s.city,s.country].filter(Boolean).join(', ')}.`);
-    else lines.push(`${hi} Shaun.`);
+    const MY=localStorage.buddy_myname||'Shaun';
+    if(s.city||s.country) lines.push(`${hi} ${MY} — you're in ${[s.city,s.country].filter(Boolean).join(', ')}.`);
+    else lines.push(`${hi} ${MY}.`);
     if(s.spendToday>0) lines.push(`Spent ${s.spendToday.toFixed(2)} today.`);
     if(s.flight&&s.flight.number) lines.push(`Flight ${s.flight.number} saved — ask me how it's looking.`);
     if(s.avoid) lines.push(`Still avoiding ${s.avoid}.`);
@@ -2124,6 +2258,7 @@
       if(skill==='tripbudget'){ await tripBudget(a); return true; }
       if(skill==='esim'){ await esimInfo(a); return true; }
       if(skill==='livelook'){ liveLook(); return true; }
+      if(skill==='watcher'){ await watcherAdd(a.request||original); return true; }
       if(skill==='readpage'){ const m=(a.url||original||'').match(/https?:\/\/\S+/); await readPage(m?m[0]:a.url); return true; }
       if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
       if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
@@ -2145,6 +2280,47 @@
     }
     if(/\b(stop|don'?t|never)\b.*\b(open|opening)\b.*\bmaps\b/i.test(text)){
       localStorage.buddy_automaps='off'; const m="Okay — I'll offer Maps as a tap instead."; addMsg('buddy',m); say(m); return;
+    }
+    // IDENTITY + MEMORY commands (batch 51)
+    let m51;
+    if(m51=text.match(/\bcall yourself (\w{2,20})\b/i)){
+      localStorage.buddy_ainame=m51[1]; api('/profile',{ainame:m51[1]}).catch(()=>{});
+      const m='From now on I\'m '+m51[1]+'.'; addMsg('buddy',m); say(m); return;
+    }
+    if(m51=text.match(/\bmy name is (\w[\w\s'-]{1,30})\b/i)){
+      localStorage.buddy_myname=m51[1].trim(); api('/profile',{name:m51[1].trim()}).catch(()=>{});
+      const m='Nice to meet you, '+m51[1].trim()+'.'; addMsg('buddy',m); say(m); heroInit(); return;
+    }
+    if(m51=text.match(/\bmy (wife|husband|partner)('s name)? is (\w[\w'-]{1,20})\b/i)){
+      api('/profile',{partner:m51[3]}).catch(()=>{});
+      const m='Got it — '+m51[3]+' it is. When they set up Vision on their phone, we\'ll link you two.'; addMsg('buddy',m); say(m); return;
+    }
+    if(/what do you know about me/i.test(text)){
+      (async()=>{ try{ const {data}=await api('/memory',{action:'all'});
+        const p=data.profile||{};
+        addMsg('buddy',`You're ${p.name||'Shaun'}${p.partner?(', partner '+p.partner):''}. I hold ${data.count||0} memory notes.`);
+        (data.recent||[]).forEach(r=>addMsg('buddy','• '+r.t));
+        say(`You're ${p.name||'Shaun'}. I've got ${data.count||0} notes — they're on screen. Say forget, plus the words, to remove any.`);
+      }catch(e){ addMsg('buddy','Memory store unreachable — is the brain deployed?'); } })(); return;
+    }
+    if(m51=text.match(/^forget (.{2,80})$/i)){
+      (async()=>{ try{ const {data}=await api('/memory',{action:'forget',text:m51[1]});
+        const m=data.removed?`Forgotten — ${data.removed} note${data.removed>1?'s':''} gone.`:'Nothing matching that in memory.';
+        addMsg('buddy',m); say(m); }catch(e){} })(); return;
+    }
+    if(m51=text.match(/^remember (.{2,300})$/i)){
+      (async()=>{ try{ await api('/memory',{action:'add',text:m51[1]});
+        const m='Remembered.'; addMsg('buddy',m); say(m); }catch(e){} })(); return;
+    }
+    // STYLE (batch 52): "speak to me like a calm professional" / "reset your style"
+    if(m51=text.match(/^(?:speak|talk) to me like (.{3,120})$/i) || (m51=text.match(/^(?:change|set) your (?:style|tone|persona) to (.{3,120})$/i)) || (m51=text.match(/^be more (.{3,80})$/i))){
+      const st=m51[1].trim();
+      api('/profile',{style:st}).then(()=>{ heroInit(); }).catch(()=>{});
+      const m='Righto — new style locked in. How\'s this feel?'; addMsg('buddy',m); say(m); return;
+    }
+    if(/^reset your (style|tone|persona)$/i.test(text)){
+      api('/profile',{style:''}).catch(()=>{});
+      const m='Back to my usual self.'; addMsg('buddy',m); say(m); return;
     }
     // MODES (batch 41): whisper / quiet / battery saver — voice-set, synced to the
     // brain so the native glasses app shares them.
@@ -2247,8 +2423,11 @@
     toastEl.textContent=msg;toastEl.style.opacity=1;clearTimeout(toastEl._t);toastEl._t=setTimeout(()=>toastEl.style.opacity=0,2600);
   }
 
+  // Batch 51: every request carries who's talking — profiles are per-person.
+  const UID = (localStorage.buddy_uid || (localStorage.buddy_uid = 'u' + Date.now() + Math.random().toString(36).slice(2, 8)));
   async function api(path, body){
     if(!cfg.url||!cfg.tok){ openSettings(); throw new Error('no config'); }
+    if(body && typeof body === 'object'){ body.uid = UID; body.name = localStorage.buddy_myname || 'Shaun'; }
     const opts={ method: body?'POST':'GET',
       headers:{ 'Authorization':'Bearer '+cfg.tok, ...(body?{'Content-Type':'application/json'}:{}) } };
     if(body) opts.body=JSON.stringify(body);
