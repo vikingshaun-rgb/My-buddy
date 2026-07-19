@@ -409,6 +409,125 @@
     opacity:.6;filter:none;animation:hudPulse 6s ease-in-out infinite}
   @keyframes hudPulse{0%,100%{opacity:.45}50%{opacity:.75}}
 
+  /* ===== BATCH 77: HEAVEN & HELL — Diablo-inspired =====
+     Sanctified gold against hellfire. Heaven is cold radiant light and
+     engraved geometry; Hell is molten crust, ember drift and blood shadow. */
+
+  /* --- HEAVEN: radiant, sanctified, weightless --- */
+  body[data-orb="heaven"] #orb{
+    background:radial-gradient(circle at 42% 30%, #FFFFFF, #FFF6DC 26%, #FFD98A 52%, #C99A34 76%, #4a3608 100%);
+    box-shadow:0 0 34px rgba(255,236,180,.8), 0 0 90px rgba(255,205,110,.45), 0 0 160px rgba(255,240,200,.2),
+               inset 0 -6px 18px rgba(90,70,20,.35), inset 0 6px 16px rgba(255,255,255,.7);
+    animation:heavenRise 7s ease-in-out infinite}
+  body[data-orb="heaven"] #orb::before{
+    background:none;
+    border:2px solid rgba(255,225,150,.55);border-right-color:transparent;border-bottom-color:transparent;
+    inset:-14px;filter:none;animation:orbSpin 20s linear infinite}
+  body[data-orb="heaven"] #orb::after{
+    background:conic-gradient(transparent 0deg, rgba(255,240,200,.35) 12deg, transparent 24deg,
+      transparent 90deg, rgba(255,240,200,.28) 102deg, transparent 114deg,
+      transparent 180deg, rgba(255,240,200,.35) 192deg, transparent 204deg,
+      transparent 270deg, rgba(255,240,200,.28) 282deg, transparent 294deg);
+    filter:blur(3px);inset:-30px;animation:orbSpin 26s linear infinite reverse}
+  @keyframes heavenRise{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-8px) scale(1.03)}}
+
+  body[data-theme="heaven"]::before{
+    background:
+      conic-gradient(from 200deg at 50% -10%, transparent 0deg, rgba(255,240,200,.22) 8deg, transparent 16deg,
+        transparent 30deg, rgba(255,240,200,.16) 38deg, transparent 46deg,
+        transparent 62deg, rgba(255,240,200,.20) 70deg, transparent 78deg),
+      radial-gradient(60% 50% at 50% 0%, rgba(255,235,180,.35), transparent 72%),
+      radial-gradient(70% 60% at 50% 100%, rgba(60,48,20,.5), transparent 75%);
+    opacity:.42;filter:blur(2px);animation:godRays 22s ease-in-out infinite alternate}
+  @keyframes godRays{0%{transform:translateY(0) rotate(0deg);opacity:.32}100%{transform:translateY(-2%) rotate(3deg);opacity:.5}}
+
+  /* --- HELL: molten, cracked, breathing embers --- */
+  body[data-orb="hell"] #orb{
+    background:radial-gradient(circle at 40% 34%, #FFD9A0, #FF6B1A 24%, #B31200 52%, #4a0400 76%, #120000 100%);
+    box-shadow:0 0 32px rgba(255,80,20,.75), 0 0 90px rgba(190,20,10,.45), 0 0 170px rgba(120,0,0,.3),
+               inset 0 -10px 26px rgba(0,0,0,.75), inset 0 4px 12px rgba(255,140,60,.35);
+    animation:hellBreathe 3.6s ease-in-out infinite}
+  body[data-orb="hell"] #orb::before{
+    background:conic-gradient(#FF6B1A, #7A0000, #FF3300, #2b0000, #FF6B1A);
+    filter:blur(13px) saturate(1.8);inset:-13px;animation:orbSpin 8s linear infinite}
+  body[data-orb="hell"] #orb::after{
+    background:radial-gradient(circle, rgba(255,70,10,.35), transparent 64%);
+    filter:blur(10px);inset:-28px;animation:hellFlare 2.4s ease-in-out infinite}
+  @keyframes hellBreathe{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.05);filter:brightness(1.25)}}
+  @keyframes hellFlare{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.14)}}
+
+  body[data-theme="hell"]::before{
+    background:
+      radial-gradient(2px 2px at 18% 88%, rgba(255,140,40,.9), transparent 60%),
+      radial-gradient(1px 1px at 42% 78%, rgba(255,90,20,.8), transparent 60%),
+      radial-gradient(2px 2px at 68% 92%, rgba(255,160,60,.85), transparent 60%),
+      radial-gradient(1px 1px at 84% 70%, rgba(255,110,30,.7), transparent 60%),
+      radial-gradient(50% 45% at 50% 100%, #B31200, transparent 70%),
+      radial-gradient(45% 40% at 20% 80%, #7A0000, transparent 72%),
+      radial-gradient(80% 70% at 50% 10%, #140000, transparent 78%);
+    opacity:.34;filter:blur(1px);animation:emberRise 14s linear infinite}
+  @keyframes emberRise{
+    0%{background-position:0 0,0 0,0 0,0 0,0 0,0 0,0 0}
+    100%{background-position:0 -60%,0 -80%,0 -70%,0 -90%,0 0,0 0,0 0}}
+
+  /* ===== BATCH 76: ZODIAC WORLDS — Leo & Sagittarius =====
+     Design language borrowed from Co-Star / Sanctuary: deep dark canvas,
+     restrained gold, real star maps, mysticism through minimalism. */
+
+  /* --- LEO: royal gold, solar mane, lion heart --- */
+  body[data-orb="leo"] #orb{
+    background:radial-gradient(circle at 40% 32%, #FFF6D6, #FFD24A 30%, #C8860D 60%, #2b1600 100%);
+    box-shadow:0 0 30px rgba(255,200,70,.65), 0 0 80px rgba(220,130,10,.35), inset 0 -8px 22px rgba(50,25,0,.6);
+    animation:leoPulse 5s ease-in-out infinite}
+  body[data-orb="leo"] #orb::before{
+    background:conic-gradient(#FFD24A, #FF8C00, #FFE9A8, #C8860D, #FFD24A);
+    filter:blur(11px) saturate(1.5);inset:-13px;animation:orbSpin 14s linear infinite}
+  body[data-orb="leo"] #orb::after{
+    background:radial-gradient(circle, rgba(255,190,60,.28), transparent 68%);
+    filter:blur(8px);inset:-26px;animation:leoMane 6s ease-in-out infinite}
+  @keyframes leoPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+  @keyframes leoMane{0%,100%{transform:scale(1) rotate(0deg);opacity:.7}50%{transform:scale(1.10) rotate(6deg);opacity:1}}
+
+  body[data-theme="leo"]::before{
+    background:
+      radial-gradient(1px 1px at 12% 22%, rgba(255,240,200,.9), transparent 60%),
+      radial-gradient(1px 1px at 28% 62%, rgba(255,240,200,.7), transparent 60%),
+      radial-gradient(2px 2px at 64% 18%, rgba(255,225,150,1), transparent 60%),
+      radial-gradient(1px 1px at 78% 48%, rgba(255,240,200,.8), transparent 60%),
+      radial-gradient(1px 1px at 44% 82%, rgba(255,240,200,.6), transparent 60%),
+      radial-gradient(2px 2px at 88% 74%, rgba(255,225,150,.9), transparent 60%),
+      radial-gradient(50% 45% at 30% 25%, #B8730A, transparent 70%),
+      radial-gradient(45% 40% at 75% 60%, #7A3E00, transparent 72%),
+      radial-gradient(70% 60% at 50% 100%, #1a0d00, transparent 75%);
+    opacity:.30;filter:none;animation:starDrift 90s linear infinite}
+  @keyframes starDrift{to{background-position:2% 3%,-2% 2%,1% -3%,-1% -2%,2% 1%,-2% -1%,0 0,0 0,0 0}}
+
+  /* --- SAGITTARIUS: cosmic violet, arrow of the archer, galactic centre --- */
+  body[data-orb="sagittarius"] #orb{
+    background:radial-gradient(circle at 40% 32%, #F2E9FF, #B08CFF 30%, #5B2E9E 62%, #0f0324 100%);
+    box-shadow:0 0 30px rgba(176,140,255,.65), 0 0 85px rgba(240,110,255,.32), inset 0 -8px 22px rgba(10,0,30,.6);
+    animation:sagDrift 8s ease-in-out infinite}
+  body[data-orb="sagittarius"] #orb::before{
+    background:conic-gradient(#B08CFF, #F06EFF, #7DE2FF, #5B2E9E, #B08CFF);
+    filter:blur(12px) saturate(1.7);inset:-13px;animation:orbSpin 11s linear infinite}
+  body[data-orb="sagittarius"] #orb::after{
+    background:radial-gradient(circle, rgba(190,150,255,.30), transparent 66%);
+    filter:blur(9px);inset:-26px;animation:wispPulse 5s ease-in-out infinite}
+  @keyframes sagDrift{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-7px) rotate(-3deg)}}
+
+  body[data-theme="sagittarius"]::before{
+    background:
+      radial-gradient(1px 1px at 18% 28%, rgba(230,220,255,.9), transparent 60%),
+      radial-gradient(2px 2px at 36% 14%, rgba(255,255,255,1), transparent 60%),
+      radial-gradient(1px 1px at 58% 66%, rgba(230,220,255,.75), transparent 60%),
+      radial-gradient(1px 1px at 72% 30%, rgba(230,220,255,.85), transparent 60%),
+      radial-gradient(2px 2px at 86% 58%, rgba(255,245,255,.95), transparent 60%),
+      radial-gradient(1px 1px at 24% 78%, rgba(230,220,255,.6), transparent 60%),
+      radial-gradient(45% 40% at 28% 30%, #5B2E9E, transparent 70%),
+      radial-gradient(42% 38% at 74% 40%, #A61FBF, transparent 72%),
+      radial-gradient(60% 55% at 55% 95%, #12002e, transparent 74%);
+    opacity:.32;filter:none;animation:starDrift 110s linear infinite}
+
   /* ===== BATCH 74: SIX MORE WORLDS ===== */
 
   /* --- NEON NOIR (Blade Runner): rain-streaked dark, magenta/cyan bleed --- */
@@ -1106,13 +1225,49 @@
     deepsea: {core:[0.35,0.98,0.85], rim:[0.20,0.50,1.00], amb:[0.00,0.08,0.16], rough:0.45, wobble:0.24},
     paper:   {core:[0.98,0.95,0.86], rim:[0.60,0.50,0.32], amb:[0.18,0.16,0.12], rough:0.85, wobble:0.05},
     solar:   {core:[1.0,0.80,0.25],  rim:[1.00,0.25,0.35], amb:[0.24,0.06,0.00], rough:0.30, wobble:0.28},
+    leo:     {core:[1.0,0.82,0.32],  rim:[1.00,0.55,0.10], amb:[0.18,0.08,0.00], rough:0.28, wobble:0.20, zodiac:1.0},
+    sagittarius:{core:[0.72,0.62,1.0], rim:[0.95,0.45,1.00], amb:[0.10,0.06,0.26], rough:0.32, wobble:0.18, zodiac:2.0},
+    heaven:  {core:[1.00,0.97,0.86], rim:[1.00,0.84,0.42], amb:[0.16,0.14,0.10], rough:0.12, wobble:0.06, sigil:1.0},
+    hell:    {core:[1.00,0.42,0.10], rim:[0.75,0.05,0.05], amb:[0.16,0.02,0.00], rough:0.62, wobble:0.42, sigil:2.0},
   };
   let _gl=null, _glProg=null, _glCanvas=null, _glRAF=null, _glStart=Date.now(), _glState=0;
   const ORB_VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
   const ORB_FS=[
   'precision highp float;',
   'uniform vec2 res; uniform float t; uniform vec3 core,rim,amb;',
-  'uniform float rough,wobble,act;',
+  'uniform float rough,wobble,act,zodiac,sigil;',
+  // Angular sigil ring — heaven's engraved halo geometry
+  'float sigilRing(vec2 p,float radius,float spokes,float phase){',
+  ' float d=abs(length(p)-radius);',
+  ' float a=atan(p.y,p.x)+phase;',
+  ' float teeth=0.5+0.5*cos(a*spokes);',
+  ' return smoothstep(0.030,0.0,d)*(0.35+0.65*teeth);}',
+  // Cracked crust — hell's molten fissures, wider where the noise is high
+  'float cracks(vec3 p,float t2){',
+  ' float n1=fbm(p*3.1+vec3(0.,t2*0.05,0.));',
+  ' float n2=fbm(p*6.7-vec3(t2*0.03,0.,0.));',
+  ' float v=abs(n1-n2);',
+  ' return smoothstep(0.10,0.0,v);}',
+  // Real star positions, normalised. Leo: Regulus, Denebola, Algieba, Zosma,
+  // Ras Elased, Chertan, Adhafera. Sagittarius: the Teapot asterism.
+  'vec2 leoStar(int i){',
+  ' if(i==0) return vec2(-0.42,-0.30);',   // Regulus (brightest)
+  ' if(i==1) return vec2( 0.46, 0.22);',   // Denebola
+  ' if(i==2) return vec2(-0.30, 0.05);',   // Algieba
+  ' if(i==3) return vec2( 0.10, 0.34);',   // Zosma
+  ' if(i==4) return vec2(-0.46, 0.30);',   // Ras Elased
+  ' if(i==5) return vec2( 0.12,-0.10);',   // Chertan
+  ' return vec2(-0.38, 0.22);}',           // Adhafera
+  'vec2 sagStar(int i){',
+  ' if(i==0) return vec2(-0.40,-0.10);',   // Kaus Australis
+  ' if(i==1) return vec2(-0.18, 0.22);',   // Kaus Media
+  ' if(i==2) return vec2( 0.02, 0.38);',   // Kaus Borealis
+  ' if(i==3) return vec2( 0.24, 0.20);',   // Nunki
+  ' if(i==4) return vec2( 0.34,-0.06);',   // Ascella
+  ' if(i==5) return vec2( 0.06,-0.24);',   // Alnasl
+  ' return vec2(-0.14,-0.34);}',           // Phi Sgr
+  // distance to a line segment, for drawing the joining lines
+  'float segDist(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;float t=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*t);}',
   // cheap 3D value noise for the animated surface
   'float hash(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}',
   'float noise(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);',
@@ -1147,6 +1302,45 @@
   ' if(act>1.5&&act<2.5) col*=1.0+.22*sin(t*4.0+n.y*3.0);',
   ' if(act>2.5) col*=1.0+.30*sin(t*11.0+n.x*5.0);',
   // soft edge + inner shadow at the terminator
+  ' if(sigil>0.5&&sigil<1.5){',
+  // HEAVEN: engraved concentric sigils, rotating slowly, radiant gold on white
+  '  vec2 sp=uv*0.9;',
+  '  float ring=0.;',
+  '  ring+=sigilRing(sp,0.34,12.,t*0.20)*0.9;',
+  '  ring+=sigilRing(sp,0.52,24.,-t*0.13)*0.6;',
+  '  ring+=sigilRing(sp,0.68,6.,t*0.08)*0.45;',
+  '  vec3 gold=vec3(1.0,0.86,0.48);',
+  '  col+=gold*ring*(0.55+0.25*sin(t*1.4));',
+  // shafts of light from above
+  '  float shaft=pow(max(0.,n.y),3.0)*0.35;',
+  '  col+=vec3(1.0,0.97,0.88)*shaft;',
+  ' }',
+  ' if(sigil>1.5){',
+  // HELL: molten fissures glowing through a dark crust, embers rising
+  '  float cr=cracks(nn*1.6,t);',
+  '  float heat=0.55+0.45*sin(t*2.3+surf*7.0);',
+  '  vec3 lava=mix(vec3(0.75,0.06,0.02),vec3(1.0,0.62,0.10),heat);',
+  '  col=mix(col*0.30,lava,cr*0.92);',           // crust is dark, cracks blaze
+  '  col+=vec3(1.0,0.25,0.05)*pow(cr,2.0)*0.7;',
+  // ember flecks drifting up the surface
+  '  float emb=step(0.978,noise(nn*9.0+vec3(0.,-t*0.9,0.)));',
+  '  col+=vec3(1.0,0.55,0.15)*emb*1.2;',
+  ' }',
+  ' if(zodiac>0.5){',
+  '  vec2 sp=uv*0.72;',
+  '  float glow=0.,lines=0.;',
+  '  for(int i=0;i<7;i++){',
+  '    vec2 s = zodiac<1.5 ? leoStar(i) : sagStar(i);',
+  '    float d=length(sp-s);',
+  '    float tw=0.75+0.25*sin(t*2.0+float(i)*1.7);',   // twinkle
+  '    glow+=tw*0.020/(d+0.012);',
+  '    if(i<6){ vec2 s2 = zodiac<1.5 ? leoStar(i+1) : sagStar(i+1);',
+  '      lines+=0.0016/(segDist(sp,s,s2)+0.006); }',
+  '  }',
+  '  vec3 starCol = zodiac<1.5 ? vec3(1.0,0.88,0.55) : vec3(0.85,0.75,1.0);',
+  '  col += starCol*glow*0.55 + starCol*lines*0.30;',
+  '  col += starCol*pow(max(dot(n,vec3(0.,0.,1.)),0.),8.0)*0.10;',
+  ' }',
   ' float edge=smoothstep(1.06,.94,r);',
   ' col*=mix(.35,1.0,smoothstep(-.2,.6,dot(nn,L1)));',
   ' gl_FragColor=vec4(col*edge,edge);',
@@ -1196,6 +1390,8 @@
       _gl.uniform1f(U('rough'),P.rough);
       _gl.uniform1f(U('wobble'),P.wobble);
       _gl.uniform1f(U('act'),_glState);
+      _gl.uniform1f(U('zodiac'),P.zodiac||0.0);
+      _gl.uniform1f(U('sigil'),P.sigil||0.0);
       _gl.clear(_gl.COLOR_BUFFER_BIT);
       _gl.drawArrays(_gl.TRIANGLE_STRIP,0,4);
       _glRAF=requestAnimationFrame(draw);
@@ -1232,6 +1428,10 @@
     {label:'🌊 Deep sea — bioluminescent',value:'deepsea'},
     {label:'📜 Paper — calm & analogue',value:'paper'},
     {label:'☀️ Solar — molten heat',value:'solar'},
+    {label:'♌ Leo — lion\'s heart',value:'leo'},
+    {label:'♐ Sagittarius — the archer',value:'sagittarius'},
+    {label:'😇 Heaven — sanctified light',value:'heaven'},
+    {label:'😈 Hell — molten crust',value:'hell'},
   ];
   const BG_THEMES=[
     {label:'🌌 Aurora (default)',value:'aurora'},
@@ -1247,6 +1447,10 @@
     {label:'🌊 Deep sea — bioluminescent',value:'deepsea'},
     {label:'📜 Paper — calm & analogue',value:'paper'},
     {label:'☀️ Solar — molten heat',value:'solar'},
+    {label:'♌ Leo — golden star map',value:'leo'},
+    {label:'♐ Sagittarius — cosmic centre',value:'sagittarius'},
+    {label:'😇 Heaven — god rays',value:'heaven'},
+    {label:'😈 Hell — rising embers',value:'hell'},
     {label:'🕰️ Follow my day (auto)',value:'auto'},
   ];
   // 🕰️ CONTEXTUAL THEME (batch 74): the background follows your actual life —
@@ -1289,6 +1493,16 @@
     if(!v) return;
     localStorage.buddy_theme=v; applyLooks();
     toast('Theme: '+(BG_THEMES.find(o=>o.value===v)||{}).label);
+  }
+  // ♌♐ Star sign helper: say "I'm a Leo" and Vision dresses itself to match.
+  const SIGN_WORLDS={leo:'leo',sagittarius:'sagittarius',sagitarius:'sagittarius',sag:'sagittarius'};
+  function applySign(sign){
+    const s=String(sign||'').toLowerCase().trim();
+    const key=SIGN_WORLDS[s]; if(!key) return false;
+    localStorage.buddy_orbstyle=key; localStorage.buddy_theme=key;
+    applyLooks(); orb3dStart();
+    try{ api('/memory',{action:'add',text:'star sign: '+key}).catch(()=>{}); }catch(e){}
+    return true;
   }
   async function chooseLooks(){
     const what=await pick('What would you like to change?',[
@@ -3554,6 +3768,15 @@
     }
     if(/^(start|turn on|give me) suggestions?$/i.test(text)){
       localStorage.buddy_nextmoves='on'; const m="Suggestions back on."; addMsg('buddy',m); say(m); return;
+    }
+    if(m51=text.match(/^(?:i'?m|i am) an? (leo|sagitt?arius|sag)\b/i)){
+      if(applySign(m51[1])){ const m="A "+m51[1]+" — let's dress the place up then."; addMsg('buddy',m); say(m); return; }
+    }
+    if(m51=text.match(/^(?:go to |show me |give me )?(heaven|hell)(?: mode| theme)?$/i)){
+      const w=m51[1].toLowerCase();
+      localStorage.buddy_orbstyle=w; localStorage.buddy_theme=w; applyLooks(); orb3dStart();
+      const m = w==='hell' ? 'Welcome to hell, mate. Mind the embers.' : 'Sanctified. Try not to get too comfortable.';
+      addMsg('buddy',m); say(m); return;
     }
     // LOOKS (batch 73)
     if(/^(change|pick|choose|set) (the )?(look|theme|style|orb|background|colou?rs?)$/i.test(text)){ chooseLooks(); return; }
