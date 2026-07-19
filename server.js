@@ -85,7 +85,7 @@ function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: f
 function rememberBrief(uid, b) { if (typeof b === "string" && b.trim()) { STORE.briefs[uid] = { text: b.slice(0, 900), at: Date.now() }; saveStore(); } }
 function briefOf(uid) { return STORE.briefs[uid] || null; }
 
-app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid) }); });
+app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3) }); });
 app.post("/state", requireAuth, (req, res) => {
   const uid = uidOf(req);
   const f = (req.body || {}).flags || {}; const cur = flagsOf(uid);
@@ -129,8 +129,23 @@ function requireAuth(req, res, next) {
 const usageTotals = {}; // model -> { calls, inTok, outTok }
 function recordUsage(model, u) {
   if (!u) return;
+  try { const [pi, po] = PRICES[model] || [3, 15];
+    dlog(null, "cost", `${model.replace("claude-", "")} ${u.input_tokens || 0}in/${u.output_tokens || 0}out`,
+      { usd: Math.round((((u.input_tokens || 0) / 1e6) * pi + ((u.output_tokens || 0) / 1e6) * po) * 100000) / 100000 }); } catch {}
   const m = usageTotals[model] = usageTotals[model] || { calls: 0, inTok: 0, outTok: 0 };
   m.calls++; m.inTok += u.input_tokens || 0; m.outTok += u.output_tokens || 0;
+  // Batch 68: durable spend ledger — survives redeploys, keyed by day.
+  try {
+    const [pi, po] = PRICES[model] || [3, 15];
+    const cost = ((u.input_tokens || 0) / 1e6) * pi + ((u.output_tokens || 0) / 1e6) * po;
+    const day = new Date().toISOString().slice(0, 10);
+    STORE.spend = STORE.spend || {};
+    STORE.spend[day] = (STORE.spend[day] || 0) + cost;
+    // keep 90 days
+    const days = Object.keys(STORE.spend).sort();
+    while (days.length > 90) delete STORE.spend[days.shift()];
+    saveStore();
+  } catch {}
 }
 // USD per MTok (input, output) — update if Anthropic pricing changes.
 const PRICES = { "claude-haiku-4-5-20251001": [1, 5], "claude-sonnet-4-6": [3, 15] };
@@ -474,6 +489,11 @@ app.post("/converse", requireAuth, async (req, res) => {
 
 // --- Etiquette whisper: local customs coaching ---
 app.post("/etiquette", requireAuth, async (req, res) => {
+  // Batch 66: this endpoint gives ADVICE, so it should know him. Pull the
+  // memories relevant to local etiquette and let the model use them.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if relevant): ${_mem}` : "";
   const { question, country } = req.body || {};
   if (!question) return res.status(400).json({ error: "question required" });
   const body = {
@@ -482,7 +502,7 @@ app.post("/etiquette", requireAuth, async (req, res) => {
     system: "You are Vision, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic.",
     messages: [{
       role: "user",
-      content: `${country ? `In ${country}: ` : ""}${question}\n` +
+      content: `${country ? `In ${country}: ` : ""}${question}${_memNote}\n` +
         `Reply as compact JSON ONLY: "spoken" (one or two short spoken sentences of practical etiquette advice), "phrase" (a useful local phrase with English in brackets, or "").`,
     }],
   };
@@ -576,6 +596,8 @@ function buddyPersona(ctx) {
     // CAPABILITY MANIFEST — without this the brain thinks it's blind and sends
     // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
     ctx.styleLine || "",
+    ctx.recall || "",
+    ctx.recentDays ? `HOW HIS LAST COUPLE OF DAYS WENT (context only, don't recite): ${ctx.recentDays}` : "",
     "YOUR CAPABILITIES — you are not a text-only chatbot. You sit on top of a working app with real tools:",
     "• Maps & places: you CAN find nearby places (restaurants, cafes, bars, banks, ATMs, pharmacies, shops), give walking/driving/transit directions, look up landmarks, save and return to pinned spots, and walk Shaun back when he's lost. Google Maps is connected.",
     "• Location: you CAN get his current location from the phone.",
@@ -775,13 +797,18 @@ app.post("/arrival", requireAuth, async (req, res) => {
 
 // --- Phrasebook: translate a phrase into the local language + speakable lang code ---
 app.post("/phrase", requireAuth, async (req, res) => {
+  // Batch 66: this endpoint gives ADVICE, so it should know him. Pull the
+  // memories relevant to useful phrases and let the model use them.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if relevant): ${_mem}` : "";
   const { text, country } = req.body || {};
   if (!text) return res.status(400).json({ error: "text required" });
   try {
     const body = {
       model: "claude-haiku-4-5-20251001",
       max_tokens: 200,
-      messages: [{ role: "user", content: `Translate into the main local language of ${country || "the country the traveller is in"}: "${text}". Reply as compact JSON ONLY: "translation", "lang" (BCP-47 code like th-TH), "phonetic" (simple pronunciation).` }],
+      messages: [{ role: "user", content: `Translate into the main local language of ${country || "the country the traveller is in"}: "${text}". Reply as compact JSON ONLY: "translation", "lang" (BCP-47 code like th-TH), "phonetic" (simple pronunciation).${_memNote}` }],
     };
     const { status, text: out } = await callClaude(body);
     if (status !== 200) return res.status(502).json({ error: "phrase_failed" });
@@ -885,8 +912,12 @@ app.post("/route", requireAuth, async (req, res) => {
   if (!message) return res.status(400).json({ error: "message required" });
   const hist = Array.isArray(history) ? history.slice(-6) : [];
   rememberBrief(uidOf(req), brief);
+  const _recall = recallBrief(uidOf(req), message || "");
   const stateNote = (typeof brief === "string" && brief.trim())
     ? `\n\nWhat Vision already knows about Shaun's situation (use it to FILL IN arguments he didn't say out loud — his country, currency, allergies, saved spots, tracked flight):\n${brief.slice(0, 900)}`
+    : "";
+  const recallNote = _recall
+    ? `\n\nWhat Vision REMEMBERS about him that may be relevant (use it to fill in arguments he didn't say — a place he loved, a country he visited, a price he paid, something he photographed):\n${_recall}`
     : "";
   const contextNote = hist.length
     ? "\n\nRecent conversation (use it to resolve follow-ups like 'that one', 'the closest', 'a bank instead', 'yes', 'do it' — infer what Shaun means from context):\n" +
@@ -944,6 +975,16 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"esim\" (data/eSIM/SIM card for a country, how do I get internet there, roaming options; args: country), " +
       "\"livelook\" (live look / watch what I'm seeing / narrate the scene / keep looking and tell me what's there — continuous camera narration on or off; args: none), " +
       "\"readpage\" (read/summarise a link or web page — any message containing a URL to read, 'read this', 'summarise this page'; args: url), " +
+      "\"dayview\" (my day / what did I do on X / show me yesterday / my timeline for a date; args: date, offset), " +
+      "\"lifelog\" (my day / timeline / where have I been / what did I do today; args: none), " +
+      "\"spend\" (what has Vision cost / my AI spend / usage bill; args: none), " +
+      "\"sharedmoments\" (our moments / what did we do together / shared memories with partner; args: none), " +
+      "\"capture\" (capture/log this moment — 'capture this', 'log what's happening', 'record this moment', 'write this down'; args: seconds, note), " +
+      "\"ride\" (get a taxi/grab/uber/ride/lift somewhere — 'get me a grab to the airport', 'book a ride', 'call an uber'; args: destination), " +
+      "\"transit\" (buses, trains, metro, ferries, airport transfers — 'when's the next bus to X', 'train times to Y', 'how do I get to the airport'; args: destination), " +
+      "\"booktable\" (book/reserve a table, appointment, tour or ticket — 'book a table for 2 at 7', 'reserve somewhere for dinner'; args: what, when, people), " +
+      "\"whatsapp\" (send a WhatsApp message to someone — 'whatsapp the hotel', 'message X on whatsapp'; args: number, message), " +
+      "\"seenrecall\" (recall what Vision has SEEN before — 'what was that plant/landmark/menu', 'what did I photograph', 'show me what you saw at X', 'what did that sign say'; args: query), " +
       "\"watcher\" (watch/keep an eye on/monitor/let me know if-or-when — recurring or threshold alerts: 'watch flights to Bali under 300', 'watch the weather in Da Nang', 'let me know if the dollar hits 17000 dong', 'keep an eye out for gigs this weekend'; args: request = the full request text), " +
       "\"call\" (call/phone/ring a number; args: number), " +
       "\"text\" (text/message/SMS a number; args: number, message). " +
@@ -956,7 +997,7 @@ app.post("/route", requireAuth, async (req, res) => {
     messages: [{
       role: "user",
       content:
-        `Shaun said: "${message}"${contextNote}${stateNote}\n` +
+        `Shaun said: "${message}"${contextNote}${stateNote}${recallNote}\n` +
         `Reply as compact JSON ONLY (no markdown): "skill" (one of the names above), ` +
         `"args" (object with only the fields you could extract — fill them in from the recent conversation if this message is a short follow-up), ` +
         `"then" (OPTIONAL array of {skill, args} for compound requests like "find a bank and take me there" — the follow-on steps in order), ` +
@@ -969,6 +1010,7 @@ app.post("/route", requireAuth, async (req, res) => {
     const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
     catch { p = { skill: "chat", args: {}, confidence: 0 }; }
+    dlog(uidOf(req), "routing", `"${String(message).slice(0, 60)}" -> ${p.skill || "chat"} (${p.confidence ?? 0})`, p.args || null);
     res.json({ skill: p.skill || "chat", args: p.args || {}, then: Array.isArray(p.then) ? p.then.slice(0, 5) : [], confidence: p.confidence ?? 0 });
   } catch (e) {
     res.status(200).json({ skill: "chat", args: {}, confidence: 0 });
@@ -987,6 +1029,8 @@ app.post("/chat", requireAuth, async (req, res) => {
       brief: typeof b.brief === "string" ? b.brief.slice(0, 900) : "",
       name: (typeof b.name === "string" && b.name.trim()) ? b.name.trim().slice(0, 40) : (profileOf(uidOf(req)).name || "Shaun"),
       style: profileOf(uidOf(req)).style || "",
+      recall: recallBrief(uidOf(req), message || ""),
+      recentDays: daySummaryBrief(uidOf(req), 2),
     };
     rememberBrief(uidOf(req), ctx.brief);
 
@@ -1375,13 +1419,18 @@ app.post("/stay", requireAuth, async (req, res) => {
 // --- 🎟️ ACTIVITIES: things to do, live via web search ---
 // Body: { city?, country?, interests? }  Returns { spoken, items:[..] }
 app.post("/activities", requireAuth, async (req, res) => {
+  // Batch 66: this endpoint gives ADVICE, so it should know him. Pull the
+  // memories relevant to what he might enjoy doing and let the model use them.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if relevant): ${_mem}` : "";
   const { city, country, interests } = req.body || {};
   const where = [city, country].filter(Boolean).join(", ") || "the area Shaun is in";
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
     system: "You are Vision, a warm travel companion speaking aloud. Suggest 4-5 genuinely good things to do — current, specific, not tourist-trap filler. Use web search if it helps (events, seasonal). Reply as JSON only: {\"spoken\": \"2-3 sentence pick of the best one or two\", \"items\": [\"short line each\"]}. No markdown.",
-    messages: [{ role: "user", content: `Things to do in ${where}${interests ? " — he's into " + interests : ""}.` }],
+    messages: [{ role: "user", content: `Things to do in ${where}${interests ? " — he's into " + interests : ""}.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
@@ -1416,11 +1465,16 @@ app.post("/tripplan", requireAuth, async (req, res) => {
 
 // --- 🎒 PACKLIST ---  Body: { destination, days?, month? }  Returns { spoken, items }
 app.post("/packlist", requireAuth, async (req, res) => {
+  // Batch 66: this endpoint gives ADVICE, so it should know him. Pull the
+  // memories relevant to what to pack and let the model use them.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if relevant): ${_mem}` : "";
   const { destination, days, month } = req.body || {};
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
     system: "You are Vision. Build a tight packing list for the trip — climate-aware, no obvious filler (\"clothes\"), include the things people forget (adapters, meds, offline maps). JSON only: {\"spoken\": \"1-2 sentences with the non-obvious highlights\", \"items\": [\"item — why, only when not obvious\"]}. Max 15 items.",
-    messages: [{ role: "user", content: `Packing for ${destination || "a trip"}${days ? `, ${days} days` : ""}${month ? `, in ${month}` : ""}. He's travelling from Australia.` }],
+    messages: [{ role: "user", content: `Packing for ${destination || "a trip"}${days ? `, ${days} days` : ""}${month ? `, in ${month}` : ""}. He's travelling from Australia.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
@@ -1434,6 +1488,11 @@ app.post("/packlist", requireAuth, async (req, res) => {
 // --- 💵 TRIPBUDGET: what will it cost, live-informed ---
 // Body: { destination, days?, style? }  Returns { spoken, perDay, total, currency }
 app.post("/tripbudget", requireAuth, async (req, res) => {
+  // Batch 66: this endpoint gives ADVICE, so it should know him. Pull the
+  // memories relevant to trip costs and let the model use them.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if relevant): ${_mem}` : "";
   const { destination, days, style } = req.body || {};
   if (!destination) return res.status(400).json({ error: "destination required" });
   const nDays = Number(days) || 7;
@@ -1441,7 +1500,7 @@ app.post("/tripbudget", requireAuth, async (req, res) => {
     model: "claude-haiku-4-5-20251001", max_tokens: 400,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
     system: "You are Vision, honest about money. Estimate a realistic daily budget for the trip in AUD (his home currency) — food, transport, activities, drinks; note what accommodation adds separately. Web-search current prices if useful. JSON only: {\"spoken\": \"2-3 plain sentences with the daily number and what swings it\", \"perDay\": <number AUD>, \"total\": <number AUD>, \"currency\": \"AUD\"}.",
-    messages: [{ role: "user", content: `${nDays} days in ${destination}, ${style || "mid-range"} style.` }],
+    messages: [{ role: "user", content: `${nDays} days in ${destination}, ${style || "mid-range"} style.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
@@ -1455,13 +1514,18 @@ app.post("/tripbudget", requireAuth, async (req, res) => {
 // --- 📶 ESIM: data options for a country, live ---
 // Body: { country }  Returns { spoken, options }
 app.post("/esim", requireAuth, async (req, res) => {
+  // Batch 66: this endpoint gives ADVICE, so it should know him. Pull the
+  // memories relevant to data/SIM options and let the model use them.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if relevant): ${_mem}` : "";
   const { country } = req.body || {};
   if (!country) return res.status(400).json({ error: "country required" });
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
     system: "You are Vision, practical about phone data abroad. For the country given: best eSIM options for an Australian traveller (e.g. Airalo/Holafly/local telco), rough current prices, and whether a local physical SIM at the airport beats them. Web-search for current pricing. JSON only: {\"spoken\": \"2-3 sentences with your actual pick\", \"options\": [\"short line each\"]}.",
-    messages: [{ role: "user", content: `Data/eSIM for ${country}.` }],
+    messages: [{ role: "user", content: `Data/eSIM for ${country}.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
@@ -1518,6 +1582,9 @@ app.get("/health", requireAuth, async (req, res) => {
     }),
   ]);
 
+  for (const [k, c] of Object.entries(checks)) {
+    dlog(uidOf(req), c.ok === false ? "errors" : "services", `${k}: ${c.ok === false ? "DOWN" : c.ok === null ? "not set up" : "up"} ${c.ms || 0}ms`);
+  }
   const ok = Object.values(checks).every(c => c.ok !== false);
   // Batch 58: memory storage indicator — store size + disk free + durability.
   let storage = { durable: DURABLE };
@@ -1830,6 +1897,11 @@ function extractPlainText(raw) {
 // Body: { place, kinds?: ["headlines","traffic","events","food"] }
 // Uses Claude with web search to assemble a short spoken briefing.
 app.post("/local", requireAuth, async (req, res) => {
+  // Batch 66: this endpoint gives ADVICE, so it should know him. Pull the
+  // memories relevant to local knowledge and let the model use them.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if relevant): ${_mem}` : "";
   const { place, kinds } = req.body || {};
   if (!place) return res.status(400).json({ error: "place required" });
   const want = Array.isArray(kinds) && kinds.length ? kinds : ["headlines", "events", "food"];
@@ -1845,7 +1917,7 @@ app.post("/local", requireAuth, async (req, res) => {
     max_tokens: 500,
     messages: [{
       role: "user",
-      content: `For someone in or near ${place}, give a brief spoken briefing covering: ${asks}. ` +
+      content: `For someone in or near ${place}, give a brief spoken briefing covering: ${asks}. ${_memNote}` +
                `Keep it tight and useful — a few sentences per topic, spoken-style, no markdown, no lists. ` +
                `Lead with anything time-sensitive.`
     }],
@@ -1911,14 +1983,18 @@ const _notes = [];
 app.post("/recall", requireAuth, async (req, res) => {
   const { action, text, query } = req.body || {};
   try {
+    const uid = uidOf(req);
+    const mem = STORE.mem[uid] = STORE.mem[uid] || [];
     if (action === "save") {
       if (!text) return res.status(400).json({ error: "text required" });
-      _notes.push({ text, at: Date.now() });
+      mem.push({ t: text, at: Date.now() });          // durable store now, not _notes
+      while (mem.length > 400) mem.shift();
+      saveStore();
       return res.json({ ok: true, saved: text });
     }
     if (action === "search") {
-      if (!_notes.length) return res.json({ answer: "I don't have any notes saved yet, Shaun." });
-      const list = _notes.slice(-50).map((n, i) => `${i + 1}. ${n.text}`).join("\n");
+      if (!mem.length) return res.json({ answer: "I don't have anything saved yet." });
+      const list = recallFor(uid, query || "", 40).map((n, i) => `${i + 1}. ${when(n.at)}: ${n.t}`).join("\n");
       const r = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 160,
@@ -2007,6 +2083,7 @@ app.post("/v1/chat/completions", requireAuth, async (req, res) => {
       `You are ${AINAME}, ${NAME}'s warm AI companion, now speaking through smart glasses.`,
       "Replies are spoken aloud: SHORT, natural, no markdown, no lists — one to three sentences unless asked for more.",
       `Be genuinely useful first, friendly second. Address them as ${NAME} when natural.`,
+      recallBrief(nuid, typeof lastUserText?.content === "string" ? lastUserText.content : ""),
       nprof.style ? `STYLE REQUEST: speak in this style — ${nprof.style}. Honour the tone; never let style override substance or honesty.` : "",
       "If tools are provided in this request, use them when they fit rather than guessing.",
       "You can search the web when you need current facts — never claim you lack internet access.",
@@ -2329,6 +2406,371 @@ app.post("/readpage", requireAuth, async (req, res) => {
   } catch (e) { res.status(502).json({ error: "fetch_failed" }); }
 });
 
+// --- 🧠 RECALL ENGINE (batch 61) ---
+// Score memories against the current question: keyword overlap + recency.
+// Deliberately simple — at hundreds of notes this beats a vector DB for both
+// speed and cost, and never surfaces the laundry receipt during a flight search.
+const STOP = new Set("the a an and or but is are was were i me my you your it this that of to in on for with what where when how do does can could would should about".split(" "));
+function when(ts) {
+  const d = Math.floor((Date.now() - ts) / 86400000);
+  if (d <= 0) return "today"; if (d === 1) return "yesterday";
+  if (d < 7) return `${d} days ago`; if (d < 30) return `${Math.floor(d / 7)} weeks ago`;
+  return new Date(ts).toLocaleDateString("en-AU", { month: "short", day: "numeric" });
+}
+function recallFor(uid, text, limit) {
+  const mem = STORE.mem[uid] || [];
+  if (!mem.length) return [];
+  // Batch 68: questions about time/place should pull the life-log timeline.
+  const timeish = /\b(yesterday|today|this morning|last week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|where was i|where were we|what did (i|we) do|been|visited)\b/i.test(text || "");
+  // Day summaries are distilled gold — weight them above raw log lines.
+  const words = String(text || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOP.has(w));
+  const now = Date.now();
+  const scored = mem.map(m => {
+    const t = String(m.t || "").toLowerCase();
+    let score = 0;
+    for (const w of words) if (t.includes(w)) score += 2;
+    if (timeish && t.startsWith("log:")) score += 2;   // timeline questions want the timeline
+    if (t.startsWith("day ")) score += timeish ? 3 : 1;  // distilled days beat raw noise
+    // recency nudge so fresh memories win ties, without burying older gems
+    score += Math.max(0, 1 - (now - (m.at || 0)) / (90 * 86400000));
+    return { ...m, score };
+  }).filter(m => m.score >= 1.5);          // must have a real keyword hit
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit || 6);
+}
+// The line injected into the brain's brief so EVERY skill benefits.
+function recallBrief(uid, text) {
+  const hits = recallFor(uid, text, 5);
+  dlog(uid, "memory", `recall for "${String(text).slice(0, 40)}" -> ${hits.length} hits`, hits.map(h => h.t.slice(0, 60)));
+  if (!hits.length) return "";
+  return "WHAT YOU REMEMBER THAT'S RELEVANT HERE (use naturally, only if it helps; never list it back mechanically): "
+    + hits.map(h => `${when(h.at)}: ${h.t}`).join(" | ");
+}
+
+// Today's timeline in one line — used proactively in the opening brief.
+function todayShape(uid) {
+  const mem = STORE.mem[uid] || [];
+  const since = new Date(); since.setHours(0, 0, 0, 0);
+  const logs = mem.filter(m => m.at > since.getTime() && String(m.t).startsWith("log:"));
+  if (!logs.length) return "";
+  const places = [...new Set(logs.map(m => (String(m.t).match(/^log:\s*([^0-9—(]+)/) || [])[1]).filter(Boolean).map(p => p.trim()))];
+  return places.length ? `Today so far: ${places.slice(0, 4).join(" → ")}.` : "";
+}
+
+// --- 🔍 DIAGNOSTICS (batch 70) ---
+// What Vision DID — for testing, not for recall. Off by default (it costs a
+// little overhead), capped, categorised, and copyable so a bad result can be
+// pasted straight into a conversation with me.
+const LOG_CATS = ["routing", "memory", "services", "cost", "errors", "voice"];
+function dlog(uid, cat, msg, extra) {
+  try {
+    if (!STORE.diag || !STORE.diag.on) return;
+    STORE.diag.lines = STORE.diag.lines || [];
+    STORE.diag.lines.push({ at: Date.now(), uid: (uid || "?").slice(0, 8), cat, msg: String(msg).slice(0, 300), extra: extra || null });
+    while (STORE.diag.lines.length > 500) STORE.diag.lines.shift();
+    saveStore();
+  } catch {}
+}
+app.post("/diag", requireAuth, (req, res) => {
+  const { action, cat, limit } = req.body || {};
+  STORE.diag = STORE.diag || { on: false, lines: [] };
+  if (action === "on") { STORE.diag.on = true; saveStore(); return res.json({ on: true }); }
+  if (action === "off") { STORE.diag.on = false; saveStore(); return res.json({ on: false }); }
+  if (action === "clear") { STORE.diag.lines = []; saveStore(); return res.json({ ok: true }); }
+  if (action === "note") { dlog(uidOf(req), req.body.cat || "voice", req.body.msg || ""); return res.json({ ok: true }); }
+  const lines = (STORE.diag.lines || []).filter(l => !cat || cat === "all" || l.cat === cat);
+  const counts = {};
+  for (const c of LOG_CATS) counts[c] = (STORE.diag.lines || []).filter(l => l.cat === c).length;
+  res.json({ on: !!STORE.diag.on, counts, total: (STORE.diag.lines || []).length, lines: lines.slice(-(limit || 40)) });
+});
+
+// --- 📖 DAY VIEW + SUMMARIES (batch 70) ---
+// A browsable day, and a distilled paragraph. The summary is the important
+// part: it gets stored as a durable fact so recall, briefings and advice all
+// draw on "what Tuesday was like" instead of forty raw log lines.
+app.post("/day", requireAuth, async (req, res) => {
+  const { date, summarise } = req.body || {};
+  const uid = uidOf(req);
+  const mem = STORE.mem[uid] || [];
+  const d = date ? new Date(date + "T00:00:00") : new Date();
+  const start = new Date(d); start.setHours(0, 0, 0, 0);
+  const end = new Date(d); end.setHours(23, 59, 59, 999);
+  const items = mem.filter(m => m.at >= start.getTime() && m.at <= end.getTime());
+  const cat = (t) => {
+    t = String(t);
+    if (t.startsWith("log:")) return "places";
+    if (t.startsWith("moment")) return "moments";
+    if (t.startsWith("saw:") || t.startsWith("read:")) return "photos";
+    if (t.startsWith("receipt:") || /^logspend/.test(t)) return "spend";
+    if (t.startsWith("reminder:")) return "reminders";
+    return "conversations";
+  };
+  const grouped = {};
+  for (const m of items) { const c = cat(m.t); (grouped[c] = grouped[c] || []).push({ at: m.at, t: m.t }); }
+
+  let summary = "";
+  const dayKey = start.toISOString().slice(0, 10);
+  STORE.daySummaries = STORE.daySummaries || {};
+  const cached = (STORE.daySummaries[uid] || {})[dayKey];
+  if (summarise && items.length >= 3) {
+    if (cached && cached.n === items.length) summary = cached.text;   // unchanged day, reuse
+    else {
+      const list = items.map(m => `${new Date(m.at).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })} ${m.t}`).join("\n").slice(0, 4000);
+      const body = { model: "claude-haiku-4-5-20251001", max_tokens: 300,
+        system: "You distil a day into one warm paragraph for Shaun's diary — where he went, what stood out, anything worth remembering later (prices, names, agreements, how it felt). 3-5 sentences, natural, no lists, no preamble.",
+        messages: [{ role: "user", content: `${d.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}:\n${list}` }] };
+      try {
+        const { status, text } = await callClaude(body);
+        if (status === 200) {
+          summary = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+          if (summary) {
+            STORE.daySummaries[uid] = STORE.daySummaries[uid] || {};
+            STORE.daySummaries[uid][dayKey] = { text: summary, n: items.length, at: Date.now() };
+            // Keep 120 days of summaries, and file it as a durable memory so
+            // recall, briefings and advice can all use the DAY, not the noise.
+            const keys = Object.keys(STORE.daySummaries[uid]).sort();
+            while (keys.length > 120) delete STORE.daySummaries[uid][keys.shift()];
+            const already = mem.some(m => String(m.t).startsWith(`day ${dayKey}:`));
+            if (!already) {
+              mem.push({ t: `day ${dayKey}: ${summary}`, at: end.getTime() });
+              while (mem.length > 400) mem.shift();
+            }
+            saveStore();
+          }
+        }
+      } catch {}
+    }
+  }
+  res.json({ date: dayKey, count: items.length, grouped, summary: summary || (cached ? cached.text : "") });
+});
+
+// Recent day summaries — the distilled layer briefings and advice draw on.
+function daySummaryBrief(uid, days) {
+  const all = (STORE.daySummaries || {})[uid] || {};
+  const keys = Object.keys(all).sort().slice(-(days || 3));
+  if (!keys.length) return "";
+  return keys.map(k => `${k}: ${all[k].text}`).join(" | ").slice(0, 900);
+}
+
+// --- 💰 SPEND (batch 68): what Vision has actually cost, in the app.
+// Estimated from real token counts. console.anthropic.com remains the bill.
+app.post("/spend", requireAuth, (_req, res) => {
+  const sp = STORE.spend || {};
+  const day = new Date().toISOString().slice(0, 10);
+  const month = day.slice(0, 7);
+  let today = sp[day] || 0, thisMonth = 0, last7 = 0;
+  const series = [];
+  for (const [d, v] of Object.entries(sp)) {
+    if (d.startsWith(month)) thisMonth += v;
+    if (Date.parse(d) > Date.now() - 7 * 86400000) last7 += v;
+  }
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    series.push({ d: d.slice(5), usd: Math.round((sp[d] || 0) * 10000) / 10000 });
+  }
+  res.json({ today, thisMonth, last7, series, note: "Estimate from real token counts — console.anthropic.com is the actual bill." });
+});
+
+// --- 📓 LIFE LOG (batch 68) ---
+// Three tiers, cheapest first. Most of what's worth remembering isn't visual:
+// where, when, weather, what's nearby — all free from GPS + APIs. The camera
+// only fires when something actually changed.
+// Shared-moment rule: if the couple room says they were together (<150m within
+// the hour), the entry is promoted to the shared layer. Apart = private.
+app.post("/lifelog", requireAuth, async (req, res) => {
+  const { lat, lng, glance, note, roomCode, myName } = req.body || {};
+  const uid = uidOf(req);
+  if (lat == null || lng == null) return res.status(400).json({ error: "lat,lng required" });
+  const out = { at: Date.now() };
+  // --- Tier 1: free context. No camera, no model call.
+  try {
+    const w = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code`)).json();
+    if (w.current) out.temp = Math.round(w.current.temperature_2m);
+  } catch {}
+  if (GMAPS_KEY) {
+    try {
+      const u = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+      u.searchParams.set("latlng", `${lat},${lng}`); u.searchParams.set("key", GMAPS_KEY);
+      const g = await (await fetch(u)).json();
+      const best = (g.results || [])[0];
+      if (best) {
+        out.place = (best.address_components || []).filter(c => /locality|sublocality|neighborhood/.test(c.types.join()))
+          .map(c => c.long_name)[0] || best.formatted_address.split(",")[0];
+      }
+      const nu = new URL("https://maps.googleapis.com/maps/api/place/nearbysearch/json");
+      nu.searchParams.set("location", `${lat},${lng}`); nu.searchParams.set("radius", "120");
+      nu.searchParams.set("key", GMAPS_KEY);
+      const n = await (await fetch(nu)).json();
+      const near = (n.results || []).filter(p => (p.types || []).some(t => /point_of_interest|tourist_attraction|restaurant|cafe|lodging|park/.test(t)))
+        .slice(0, 2).map(p => p.name);
+      if (near.length) out.nearby = near;
+    } catch {}
+  }
+  // --- Tier 2: one cheap glance, only if a frame was sent (client decides when).
+  if (glance) {
+    try {
+      const body = { model: "claude-haiku-4-5-20251001", max_tokens: 120,
+        messages: [{ role: "user", content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: glance } },
+          { type: "text", text: "One short line: what is this place or scene? If it's a pocket, a wall, the ground or nothing of note, reply exactly: nothing." }] }] };
+      const { status, text } = await callClaude(body);
+      if (status === 200) {
+        const line = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+        if (line && !/^nothing\.?$/i.test(line)) out.saw = line.slice(0, 200);
+      }
+    } catch {}
+  }
+  // --- Together? Ask the room. Proximity decides, not a toggle.
+  let together = null;
+  if (roomCode) {
+    try {
+      const r = room(roomCode);
+      if (r) {
+        const others = Object.values(r.members || {}).filter(m => m.name !== (myName || "me"));
+        for (const o of others) {
+          if (o.lat != null && Date.now() - (o.at || 0) < 3600000) {
+            const d = haversineM(lat, lng, o.lat, o.lng);
+            if (d < 150) { together = o.name; break; }
+          }
+        }
+      }
+    } catch {}
+  }
+  // --- Write the entry. Text only — glances are never stored as images.
+  const bits = [out.place || "somewhere", out.temp != null ? `${out.temp}°` : "",
+    out.nearby ? `near ${out.nearby.join(" / ")}` : "", out.saw ? `— ${out.saw}` : "", note || ""].filter(Boolean);
+  const line = `log: ${bits.join(" ")}`;
+  const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+  const last = mem[mem.length - 1];
+  // Don't log the same place twice in a row — collapse instead of repeating.
+  if (last && String(last.t).startsWith("log:") && String(last.t).includes(out.place || "~~") && !out.saw) {
+    last.at = Date.now();
+  } else {
+    mem.push({ t: line + (together ? ` (with ${together})` : ""), at: Date.now() });
+    while (mem.length > 400) mem.shift();
+  }
+  // Shared layer: moments they were both present for.
+  if (together) {
+    STORE.shared = STORE.shared || {};
+    const key = roomCode;
+    const sh = STORE.shared[key] = STORE.shared[key] || [];
+    sh.push({ t: line, at: Date.now(), who: [myName || "me", together] });
+    while (sh.length > 200) sh.shift();
+  }
+  saveStore();
+  res.json({ ...out, together, logged: true });
+});
+
+// Shared-layer read: what the two of them did together.
+app.post("/shared", requireAuth, (req, res) => {
+  const { roomCode, action, index } = req.body || {};
+  STORE.shared = STORE.shared || {};
+  const sh = STORE.shared[roomCode] || [];
+  if (action === "remove" && index != null) {
+    sh.splice(index, 1); saveStore(); return res.json({ ok: true, count: sh.length });
+  }
+  res.json({ shared: sh.slice(-20), count: sh.length });
+});
+
+// --- 🎬 MOMENT CAPTURE (batch 67) ---
+// A burst of frames analysed AS A SEQUENCE into a written account. Frames are
+// never stored — the text is the artefact. Timestamped, place-stamped, saved
+// to the same pool every skill recalls from.
+app.post("/moment", requireAuth, async (req, res) => {
+  const { frames, place, country, note } = req.body || {};
+  if (!Array.isArray(frames) || !frames.length) return res.status(400).json({ error: "frames required" });
+  const uid = uidOf(req);
+  const content = [];
+  for (const f of frames.slice(0, 6)) {
+    content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: f } });
+  }
+  content.push({ type: "text", text:
+    `These frames are seconds apart from ${place || country || "somewhere"}${note ? ` — context: ${note}` : ""}. ` +
+    `Write a short WRITTEN RECORD of this moment for Shaun's diary. Reply JSON ONLY: ` +
+    `{"headline":"6 words max","account":"2-3 sentences: what's happening, what changed across the frames, anything worth remembering — prices, names, signs, agreements","tags":["short","keywords"],"worth_keeping":true|false}. ` +
+    `Set worth_keeping false if this is just a street, a wall, a pocket, or nothing of note.` });
+  const body = { model: "claude-haiku-4-5-20251001", max_tokens: 400, messages: [{ role: "user", content }] };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.status(502).json({ error: "analyse_failed" });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    if (p.worth_keeping !== false) {
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      mem.push({ t: `moment${place ? ` at ${place}` : ""}: ${p.headline} — ${p.account}${p.tags ? ` [${p.tags.join(", ")}]` : ""}`, at: Date.now() });
+      while (mem.length > 400) mem.shift();
+      saveStore();
+    }
+    res.json({ ...p, saved: p.worth_keeping !== false });
+  } catch { res.status(502).json({ error: "analyse_failed" }); }
+});
+
+// Should Vision spend a capture here? Cheap decision, no camera needed.
+// Weighted by what he ACTUALLY recalls later — memory usage teaches the policy.
+app.post("/shouldcapture", requireAuth, (req, res) => {
+  const { place, skill, moving } = req.body || {};
+  const uid = uidOf(req);
+  const mem = STORE.mem[uid] || [];
+  const seenHere = place ? mem.some(m => String(m.t).toLowerCase().includes(String(place).toLowerCase())) : false;
+  const placeSkills = ["nearby", "navigate", "landmark", "findfood", "stay", "arrival", "transit", "ride"];
+  let score = 0, why = [];
+  if (place && !seenHere) { score += 3; why.push("somewhere new"); }
+  if (placeSkills.includes(skill)) { score += 2; why.push("place-related request"); }
+  if (moving) { score -= 3; why.push("in transit"); }
+  if (seenHere) { score -= 2; why.push("been here before"); }
+  res.json({ capture: score >= 3, score, why: why.join(", ") });
+});
+
+// --- ➡️ NEXT MOVES (batch 63) ---
+// After ANY skill answers, the brain proposes the 2-3 things Shaun would
+// actually want next — informed by what just happened, where he is, and what
+// he's told Vision before. Beats 40 hand-written chip sets, and it adapts.
+app.post("/nextmoves", requireAuth, async (req, res) => {
+  const { skill, result, place, country } = req.body || {};
+  const uid = uidOf(req);
+  const mem = recallFor(uid, `${skill || ""} ${result || ""}`, 4).map(m => m.t).join(" | ");
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 260,
+    system:
+      "You propose what a traveller would ACTUALLY want next, right after their assistant answered. " +
+      "Reply JSON ONLY: {\"moves\":[{\"label\":\"short tappable text (max 5 words)\",\"say\":\"the phrase to send as if he said it\"}]} with 2-3 moves. " +
+      "Rules: be concrete and useful, never generic (\"tell me more\" is banned). " +
+      "Match the skill: after finding a restaurant offer directions/call/menu/favourite it; after currency offer a nearby fee-free ATM or logging a spend; " +
+      "after weather offer what to wear or an indoor alternative; after a scam check offer a fair counter-price or somewhere better; " +
+      "after translate offer saving the phrase; after a landmark offer its history or nearby food. " +
+      "Only offer things a phone assistant can do: navigate, call, search, translate, remember, log spend, set a watcher/reminder/timer, plan. No booking.",
+    messages: [{ role: "user", content:
+      `Skill just used: ${skill || "unknown"}\nWhat it answered: ${String(result || "").slice(0, 600)}\n` +
+      `Where he is: ${place || country || "unknown"}\n${mem ? `Relevant things he's told you: ${mem}` : ""}` }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.json({ moves: [] });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    res.json({ moves: Array.isArray(p.moves) ? p.moves.slice(0, 3) : [] });
+  } catch { res.json({ moves: [] }); }
+});
+
+// --- 🖼️ VISUAL RECALL SUMMARY (batch 62): turn what Vision SAW into a spoken
+// answer, not a list. The words were always the memory; this makes them talk.
+app.post("/seensummary", requireAuth, async (req, res) => {
+  const { query, items } = req.body || {};
+  if (!Array.isArray(items) || !items.length) return res.json({ spoken: "I haven't looked at anything yet." });
+  const list = items.slice(-12).map((i, n) => `${n + 1}. ${i.whenTxt || ""}${i.place ? ` in ${i.place}` : ""}: ${i.ans}`).join("\n");
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 320,
+    system: "You are Vision, recalling aloud what you previously saw through Shaun's camera. Speak naturally in 2-4 sentences — summarise and connect the observations, mention when and where if useful, and answer his actual question. Never read the list back mechanically. If he seems to be checking a detail (a price, a name, a sign), lead with that detail.",
+    messages: [{ role: "user", content: `He asks: "${query || "what have you seen lately?"}"\n\nWhat you saw:\n${list}` }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.json({ spoken: "" });
+    const spoken = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    res.json({ spoken });
+  } catch { res.json({ spoken: "" }); }
+});
+
 // --- 🔭 WATCHERS (batch 51): Vision's overnight eyes. Voice-created monitors
 // parsed by Haiku into {type, args, threshold}; a scheduler runs them hourly;
 // results wait in the store and surface in the opening brief. True unprompted
@@ -2337,6 +2779,13 @@ app.post("/watchers", requireAuth, async (req, res) => {
   const uid = uidOf(req); const { action, request, id } = req.body || {};
   const list = STORE.watchers[uid] = STORE.watchers[uid] || [];
   if (action === "list") return res.json({ watchers: list, results: (STORE.results[uid] || []).slice(-6) });
+  if (action === "due") {
+    // upcoming reminders, soonest first — "what are my reminders?"
+    const rem = list.filter(w => w.type === "reminder")
+      .map(w => ({ ...w, due: w.args && w.args.dueISO ? Date.parse(w.args.dueISO) : null }))
+      .sort((a, b) => (a.due || 9e15) - (b.due || 9e15));
+    return res.json({ reminders: rem });
+  }
   if (action === "remove" && id) { STORE.watchers[uid] = list.filter(w => w.id !== id); saveStore(); return res.json({ ok: true, count: STORE.watchers[uid].length }); }
   if (action === "latest") {
     const seen = STORE.seen[uid] || 0;
@@ -2348,7 +2797,7 @@ app.post("/watchers", requireAuth, async (req, res) => {
     if (list.length >= 8) return res.status(400).json({ error: "watcher_limit", spoken: "You've got eight watchers already — remove one first." });
     const body = {
       model: "claude-haiku-4-5-20251001", max_tokens: 250,
-      system: 'Parse a watch request into JSON only: {"type":"flightdeal|weather|events|currency","label":"short human label","args":{...},"threshold":null|number}. flightdeal args {from,to,when?} threshold=max price number if stated. weather args {place,days:5}. events args {area,when:"this weekend"|...}. currency args {from,to} threshold=rate number if stated. No markdown.',
+      system: 'Parse a watch/reminder request into JSON only: {"type":"flightdeal|weather|events|currency|reminder","label":"short human label","args":{...},"threshold":null|number}. flightdeal args {from,to,when?} threshold=max price number if stated. weather args {place,days:5}. events args {area,when:"this weekend"|...}. currency args {from,to} threshold=rate number if stated. reminder args {what, dueISO (ISO datetime if a time/date is stated, else null), place (if they said a location like "where I parked" or "at the market")}. Use reminder for "remind me...", "don\'t let me forget...", "where I parked". No markdown.',
       messages: [{ role: "user", content: String(request).slice(0, 300) }],
     };
     try {
@@ -2358,6 +2807,11 @@ app.post("/watchers", requireAuth, async (req, res) => {
       const w = JSON.parse(raw.replace(/```json|```/g, "").trim());
       w.id = "w" + Date.now(); w.createdAt = Date.now();
       list.push(w); saveStore();
+      if (w.type === "reminder") {   // recallable later: "what did I need at the market?"
+        const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+        mem.push({ t: `reminder: ${w.args?.what || w.label}${w.args?.place ? ` (at ${w.args.place})` : ""}`, at: Date.now() });
+        while (mem.length > 400) mem.shift(); saveStore();
+      }
       // run it once right away so there's a result today, not tomorrow
       runWatcher(uid, w).catch(() => {});
       return res.json({ ok: true, watcher: w, spoken: `Watching: ${w.label}. I'll have news in your morning brief.` });
@@ -2369,6 +2823,26 @@ app.post("/watchers", requireAuth, async (req, res) => {
 async function runWatcher(uid, w) {
   let spoken = "", triggered = false;
   try {
+    if (w.type === "reminder") {
+      const due = w.args && w.args.dueISO ? Date.parse(w.args.dueISO) : null;
+      if (due && Date.now() >= due) {
+        spoken = `⏰ Reminder: ${w.args.what || w.label}`;
+        triggered = true;
+        // one-shot: dated reminders retire once delivered
+        STORE.watchers[uid] = (STORE.watchers[uid] || []).filter(x => x.id !== w.id);
+        saveStore();
+      } else if (!due) {
+        // place/undated reminders live in memory for recall, not repetition
+        spoken = ""; triggered = false;
+      }
+      if (spoken) {
+        const results = STORE.results[uid] = STORE.results[uid] || [];
+        results.push({ at: Date.now(), id: w.id, label: w.label, spoken, triggered });
+        while (results.length > 30) results.shift();
+        saveStore();
+      }
+      return;
+    }
     if (w.type === "currency") {
       const r = await (await fetch(`https://api.frankfurter.app/latest?from=${encodeURIComponent(w.args.from || "AUD")}&to=${encodeURIComponent(w.args.to || "USD")}`)).json();
       const rate = Object.values(r.rates || {})[0];

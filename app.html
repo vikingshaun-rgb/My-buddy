@@ -303,6 +303,22 @@
     #glassChip{cursor:pointer;opacity:.55;transition:opacity .3s, text-shadow .3s}
     #glassChip.on{opacity:1;text-shadow:0 0 10px rgba(60,220,200,.9), 0 0 22px rgba(60,220,200,.5);animation:glassGlow 2.6s ease-in-out infinite}
     @keyframes glassGlow{0%,100%{text-shadow:0 0 10px rgba(60,220,200,.9), 0 0 22px rgba(60,220,200,.5)}50%{text-shadow:0 0 16px rgba(60,220,200,1), 0 0 34px rgba(60,220,200,.7)}}
+    /* Batch 69: helper tooltips — what a tile does + what to say out loud */
+    .tile{position:relative}
+    .tip-dot{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;
+      background:rgba(255,255,255,.10);color:rgba(255,255,255,.65);font-size:12px;line-height:20px;
+      text-align:center;cursor:pointer;z-index:3;font-weight:700}
+    .tip-dot:hover{background:rgba(255,255,255,.2)}
+    #tipSheet{position:fixed;left:0;right:0;bottom:0;z-index:1000;background:#111733;
+      border-top:1px solid rgba(255,255,255,.14);border-radius:18px 18px 0 0;padding:18px 20px 26px;
+      transform:translateY(110%);transition:transform .28s cubic-bezier(.2,.8,.2,1);max-height:60vh;overflow-y:auto}
+    #tipSheet.on{transform:none}
+    #tipSheet h4{margin:0 0 6px;font-size:18px}
+    #tipSheet .say{background:rgba(245,166,35,.14);border:1px solid rgba(245,166,35,.35);
+      border-radius:10px;padding:8px 12px;margin:8px 0 0;font-family:'Chivo Mono';font-size:13px;cursor:pointer}
+    #tipSheet .say:active{background:rgba(245,166,35,.28)}
+    #tipBack{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;opacity:0;pointer-events:none;transition:opacity .25s}
+    #tipBack.on{opacity:1;pointer-events:auto}
     /* Batch 55: voice bars (choreographed — web can't read live mic amplitude) */
     #voiceBars{display:flex;gap:4px;justify-content:center;align-items:flex-end;height:22px;margin-top:10px;opacity:0;transition:opacity .3s}
     #voiceBars span{width:4px;border-radius:2px;background:linear-gradient(#FF6FB0,#B44CFF);height:6px}
@@ -334,9 +350,17 @@
   <div class="group" onclick="toggleCat(this)"><h2>Look &amp; Read</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="landmarkLook()"><span class="badge live">live</span><div class="ic">🏛️</div><h3>What is this place?</h3><p>Landmark &amp; history</p></div>
-    <div class="tile" onclick="liveLook()"><span class="badge live">live</span><div class="ic">👁️</div><h3>Live look</h3><p>Vision narrates the scene</p></div>
-    <div class="tile" onclick="readPage()"><span class="badge live">live</span><div class="ic">🔗</div><h3>Read a link</h3><p>Paste → summary, saved</p></div>
-    <div class="tile" onclick="watcherList()"><span class="badge live">live</span><div class="ic">🔭</div><h3>Watchers</h3><p>Overnight eyes</p></div>
+    <div class="tile" onclick="liveLook()" data-tip="livelook"><span class="badge live">live</span><div class="ic">👁️</div><h3>Live look</h3><p>Vision narrates the scene</p></div>
+    <div class="tile" onclick="readPage()" data-tip="readpage"><span class="badge live">live</span><div class="ic">🔗</div><h3>Read a link</h3><p>Paste → summary, saved</p></div>
+    <div class="tile" onclick="watcherList()" data-tip="watchers"><span class="badge live">live</span><div class="ic">🔭</div><h3>Watchers</h3><p>Overnight eyes</p></div>
+    <div class="tile" onclick="seenRecall()" data-tip="seen"><span class="badge live">live</span><div class="ic">🖼️</div><h3>What I've seen</h3><p>Recall photos & scenes</p></div>
+    <div class="tile" onclick="timerList()" data-tip="timers"><span class="badge live">live</span><div class="ic">⏱️</div><h3>Timers</h3><p>Multiple, while open</p></div>
+    <div class="tile" onclick="dayView(0)" data-tip="lifelog"><span class="badge live">live</span><div class="ic">📓</div><h3>My day</h3><p>Timeline, auto-logged</p></div>
+    <div class="tile" onclick="spendCheck()" data-tip="spend"><span class="badge live">live</span><div class="ic">💰</div><h3>What it costs</h3><p>Live spend counter</p></div>
+    <div class="tile" onclick="sharedMoments()" data-tip="shared"><span class="badge live">live</span><div class="ic">💞</div><h3>Our moments</h3><p>Shared when together</p></div>
+    <div class="tile" onclick="captureMoment(30,'')" data-tip="capture"><span class="badge live">live</span><div class="ic">🎬</div><h3>Capture moment</h3><p>30s → written record</p></div>
+    <div class="tile" onclick="rideHandoff('')" data-tip="ride"><span class="badge live">live</span><div class="ic">🚗</div><h3>Get a ride</h3><p>Grab / Uber, pre-filled</p></div>
+    <div class="tile" onclick="transitHandoff('')" data-tip="transit"><span class="badge live">live</span><div class="ic">🚆</div><h3>Transit times</h3><p>Bus, train, airport</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
     <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>No-signal backup</h3><p>Opens Google Translate packs</p></div>
@@ -427,7 +451,8 @@
   <div class="group" onclick="toggleCat(this)"><h2>Settings</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Settings</h3><p>Backend, themes &amp; more</p></div>
-    <div class="tile" onclick="runHealth(true)"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
+    <div class="tile" onclick="diagView('all')"><span class="badge live">live</span><div class="ic">🔍</div><h3>Diagnostics</h3><p>Logs for testing</p></div>
+    <div class="tile" onclick="runHealth(true)" data-tip="status"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
     <div class="tile" onclick="location.href='./trainer.html'"><span class="badge live">live</span><div class="ic">🎓</div><h3>Learn commands</h3><p>Practice out loud</p></div>
     <div class="tile" onclick="lowPower()"><span class="badge live">live</span><div class="ic">🔋</div><h3>Low power</h3><p>Dim &amp; simplify</p></div>
   </div>
@@ -537,7 +562,9 @@
         const {data}=await api('/receipt',{image:base64,mediaType:'image/jpeg'});
         const line=data.summary || (data.merchant? `Logged ${data.currency||''}${data.total||''} at ${data.merchant}.` : "Couldn't read that receipt — try a clearer photo?");
         t.classList.remove('think'); t.textContent=line; say(line);
-        if(data.merchant){ const ex=JSON.parse(localStorage.getItem('buddy_expenses')||'[]'); ex.push(data); localStorage.setItem('buddy_expenses',JSON.stringify(ex.slice(-200))); }
+        if(data.merchant){ const ex=JSON.parse(localStorage.getItem('buddy_expenses')||'[]'); ex.push(data); localStorage.setItem('buddy_expenses',JSON.stringify(ex.slice(-200)));
+          try{ api('/memory',{action:'add',text:`receipt: ${data.currency||''}${data.total||''} at ${data.merchant}`}).catch(()=>{}); }catch(e){} }
+        scrollChat();
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't reach Vision to log that — try again."; }
       return;
     }
@@ -555,9 +582,21 @@
       });
       clearTimeout(slow); clearTimeout(kill);
       const d=await r.json().catch(()=>({}));
-      const ans=d.answer||d.reply||"I couldn't read that photo — try another?";
+      const ans=d.answer||d.reply||(r.ok?"I couldn't read that photo — try another?":`Vision's eyes returned an error (${r.status}). Try again?`);
       thinking.classList.remove('think'); thinking.textContent=ans; say(ans);
       chatHistory.push({role:'assistant',content:ans});
+      // Batch 60: everything Vision SEES is worth remembering.
+      try{ api('/memory',{action:'add',text:(visionMode==='read'?'read: ':'saw: ')+ans.slice(0,240)}).catch(()=>{}); }catch(e){}
+      // Batch 61: keep a THUMBNAIL so visual recall can show what it saw, not
+      // just describe it. Small on purpose — text is the memory, image is the jog.
+      try{
+        const thumb=await shrinkImage(file, 220);
+        const log=JSON.parse(localStorage.getItem('buddy_seen')||'[]');
+        log.push({q:visionMode,ans,at:Date.now(),thumb,place:localStorage.getItem('buddy_city')||''});
+        while(log.length>40) log.shift();
+        localStorage.setItem('buddy_seen',JSON.stringify(log));
+      }catch(e){ /* quota — text memory still saved above */ }
+      scrollChat();
     }catch(err){
       thinking.classList.remove('think');
       thinking.textContent="Couldn't reach Vision's eyes just now — try again in a moment.";
@@ -592,17 +631,43 @@
     const btn=document.createElement('button'); btn.textContent='Stop looking';
     btn.style.cssText='padding:10px 18px;border-radius:10px;border:0;background:#e33;color:#fff;font-size:15px';
     btn.onclick=stopLook;
-    bar.appendChild(st); bar.appendChild(btn); ov.appendChild(v); ov.appendChild(bar);
+    const hist=document.createElement('div'); hist.id='lookHistory';
+    hist.style.cssText='max-height:26vh;overflow-y:auto;padding:6px 14px;background:#000;color:#fff';
+    bar.appendChild(st); bar.appendChild(btn); ov.appendChild(v); ov.appendChild(hist); ov.appendChild(bar);
     document.body.appendChild(ov);
     say("Live look on — I'll tell you what I'm seeing as it changes.");
     lookLoop(v);
   }
+  // Batch 59: Live look history — every narration lands in the chat log AND
+  // a scrolling strip on the overlay, so nothing vanishes unread.
+  function lookLog(text){
+    try{
+      const strip=document.getElementById('lookHistory');
+      if(strip){
+        const d=document.createElement('div');
+        d.style.cssText='padding:4px 0;opacity:.85;font-size:13px;border-top:1px solid rgba(255,255,255,.08)';
+        d.textContent='• '+text;
+        strip.insertBefore(d, strip.firstChild);
+        while(strip.childNodes.length>12) strip.removeChild(strip.lastChild);
+      }
+      addMsg('buddy','👁️ '+text);   // permanent record in the chat log
+      scrollChat();
+      lookNarrations.push({t:text,at:Date.now()});
+      if(lookNarrations.length>60) lookNarrations.shift();
+    }catch(e){}
+  }
+  let lookNarrations=[];
   function stopLook(){
     lookOn=false; lastScene='';
     try{ lookStream&&lookStream.getTracks().forEach(t=>t.stop()); }catch(e){}
     lookStream=null;
     const ov=document.getElementById('lookOverlay'); if(ov) ov.remove();
     releaseAwakeSafe();
+    if(lookNarrations.length){
+      addMsg('buddy',`👁️ Live look ended — ${lookNarrations.length} observation${lookNarrations.length>1?'s':''} saved above.`);
+      try{ api('/memory',{action:'add',text:'live look session: '+lookNarrations.slice(-3).map(n=>n.t).join(' / ')}).catch(()=>{}); }catch(e){}
+    }
+    lookNarrations=[];
     say('Live look off.');
   }
   async function lookLoop(v){
@@ -624,19 +689,71 @@
           if(ok&&ans){
             if(!/^same scene\.?$/i.test(ans.trim())){
               lastScene=ans; if(st) st.textContent='👁️ '+ans;
+              lookLog(ans);          // batch 59: keep the history, don't just flash it
               say(ans);
-              // wait for speech to finish before the next frame
-              while(buddySpeaking&&lookOn){ await new Promise(r=>setTimeout(r,200)); }
+              // Speak and look at the same time — only pause if speech runs long,
+              // so narration keeps pace with the scene instead of queueing behind it.
+              const spokeBy=Date.now()+1200;
+              while(buddySpeaking&&lookOn&&Date.now()<spokeBy){ await new Promise(r=>setTimeout(r,150)); }
             } else if(st){ st.textContent='👁️ Same scene…'; }
           }
         }
       }catch(e){ /* one bad frame never kills the loop */ }
-      await new Promise(r=>setTimeout(r,localStorage.buddy_saver==='on'?9000:4500));
+      await new Promise(r=>setTimeout(r,localStorage.buddy_saver==='on'?9000:2500));
     }
   }
   // Wake-lock helpers exist for live location; reuse if present, no-op if not.
   function keepAwakeSafe(){ try{ if(typeof keepAwake==='function') keepAwake(); }catch(e){} }
   function releaseAwakeSafe(){ try{ if(typeof releaseAwake==='function') releaseAwake(); }catch(e){} }
+
+  // ⏱️ TIMERS (batch 61): multiple, named, chime + voice. HONEST LIMIT — these
+  // run while Vision is open; a web app can't wake a locked phone. Anything
+  // that must ring with the app closed gets handed to iOS.
+  let timers=[];
+  function timerAdd(mins, label){
+    const ms=Math.round(Number(mins)*60000);
+    if(!ms||ms<1000){ const m="How long? Try: timer 10 minutes."; addMsg('buddy',m); say(m); return; }
+    const t={id:'t'+Date.now(), label:label||`${mins} minute timer`, ends:Date.now()+ms};
+    t.handle=setTimeout(()=>{
+      timers=timers.filter(x=>x.id!==t.id);
+      openChat(); const m=`⏰ ${t.label} — time's up!`;
+      const el=addMsg('buddy',m); el.classList.add('flash'); chimeNews(); say(m); renderTimers();
+      try{ api('/memory',{action:'add',text:'timer finished: '+t.label}).catch(()=>{}); }catch(e){}
+    }, ms);
+    timers.push(t); renderTimers();
+    coach('timerlimit');
+    const m=`⏱️ ${t.label} started. I'll chime when it's up — keep Vision open, or say "send that to my phone" for a locked-screen alarm.`;
+    openChat(); addMsg('buddy',m); say(`${t.label} started.`);
+  }
+  function timerList(){
+    openChat(); addMsg('me','⏱️ My timers');
+    if(!timers.length){ const m='No timers running. Say "timer 10 minutes".'; addMsg('buddy',m); say(m); return; }
+    timers.forEach(t=>{ const left=Math.max(0,Math.round((t.ends-Date.now())/1000));
+      const el=addMsg('buddy',`⏱️ ${t.label} — ${Math.floor(left/60)}m ${left%60}s left · tap to cancel`);
+      el.style.cursor='pointer';
+      el.onclick=()=>{ clearTimeout(t.handle); timers=timers.filter(x=>x.id!==t.id); el.textContent='✓ cancelled — '+t.label; renderTimers(); };
+    });
+    say(`${timers.length} timer${timers.length>1?'s':''} running.`);
+  }
+  function renderTimers(){
+    const g=document.getElementById('glance'); if(!g) return; renderGlance();
+  }
+  // Reminders — one engine with watchers, not a second system.
+  async function reminderList(){
+    openChat(); addMsg('me','⏰ My reminders');
+    try{
+      const {data}=await api('/watchers',{action:'due'});
+      const rem=data.reminders||[];
+      if(!rem.length){ const m='No reminders set. Say "remind me at 3 to call the hotel".'; addMsg('buddy',m); say(m); return; }
+      rem.forEach(r=>{ const w=r.args||{};
+        const dueTxt=r.due? new Date(r.due).toLocaleString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'}) : (w.place?('at '+w.place):'no time set');
+        const el=addMsg('buddy',`⏰ ${w.what||r.label} — ${dueTxt} · tap to remove`);
+        el.style.cursor='pointer';
+        el.onclick=async()=>{ if(confirm('Remove: '+(w.what||r.label)+'?')){ await api('/watchers',{action:'remove',id:r.id}); el.textContent='✓ removed'; } };
+      });
+      say(`${rem.length} reminder${rem.length>1?'s':''} — they're on screen.`);
+    }catch(e){ addMsg('buddy','Reminders unreachable — is the brain deployed?'); }
+  }
 
   // 🔭 Watchers (batch 51): Vision's overnight eyes.
   async function watcherAdd(request){
@@ -644,11 +761,10 @@
     const t=addMsg('buddy','Setting up the watcher…','think');
     try{
       const {ok,status,data}=await api('/watchers',{action:'add',request});
-      t.remove();
-      if(status===400&&data.spoken){ addMsg('buddy',data.spoken); say(data.spoken); return; }
-      if(!ok){ addMsg('buddy','Couldn\'t set that watcher up — try rewording it?'); return; }
-      addMsg('buddy',data.spoken); say(data.spoken);
-    }catch(e){ t.remove(); addMsg('buddy','Couldn\'t set that watcher up — is the brain deployed?'); }
+      if(status===400&&data.spoken){ settle(t,data.spoken); say(data.spoken); return; }
+      if(!ok){ settle(t,'Couldn\'t set that watcher up — try rewording it?'); return; }
+      settle(t,data.spoken); say(data.spoken);
+    }catch(e){ settle(t,'Couldn\'t set that watcher up — is the brain deployed?'); }
   }
   async function watcherList(){
     openChat(); addMsg('me','🔭 My watchers');
@@ -666,8 +782,440 @@
   async function watcherNews(){
     try{ const {data}=await api('/watchers',{action:'latest'});
       (data.fresh||[]).slice(0,3).forEach(r=>{ const el=addMsg('buddy','🔭 '+r.spoken); el.classList.add('flash'); });
-      if(data.fresh&&data.fresh.length){ chimeNews(); say(data.fresh[0].spoken); }
+      if(data.fresh&&data.fresh.length){ chimeNews(); say(data.fresh[0].spoken); coach('watcherfired'); }
     }catch(e){}
+  }
+
+  // 🗣️ SPOKEN COACHING (batch 70): a tip is spoken ONCE, ever, then retired.
+  // Only after Vision did something unprompted, or hit an honest limit — and
+  // never in quiet/whisper mode, never mid-task, max one per exchange.
+  const COACH={
+    autocapture:"By the way — say stop auto capture any time, and capture this whenever you want one on purpose.",
+    watcherfired:"You can add more of these — just say watch, then what you want an eye on.",
+    nextmove:"Those arrows are tappable, or just tell me which one you want.",
+    timerlimit:"Heads up — my timers only ring while Vision's open. For a locked screen, ask Siri.",
+    ridehandoff:"You confirm and pay in their app — I can't tap that part for you.",
+    placefound:"If somewhere's worth keeping, say favourite that and I'll remember it.",
+    photo:"Say capture this if you want me to write up what's happening, not just one photo.",
+    lifelog:"Ask me where was I yesterday any time — I keep the timeline.",
+    memory:"Anything I remember, you can change — say what do you know about me, or forget it.",
+  };
+  let coachedThisTurn=false;
+  function coach(key){
+    try{
+      if(localStorage.buddy_coach==='off') return;
+      if(coachedThisTurn) return;                                   // one per exchange
+      if(localStorage.buddy_quiet==='on'||localStorage.buddy_whisper==='on') return;
+      const done=JSON.parse(localStorage.getItem('buddy_coached')||'[]');
+      if(done.includes(key)) return;                                // once, ever
+      const line=COACH[key]; if(!line) return;
+      done.push(key); localStorage.setItem('buddy_coached',JSON.stringify(done));
+      coachedThisTurn=true;
+      setTimeout(()=>{ addMsg('buddy','💡 '+line); say(line); scrollChat(); }, 900);
+    }catch(e){}
+  }
+  function coachReset(){ localStorage.removeItem('buddy_coached'); }
+
+  // 📖 MY DAY (batch 70): browsable timeline by category, with a distilled
+  // summary that also feeds recall, briefings and advice.
+  let dayOffset=0;
+  async function dayView(offset){
+    dayOffset = offset==null ? 0 : offset;
+    const d=new Date(Date.now()-dayOffset*86400000);
+    const iso=d.toISOString().slice(0,10);
+    openChat(); addMsg('me','📖 '+(dayOffset===0?'Today':dayOffset===1?'Yesterday':d.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})));
+    const t=addMsg('buddy','Looking back…','think');
+    try{
+      const {data}=await api('/day',{date:iso,summarise:true});
+      if(!data.count){ settle(t,'Nothing logged that day. Say "start life log" to keep a timeline as you go.'); return; }
+      settle(t, data.summary || `${data.count} things logged.`);
+      if(data.summary) say(data.summary);
+      const icons={places:'📍',moments:'🎬',photos:'🖼️',spend:'💰',reminders:'⏰',conversations:'💬'};
+      Object.entries(data.grouped||{}).forEach(([cat,items])=>{
+        const el=addMsg('buddy',`${icons[cat]||'•'} ${cat.toUpperCase()} (${items.length}) · tap to expand`);
+        el.style.cursor='pointer'; let open=false;
+        el.onclick=()=>{
+          if(open){ el.nextSibling&&el.nextSibling.remove&&null; return; }
+          open=true;
+          items.slice(-10).forEach(it=>addMsg('buddy',`   ${new Date(it.at).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})} — ${String(it.t).replace(/^(log:|moment|saw:|read:|receipt:|reminder:)\s*/,'')}`));
+          scrollChat();
+        };
+      });
+      const nav=addMsg('buddy','← earlier day  ·  later day →'); nav.style.cursor='pointer';
+      nav.onclick=(e)=>{ const rect=nav.getBoundingClientRect();
+        const left=(e.clientX-rect.left) < rect.width/2;
+        dayView(left? dayOffset+1 : Math.max(0,dayOffset-1)); };
+      scrollChat();
+    }catch(e){ settle(t,'Day view unreachable — is the brain deployed?'); }
+  }
+  // 🔍 DIAGNOSTICS (batch 70): under Settings, off by default. For testing.
+  async function diagView(cat){
+    openChat(); addMsg('me','🔍 Diagnostics'+(cat&&cat!=='all'?' · '+cat:''));
+    try{
+      const {data}=await api('/diag',{cat:cat||'all',limit:40});
+      if(!data.on){
+        const el=addMsg('buddy','Diagnostics are OFF. Tap here to turn them on, then reproduce the problem.');
+        el.style.cursor='pointer';
+        el.onclick=async()=>{ await api('/diag',{action:'on'}); el.textContent='✓ Diagnostics ON — reproduce the issue, then tap 🔍 again.'; };
+        return;
+      }
+      const counts=data.counts||{};
+      const bar=addMsg('buddy','Categories: '+Object.entries(counts).map(([k,v])=>`${k} ${v}`).join(' · '));
+      ['all','routing','memory','services','cost','errors','voice'].forEach(c=>{
+        const b=addMsg('buddy','▸ '+c); b.style.cssText+='cursor:pointer;opacity:.8;font-size:13px';
+        b.onclick=()=>diagView(c);
+      });
+      (data.lines||[]).slice(-20).forEach(l=>{
+        addMsg('buddy',`${new Date(l.at).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit',second:'2-digit'})} [${l.cat}] ${l.msg}`);
+      });
+      const copy=addMsg('buddy','📋 Copy last 20 (to paste to Claude)'); copy.style.cursor='pointer';
+      copy.onclick=()=>{
+        const txt=(data.lines||[]).slice(-20).map(l=>`${new Date(l.at).toISOString()} [${l.cat}] ${l.msg}${l.extra?' '+JSON.stringify(l.extra):''}`).join('\n');
+        try{ navigator.clipboard.writeText(txt); copy.textContent='✓ Copied — paste it to Claude'; }catch(e){ copy.textContent='Select and copy manually:'; addMsg('buddy',txt); }
+      };
+      const off=addMsg('buddy','⏹ Turn diagnostics off'); off.style.cursor='pointer';
+      off.onclick=async()=>{ await api('/diag',{action:'off'}); off.textContent='✓ Diagnostics off'; };
+      scrollChat();
+    }catch(e){ addMsg('buddy','Diagnostics unreachable — is the brain deployed?'); }
+  }
+
+  // 💡 HELPER TOOLTIPS (batch 69): every tile can explain itself — what it
+  // does, the honest limits, and the exact words to say. Tap a phrase to run it.
+  const TIPS={
+    livelook:['Live look','Vision watches through your camera and narrates what changes. Every observation is saved to memory, so you can ask about it later.',['watch what I\'m seeing'],'Keep the screen on — web can\'t run the camera in the background.'],
+    readpage:['Read a link','Paste any web link and Vision reads the page, summarises it aloud, and remembers it.',['read this link'],''],
+    watchers:['Watchers','Vision checks things while you\'re away and reports back when you next open it.',['watch flights Brisbane to Bali under 400','tell me if the dollar hits 17000 dong','watch the weather in Da Nang'],'News lands in your opening brief.'],
+    seen:['What I\'ve seen','Recall anything Vision has looked at — photos, menus, landmarks — spoken back as a summary with the picture.',['what did that menu say','what have you seen today'],''],
+    timers:['Timers','Multiple named timers with a chime.',['timer 10 minutes','set a timer for 2 hours','my timers'],'Only rings while Vision is open — that\'s a web limit.'],
+    capture:['Capture moment','30 seconds analysed into a written record — what happened, where, when. No video is kept.',['capture this','vis capture this for 45 seconds'],'Say "start auto capture" to let Vision decide when a moment is worth it.'],
+    lifelog:['My day','A quiet timeline of where you\'ve been, the weather, and what\'s nearby — mostly free, camera only when somewhere\'s new.',['start life log','where was I yesterday'],'Runs while Vision is open.'],
+    spend:['What it costs','Live running total of what Vision costs to run — today, this week, this month.',['what has vision cost'],'An estimate from real token counts.'],
+    shared:['Our moments','Moments you and Jess were both present for get shared automatically. Apart stays private.',['our moments'],'You need to be within 150m of each other.'],
+    ride:['Get a ride','Opens Grab or Uber with your destination already filled in.',['get me a grab to the airport'],'You confirm and pay in their app — no app can do that for you.'],
+    transit:['Transit times','Live bus, train and metro times with platforms.',['when\'s the next bus to Hoi An'],''],
+    memory:['Memory','Everything Vision learns lives on your own server. Ask what it knows, or make it forget.',['what do you know about me','remember the good pho place is near the hostel','forget the pho place','pause memory'],'Yours to inspect and delete.'],
+    status:['Status','Every service, up or down, with the fix if something\'s broken. Also shows memory storage.',[],''],
+  };
+  function showTip(key){
+    const t=TIPS[key]; if(!t) return;
+    let back=document.getElementById('tipBack'), sheet=document.getElementById('tipSheet');
+    if(!back){ back=document.createElement('div'); back.id='tipBack'; back.onclick=hideTip; document.body.appendChild(back); }
+    if(!sheet){ sheet=document.createElement('div'); sheet.id='tipSheet'; document.body.appendChild(sheet); }
+    sheet.innerHTML='';
+    const h4=document.createElement('h4'); h4.textContent='💡 '+t[0]; sheet.appendChild(h4);
+    const p=document.createElement('div'); p.style.cssText='opacity:.85;font-size:14px;line-height:1.5'; p.textContent=t[1]; sheet.appendChild(p);
+    if(t[2]&&t[2].length){
+      const lab=document.createElement('div'); lab.style.cssText='margin-top:12px;font-size:12px;opacity:.6'; lab.textContent='SAY THIS — tap to run'; sheet.appendChild(lab);
+      t[2].forEach(phrase=>{
+        const b=document.createElement('div'); b.className='say'; b.textContent='"'+phrase+'"';
+        b.onclick=()=>{ hideTip(); const box=document.getElementById('chatText'); if(box){ openChat(); box.value=phrase; sendChat(); } };
+        sheet.appendChild(b);
+      });
+    }
+    if(t[3]){ const n=document.createElement('div'); n.style.cssText='margin-top:12px;font-size:12px;opacity:.6'; n.textContent='ⓘ '+t[3]; sheet.appendChild(n); }
+    const close=document.createElement('div'); close.style.cssText='margin-top:16px;text-align:center;opacity:.5;font-size:13px'; close.textContent='tap outside to close'; sheet.appendChild(close);
+    requestAnimationFrame(()=>{ back.classList.add('on'); sheet.classList.add('on'); });
+  }
+  function hideTip(){ const b=document.getElementById('tipBack'), s=document.getElementById('tipSheet');
+    if(b) b.classList.remove('on'); if(s) s.classList.remove('on'); }
+
+  // 📓 LIFE LOG (batch 68): the cheap continuous layer. Context is free —
+  // where, when, weather, what's nearby. A low-res glance only when something
+  // changed. Everything becomes text the whole brain can recall.
+  let lifelogTimer=null, lastLogPlace='', lastLogAt=0;
+  function lifelogOn(){ return localStorage.buddy_lifelog==='on'; }
+  async function lifelogTick(force){
+    try{
+      if(!lifelogOn()&&!force) return;
+      if(Date.now()-lastLogAt < 120000 && !force) return;      // 2 min floor
+      const pos=await new Promise(r=>navigator.geolocation.getCurrentPosition(
+        p=>r(p.coords), ()=>r(null), {enableHighAccuracy:false,timeout:8000,maximumAge:60000}));
+      if(!pos) return;
+      lastLogAt=Date.now();
+      // Tier 2 decision: only glance when the place looks NEW to us.
+      let glance=null;
+      const movedFar = !lastLogPlace || (brain.state().city||'')!==lastLogPlace;
+      if(movedFar && localStorage.buddy_glance!=='off'){
+        glance=await grabGlance();      // small, low quality — cents not dollars
+      }
+      const {data}=await api('/lifelog',{lat:pos.latitude,lng:pos.longitude,glance,
+        roomCode:localStorage.getItem('buddy_room')||'', myName:localStorage.buddy_myname||'Shaun'});
+      if(data&&data.place) lastLogPlace=data.place;
+    }catch(e){}
+  }
+  // One small frame, deliberately low quality — this is a jog, not a photo.
+  async function grabGlance(){
+    try{
+      const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+      const v=document.createElement('video'); v.autoplay=true; v.playsInline=true; v.muted=true; v.srcObject=st;
+      await new Promise(r=>setTimeout(r,700));
+      let out=null;
+      if(v.readyState>=2){
+        const c=document.createElement('canvas');
+        const sc=Math.min(1,384/Math.max(v.videoWidth||384,v.videoHeight||384));
+        c.width=Math.round((v.videoWidth||384)*sc); c.height=Math.round((v.videoHeight||384)*sc);
+        c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+        out=c.toDataURL('image/jpeg',0.4).split(',')[1];
+      }
+      st.getTracks().forEach(x=>x.stop());
+      return out;
+    }catch(e){ return null; }
+  }
+  function lifelogStart(){
+    localStorage.buddy_lifelog='on';
+    if(lifelogTimer) clearInterval(lifelogTimer);
+    lifelogTimer=setInterval(()=>lifelogTick(false), 180000);   // every 3 min while open
+    lifelogTick(true);
+  }
+  function lifelogStop(){ localStorage.buddy_lifelog='off'; if(lifelogTimer){ clearInterval(lifelogTimer); lifelogTimer=null; } }
+  async function lifelogToday(){
+    openChat(); addMsg('me','📓 My day so far');
+    try{
+      const {data}=await api('/memory',{action:'all'});
+      const logs=(data.recent||[]).filter(r=>String(r.t).startsWith('log:'));
+      if(!logs.length){ const m='Nothing logged yet today. Say "start life log" and I\'ll keep a timeline as we go.'; addMsg('buddy',m); say(m); return; }
+      logs.slice(-8).forEach(l=>addMsg('buddy','• '+String(l.t).replace(/^log:\s*/,'')));
+      say(`${logs.length} moments logged — they're on screen.`);
+    }catch(e){ addMsg('buddy','Life log unreachable — is the brain deployed?'); }
+  }
+  // 💰 SPEND — what Vision actually costs, visible in the app.
+  async function spendCheck(){
+    openChat(); addMsg('me','💰 What has Vision cost?');
+    try{
+      const {data}=await api('/spend',{});
+      const f=n=>'$'+Number(n||0).toFixed(4);
+      addMsg('buddy',`💰 Today: ${f(data.today)} · Last 7 days: ${f(data.last7)} · This month: ${f(data.thisMonth)}`);
+      const bars=(data.series||[]).map(s=>`${s.d} ${'▇'.repeat(Math.min(20,Math.round(s.usd*400)))||'·'} ${f(s.usd)}`).join('\n');
+      if(bars) addMsg('buddy',bars);
+      addMsg('buddy','Estimate from real token counts — console.anthropic.com is the actual bill.');
+      say(`Today ${f(data.today)}, this month ${f(data.thisMonth)}.`);
+    }catch(e){ addMsg('buddy','Spend unreachable — is the brain deployed?'); }
+  }
+  // Shared layer — moments you were both there for.
+  async function sharedMoments(){
+    openChat(); addMsg('me','💞 Our moments');
+    const code=localStorage.getItem('buddy_room')||'';
+    if(!code){ const m='No couple room yet — pair with Jess first in Together.'; addMsg('buddy',m); say(m); return; }
+    try{
+      const {data}=await api('/shared',{roomCode:code});
+      if(!data.shared||!data.shared.length){ const m="Nothing shared yet. When you're within 150 metres of each other, moments get promoted here automatically."; addMsg('buddy',m); say(m); return; }
+      data.shared.slice(-8).forEach((sm,i)=>{
+        const el=addMsg('buddy',`💞 ${new Date(sm.at).toLocaleDateString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'})}: ${String(sm.t).replace(/^log:\s*/,'')} · tap to remove`);
+        el.style.cursor='pointer';
+        el.onclick=async()=>{ if(confirm('Remove this from your shared moments?')){ await api('/shared',{roomCode:code,action:'remove',index:i}); el.textContent='✓ removed'; } };
+      });
+      say(`${data.count} shared moments — the recent ones are on screen.`);
+    }catch(e){ addMsg('buddy','Shared moments unreachable.'); }
+  }
+
+  // 🎬 MOMENT CAPTURE (batch 67): "Vis, capture this" — a short burst of
+  // frames analysed AS A SEQUENCE into a written account. FRAMES ARE NEVER
+  // STORED — the text is the artefact, and it feeds every skill's recall.
+  // Manual capture ALWAYS works, regardless of the adaptive policy.
+  let capturing=false;
+  async function captureMoment(seconds, note){
+    if(capturing){ toast('Already capturing…'); return; }
+    if(!cfg.url||!cfg.tok){ openSettings(); return; }
+    let stream;
+    try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false}); }
+    catch(e){ const m='I need camera permission to capture a moment.'; addMsg('buddy',m); say(m); return; }
+    capturing=true; keepAwakeSafe();
+    const secs=Math.min(Math.max(Number(seconds)||30,10),60);
+    openChat(); addMsg('me','🎬 Capture this'+(note?' — '+note:''));
+    const t=addMsg('buddy',`Watching for ${secs}s — I'll write up what happens. (No video kept.)`,'think');
+    say('Capturing. I\'ll write it up.');
+    const v=document.createElement('video'); v.autoplay=true; v.playsInline=true; v.muted=true; v.srcObject=stream;
+    const frames=[]; const shots=5; const gap=(secs*1000)/shots;
+    try{
+      await new Promise(r=>setTimeout(r,600));
+      for(let i=0;i<shots;i++){
+        if(v.readyState>=2){
+          const c=document.createElement('canvas');
+          const sc=Math.min(1,640/Math.max(v.videoWidth||640,v.videoHeight||640));
+          c.width=Math.round((v.videoWidth||640)*sc); c.height=Math.round((v.videoHeight||640)*sc);
+          c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+          frames.push(c.toDataURL('image/jpeg',0.62).split(',')[1]);
+        }
+        if(i<shots-1) await new Promise(r=>setTimeout(r,gap));
+      }
+    }catch(e){}
+    try{ stream.getTracks().forEach(x=>x.stop()); }catch(e){}
+    releaseAwakeSafe(); capturing=false;
+    if(!frames.length){ settle(t,"Couldn't get a clear view — try again?"); return; }
+    try{
+      const {ok,data}=await api('/moment',{frames,note:note||'',
+        place:localStorage.getItem('buddy_city')||'', country:localStorage.getItem('buddy_country')||''});
+      if(!ok||!data.account){ settle(t,"Couldn't make sense of that moment — try again?"); return; }
+      settle(t,`📓 ${data.headline}`);
+      const el=addMsg('buddy',data.account); el.classList.add('flash');
+      addMsg('buddy',`🕒 ${new Date().toLocaleString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'})}${localStorage.getItem('buddy_city')?' · '+localStorage.getItem('buddy_city'):''}${data.saved?' · saved to memory':' · not worth keeping'}`);
+      say(data.account); chimeNews(); scrollChat();
+    }catch(e){ settle(t,"Couldn't reach Vision to write that up."); }
+  }
+  // ADAPTIVE: ask the brain (cheaply, no camera) whether this moment earns a look.
+  async function maybeCapture(skill){
+    try{
+      if(localStorage.buddy_autocapture!=='on') return;
+      const day=new Date().toDateString();
+      let used=0; try{ const b=JSON.parse(localStorage.getItem('buddy_capbudget')||'{}'); used=(b.day===day)?b.n:0; }catch(e){}
+      const cap=Number(localStorage.buddy_capmax||20);
+      if(used>=cap) return;
+      const {data}=await api('/shouldcapture',{place:localStorage.getItem('buddy_city')||'',skill,moving:false});
+      if(!data||!data.capture) return;
+      localStorage.setItem('buddy_capbudget',JSON.stringify({day,n:used+1}));
+      toast('📓 Capturing this moment — say "stop capturing" to turn this off.');
+      coach('autocapture');
+      await captureMoment(20,'auto: after '+skill);
+    }catch(e){}
+  }
+  // 🤝 HANDOFFS (batch 64): Vision does the thinking and the filling — the
+  // app you already trust does the paying. Deep links only; no app can tap
+  // Apple Pay on your behalf (Apple blocks it by design, for everyone).
+  function handoffCard(title, subtitle, actions){
+    openChat();
+    const el=addMsg('buddy',`🤝 ${title}`);
+    if(subtitle){ const s=document.createElement('div'); s.style.cssText='opacity:.75;font-size:13px;margin-top:2px'; s.textContent=subtitle; el.appendChild(s); }
+    actions.forEach(a=>{
+      const b=document.createElement('div');
+      b.style.cssText='margin-top:8px;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer;font-weight:600';
+      b.textContent=a.label; b.onclick=a.go; el.appendChild(b);
+    });
+    scrollChat(); return el;
+  }
+  // RIDES — Grab across SE Asia, Uber elsewhere. Pre-fills both ends.
+  function rideHandoff(dest, destLat, destLng){
+    const c=(localStorage.getItem('buddy_country')||'').toLowerCase();
+    const seAsia=/vietnam|thailand|indonesia|malaysia|singapore|philippines|cambodia|myanmar|laos/.test(c);
+    const s=brain.state(), lat=s.lat, lng=s.lng;
+    const acts=[];
+    if(seAsia||!c){
+      acts.push({label:'🚗 Open Grab'+(dest?' to '+dest:''), go:()=>{
+        // Grab's deep link; falls back to the store page if not installed.
+        const u=`grab://open?screenType=BOOKING${destLat?`&dropOffLatitude=${destLat}&dropOffLongitude=${destLng}`:''}${dest?`&dropOffAddress=${encodeURIComponent(dest)}`:''}`;
+        const t=Date.now(); window.location.href=u;
+        setTimeout(()=>{ if(Date.now()-t<2000) window.location.href='https://www.grab.com/'; },1200);
+      }});
+    }
+    acts.push({label:'🚕 Open Uber'+(dest?' to '+dest:''), go:()=>{
+      const u=`uber://?action=setPickup&pickup=my_location${lat?`&pickup[latitude]=${lat}&pickup[longitude]=${lng}`:''}${destLat?`&dropoff[latitude]=${destLat}&dropoff[longitude]=${destLng}`:''}${dest?`&dropoff[nickname]=${encodeURIComponent(dest)}`:''}`;
+      const t=Date.now(); window.location.href=u;
+      setTimeout(()=>{ if(Date.now()-t<2000) window.location.href=`https://m.uber.com/ul/?action=setPickup&pickup=my_location${destLat?`&dropoff[latitude]=${destLat}&dropoff[longitude]=${destLng}`:''}`; },1200);
+    }});
+    if(dest) acts.push({label:'🗺️ Directions instead', go:()=>openMaps(dest)});
+    handoffCard(dest?('Ride to '+dest):'Get a ride','Your card stays in their app — you tap confirm there.',acts);
+    say(dest?('Opening a ride to '+dest+'. Confirm it in the app.'):'Which ride app?');
+  }
+  // MESSAGES — WhatsApp with the text pre-typed.
+  function waHandoff(number, message){
+    const n=String(number||'').replace(/[^0-9]/g,'');
+    const url=`https://wa.me/${n}${message?`?text=${encodeURIComponent(message)}`:''}`;
+    handoffCard('WhatsApp'+(n?(' · '+n):''), message?('"'+message.slice(0,80)+'"'):'', [
+      {label:'💬 Open WhatsApp', go:()=>{ window.location.href=url; }},
+      ...(n?[{label:'📞 Call instead', go:()=>{ window.location.href='tel:'+n; }}]:[])
+    ]);
+    say('WhatsApp ready — tap to open it.');
+  }
+  // TRANSIT — real departure options via Maps transit mode.
+  function transitHandoff(dest){
+    if(!dest){ dest=prompt('Travel to where?'); if(!dest) return; }
+    const d=encodeURIComponent(dest);
+    handoffCard('Transit to '+dest,'Live times and platforms in Maps.',[
+      {label:'🚆 Times & routes now', go:()=>{ window.location.href=`comgooglemaps://?daddr=${d}&directionsmode=transit`;
+        setTimeout(()=>{ window.location.href=`https://www.google.com/maps/dir/?api=1&destination=${d}&travelmode=transit`; },1200); }},
+      {label:'🚗 Drive instead', go:()=>openMaps(dest,'driving')},
+      {label:'🚗 Get a ride', go:()=>rideHandoff(dest)},
+    ]);
+    say('Pulling up transit times for '+dest+'.');
+  }
+  // BOOKINGS — open the right page, ready to confirm. Honest: no auto-booking.
+  function bookHandoff(what, when, people){
+    const q=encodeURIComponent(`${what||'restaurant'} booking ${localStorage.getItem('buddy_city')||''}`.trim());
+    handoffCard('Book '+(what||'a table'),
+      [when?('when: '+when):'',people?(people+' people'):''].filter(Boolean).join(' · ')+' — I can open it; you confirm and pay in their app.',[
+      {label:'🔎 Find & open booking page', go:()=>{ window.location.href=`https://www.google.com/search?q=${q}`; }},
+      {label:'📞 Call the place instead', go:()=>{ const box=document.getElementById('chatText'); if(box){ box.value='find '+(what||'restaurant')+' near me'; sendChat(); } }},
+    ]);
+    say("I can open the booking page — you'll tap confirm there. No app can pay on your behalf.");
+  }
+
+  // 🧠 UNIVERSAL MEMORY WRITE (batch 65): a brain that reads memory but never
+  // writes is lopsided. Every skill now deposits a short, useful trace — the
+  // question and the gist of the answer — so recall works across everything.
+  // Kept SHORT on purpose: memory is for facts worth recalling, not transcripts.
+  const NO_MEMORY=new Set(['status','chat','converse','music','seenrecall','readtexts','mailbrief']);
+  async function rememberSkill(skill, asked){
+    try{
+      if(NO_MEMORY.has(skill)) return;               // noise or already-stored elsewhere
+      if(localStorage.buddy_memory==='off') return;  // user can pause memory
+      const msgs=document.querySelectorAll('#chatLog .msg.buddy');
+      const last=msgs.length? msgs[msgs.length-1].textContent : '';
+      if(!last||last.length<12) return;
+      const place=localStorage.getItem('buddy_city')||'';
+      const line=`${skill}${place?` in ${place}`:''}: ${String(asked||'').slice(0,80)} -> ${last.slice(0,160)}`;
+      await api('/memory',{action:'add',text:line});
+    }catch(e){}
+  }
+
+  // 🧭 ASK FIRST (batch 64): don't guess what you can simply ask. Vision
+  // gathers the details a booking actually needs, THEN hands off.
+  async function askThenBook(a){
+    a=a||{};
+    let what=a.what, when=a.when, people=a.people;
+    if(!what){ what=prompt('Book what? (restaurant, tour, appointment…)','restaurant'); if(!what) return; }
+    if(!when){ when=prompt('What day and time?','tonight 7pm')||''; }
+    if(!people){ people=prompt('How many people?','2')||''; }
+    bookHandoff(what, when, people);
+    try{ api('/memory',{action:'add',text:`wants to book: ${what}${when?(' '+when):''}${people?(' for '+people):''}`}).catch(()=>{}); }catch(e){}
+  }
+
+  // ➡️ NEXT MOVES (batch 63): after any skill, offer what he'd actually want
+  // next — tappable, context-aware, drawn from the result + his memory.
+  // Skills that already write their own tailored chips are skipped.
+  const SELF_SUGGESTING=new Set(['nearby','tripplan','tripday','tripbudget','activities','stay','flightsearch','packlist','phrase','meetmiddle','arrival','itinerary']);
+  async function nextMoves(skill){
+    try{
+      if(SELF_SUGGESTING.has(skill)) return;
+      if(localStorage.buddy_nextmoves==='off') return;
+      const msgs=document.querySelectorAll('#chatLog .msg.buddy');
+      const last=msgs.length? msgs[msgs.length-1].textContent : '';
+      if(!last||last.length<12) return;
+      const {data}=await api('/nextmoves',{skill,result:last.slice(0,600),
+        place:localStorage.getItem('buddy_city')||'', country:localStorage.getItem('buddy_country')||''});
+      (data.moves||[]).slice(0,3).forEach(mv=>{
+        if(!mv||!mv.label||!mv.say) return;
+        brain.suggest('→ '+mv.label, ()=>{ const box=document.getElementById('chatText'); if(box){ box.value=mv.say; sendChat(); } });
+      });
+    }catch(e){}
+  }
+
+  // 🖼️ VISUAL RECALL (batch 61): search what Vision has SEEN — descriptions
+  // plus thumbnails, so "what was that landmark?" shows the picture back.
+  async function seenRecall(q){
+    openChat();
+    let log=[]; try{ log=JSON.parse(localStorage.getItem('buddy_seen')||'[]'); }catch(e){}
+    if(!log.length){ const m="I haven't looked at anything yet — snap a photo and I'll remember it."; addMsg('buddy',m); say(m); return; }
+    q=(q||'').toLowerCase().replace(/^(what|show me|recall|find)\b/,'').trim();
+    const hits=q? log.filter(l=>String(l.ans||'').toLowerCase().includes(q)) : log.slice(-6);
+    if(!hits.length){ const m=`Nothing in what I've seen matches "${q}".`; addMsg('buddy',m); say(m); return; }
+    addMsg('me','🖼️ '+(q||'what have you seen?'));
+    const t=addMsg('buddy','Thinking back…','think');
+    // Spoken summary FIRST — the words are the memory; pictures are the jog.
+    let spoken='';
+    try{
+      const {data}=await api('/seensummary',{query:q||'what have you seen lately?',
+        items:hits.slice(-12).map(l=>({ans:l.ans,place:l.place||'',
+          whenTxt:new Date(l.at).toLocaleDateString('en-AU',{weekday:'short',month:'short',day:'numeric'})}))});
+      spoken=(data&&data.spoken)||'';
+    }catch(e){}
+    if(spoken){ settle(t,spoken); say(spoken); }
+    else { settle(t,`${hits.length} match${hits.length>1?'es':''} — here's what I saw.`); say(`${hits.length} match${hits.length>1?'es':''}.`); }
+    // Then the evidence: each observation with its thumbnail.
+    hits.slice(-6).reverse().forEach(l=>{
+      const el=addMsg('buddy',`${new Date(l.at).toLocaleDateString('en-AU',{month:'short',day:'numeric'})}${l.place?' · '+l.place:''}: ${l.ans}`);
+      if(l.thumb){ const img=document.createElement('img'); img.src=l.thumb;
+        img.style.cssText='max-width:140px;border-radius:10px;margin-top:6px;display:block'; el.appendChild(img); }
+    });
+    scrollChat();
   }
 
   // 🔗 Read a link (batch 50): paste any URL — Vision fetches it server-side,
@@ -691,7 +1239,7 @@
         while(pages.length>20) pages.shift();
         localStorage.setItem('buddy_pages',JSON.stringify(pages)); }catch(e){}
       brain.lastTopic='readpage'; brain.save(); renderGlance();
-    }catch(e){ t.remove(); addMsg('buddy','Couldn\'t read that page — try again?'); }
+    }catch(e){ settle(t,'Couldn\'t read that page — try again?'); }
   }
 
   // Shrink an image file to maxPx on its longest side, return a JPEG data URL.
@@ -935,8 +1483,44 @@
     tip.style.opacity='.8';
   }
 
+  // Batch 59: proper language picker — dropdown + type-ahead, remembers what
+  // you actually use. Beats guessing spellings into a bare prompt.
+  const LANGS = ['Vietnamese','Thai','Indonesian','Bahasa Malaysia','Khmer (Cambodian)','Lao','Burmese','Tagalog (Filipino)',
+    'Mandarin Chinese','Cantonese','Japanese','Korean','Hindi','Bengali','Urdu','Tamil','Nepali','Sinhala',
+    'Spanish','French','German','Italian','Portuguese','Dutch','Greek','Polish','Czech','Hungarian','Romanian',
+    'Russian','Ukrainian','Turkish','Arabic','Hebrew','Farsi (Persian)','Swahili','Amharic','Zulu','Afrikaans',
+    'Swedish','Norwegian','Danish','Finnish','Icelandic','Croatian','Serbian','Bulgarian','Slovak','Slovenian',
+    'Estonian','Latvian','Lithuanian','Maori','Samoan','Tongan','Fijian','Tetum (Timor)','English'];
+  function langRecentGet(){ try{ return JSON.parse(localStorage.buddy_langrecent||'[]'); }catch{ return []; } }
+  function langRecentAdd(l){ const r=langRecentGet().filter(x=>x!==l); r.unshift(l); localStorage.buddy_langrecent=JSON.stringify(r.slice(0,5)); }
+  // Returns a Promise<string|null> — a real picker, not a prompt box.
+  function pickLanguage(title){
+    return new Promise(resolve=>{
+      const recents=langRecentGet();
+      const wrap=document.createElement('div');
+      wrap.style.cssText='position:fixed;inset:0;z-index:1000;background:rgba(6,10,26,.86);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:22px';
+      wrap.innerHTML=`<div style="background:#111735;border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:18px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+        <div style="font-weight:700;font-size:17px;margin-bottom:10px">${title||'Which language?'}</div>
+        ${recents.length?`<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px">${recents.map(r=>`<span class="lrec" style="background:rgba(60,220,200,.16);border:1px solid rgba(60,220,200,.35);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer">${r}</span>`).join('')}</div>`:''}
+        <input id="langIn" list="langList" placeholder="Type or choose…" autocomplete="off"
+          style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#EAE6DA;font-size:16px">
+        <datalist id="langList">${LANGS.map(l=>`<option value="${l}">`).join('')}</datalist>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button id="langGo" style="flex:1;padding:12px;border:0;border-radius:12px;background:linear-gradient(90deg,#3CDCC8,#F5A623);font-weight:700;font-size:15px">Go</button>
+          <button id="langX" style="padding:12px 16px;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:transparent;color:#EAE6DA">Cancel</button>
+        </div></div>`;
+      document.body.appendChild(wrap);
+      const done=v=>{ try{ wrap.remove(); }catch(e){} if(v) langRecentAdd(v); resolve(v||null); };
+      wrap.querySelectorAll('.lrec').forEach(el=>el.onclick=()=>done(el.textContent));
+      wrap.querySelector('#langGo').onclick=()=>done((wrap.querySelector('#langIn').value||'').trim());
+      wrap.querySelector('#langX').onclick=()=>done(null);
+      wrap.onclick=e=>{ if(e.target===wrap) done(null); };
+      setTimeout(()=>{ try{ wrap.querySelector('#langIn').focus(); }catch(e){} },50);
+    });
+  }
+
   async function liveTranslate(){
-    const lang=prompt("Translate INTO which language? (e.g. Spanish, Japanese, French)","Spanish");
+    const lang=await pickLanguage('Translate into which language?');
     if(!lang) return;
     const text=prompt("What should I translate?");
     if(!text) return;
@@ -1136,7 +1720,7 @@
     addMsg('me',`🏨 Somewhere to stay${area?' in '+area:''}`);
     const t=addMsg('buddy','Looking at places to stay…','think');
     let payload={ area, what:a.what||'' };
-    if(!area){ t.remove(); return; }
+    if(!area){ t.classList.remove('think'); t.textContent='No area given — say "somewhere to stay in Ubud" and I\'ll look.'; return; }
     try{
       const {ok,status,data}=await api('/stay',payload);
       t.remove();
@@ -1148,7 +1732,7 @@
       const el=addMsg('buddy','🛏️ Check prices & book'); el.style.cursor='pointer';
       el.onclick=()=>window.open(data.bookLink,'_blank');
       brain.suggest('Directions to '+data.places[0].name, ()=>{ document.getElementById('chatText').value='take me to '+data.places[0].name; sendChat(); });
-    }catch(e){ t.remove(); const m='Stay search hiccuped — try again?'; addMsg('buddy',m); say(m); }
+    }catch(e){ const m='Stay search hiccuped — try again?'; settle(t,m); say(m); }
   }
 
   // 🎟️ Things to do — live-informed ideas.
@@ -1163,7 +1747,7 @@
       addMsg('buddy',data.spoken); say(data.spoken);
       (data.items||[]).forEach(i=>addMsg('buddy','• '+i));
       brain.suggest('Plan my day around these', ()=>{ document.getElementById('chatText').value='plan my day'; sendChat(); });
-    }catch(e){ t.remove(); addMsg('buddy','Ideas hiccuped — try again?'); }
+    }catch(e){ settle(t,'Ideas hiccuped — try again?'); }
   }
 
   // 🗺️ Plan my trip — builds AND SAVES a day-by-day plan (buddy_trip).
@@ -1185,7 +1769,7 @@
       addMsg('buddy',`(${data.plan.days.length} days saved — ask "what's on day 2" anytime.)`);
       brain.suggest("What's on day 2?", ()=>tripDay(2));
       brain.suggest('What will this cost?', ()=>{ document.getElementById('chatText').value=`what will ${days} days in ${destination} cost`; sendChat(); });
-    }catch(e){ t.remove(); addMsg('buddy','Trip builder hiccuped — try again?'); }
+    }catch(e){ settle(t,'Trip builder hiccuped — try again?'); }
   }
 
   // 📅 What's on day N — reads the SAVED plan, no network.
@@ -1217,7 +1801,7 @@
       if(!ok||!data.spoken){ addMsg('buddy','Packing list hiccuped — try again?'); return; }
       addMsg('buddy',data.spoken); say(data.spoken);
       (data.items||[]).forEach(i=>addMsg('buddy','☐ '+i));
-    }catch(e){ t.remove(); addMsg('buddy','Packing list hiccuped — try again?'); }
+    }catch(e){ settle(t,'Packing list hiccuped — try again?'); }
   }
 
   // 💵 Trip budget
@@ -1234,7 +1818,7 @@
       addMsg('buddy',data.spoken); say(data.spoken);
       if(data.perDay) addMsg('buddy',`≈ ${data.perDay} ${data.currency}/day → ${data.total} ${data.currency} total (before accommodation)`);
       brain.suggest('Start tracking my spend', ()=>{ document.getElementById('chatText').value='log '; document.getElementById('chatText').focus(); });
-    }catch(e){ t.remove(); addMsg('buddy','Budget check hiccuped — try again?'); }
+    }catch(e){ settle(t,'Budget check hiccuped — try again?'); }
   }
 
   // 📶 Data & eSIM
@@ -1249,7 +1833,7 @@
       if(!ok||!data.spoken){ addMsg('buddy','Data check hiccuped — try again?'); return; }
       addMsg('buddy',data.spoken); say(data.spoken);
       (data.options||[]).forEach(o=>addMsg('buddy','• '+o));
-    }catch(e){ t.remove(); addMsg('buddy','Data check hiccuped — try again?'); }
+    }catch(e){ settle(t,'Data check hiccuped — try again?'); }
   }
 
   // ---- 🛬 ARRIVAL AUTOPILOT: one command when you land ----
@@ -1259,7 +1843,7 @@
     const go=async(payload)=>{
       try{
         const {data}=await api('/arrival',payload);
-        if(data.needCountry){ const c=prompt('Which country did you land in?'); if(!c){ t.remove(); return; } return go({country:c}); }
+        if(data.needCountry){ const c=prompt('Which country did you land in?'); if(!c){ settle(t,'No worries — tell me the country when you\'re ready.'); return; } return go({country:c}); }
         t.remove();
         if(data.country) localStorage.setItem('buddy_country',data.country);
         if(data.city) localStorage.setItem('buddy_city',data.city);
@@ -1297,7 +1881,7 @@
     if(label){ const l=String(label).toLowerCase(); s=a.find(x=>x.label.toLowerCase().includes(l))||a.find(x=>l.includes(x.label.toLowerCase()))||null; }
     if(!s) s=a[0];
     openChat(); addMsg('me','📌 Back to: '+s.label);
-    navigateWith(`${s.lat},${s.lng}`,'walking');
+    navigateWith(`${s.lat},${s.lng}`,travelModeGet());
   }
 
   // ---- 📖 PHRASEBOOK: your go-to phrases, spoken in the local language ----
@@ -1318,8 +1902,7 @@
     const t=addMsg('buddy','Translating…','think');
     try{
       const {data}=await api('/phrase',{text,country});
-      t.remove();
-      addMsg('buddy',`${data.translation}${data.phonetic?'\n('+data.phonetic+')':''}`);
+            settle(t,`${data.translation}${data.phonetic?'\n('+data.phonetic+')':''}`);
       speakIn(data.translation, data.lang);
       const a=phrasesGet(); if(!a.find(p=>p.orig===text)){ a.unshift({orig:text,trans:data.translation,lang:data.lang||'',ph:data.phonetic||''}); phrasesSave(a); }
       brain.lastTopic='phrase';
@@ -1374,9 +1957,9 @@
       try{
         const {status,data}=await api('/meetmiddle',{code,name:myName(),lat:pos.coords.latitude,lng:pos.coords.longitude,what});
         if(status===501){ t.classList.remove('think'); t.textContent='Meet-in-the-middle needs the Google Maps key.'; return; }
-        t.remove(); addMsg('buddy',data.spoken||''); say(data.spoken||'');
+        settle(t,data.spoken||''); say(data.spoken||'');
         if(data.found&&data.place){ brain.setPlace(data.place.name, data.place.address||data.place.name); brain.lastTopic='meetmiddle';
-          brain.suggest(`Directions to ${data.place.name}`, ()=>navigateWith(brain.lastDestination,'walking')); }
+          brain.suggest(`Directions to ${data.place.name}`, ()=>confirmNavigate(brain.lastDestination)); }
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't find a halfway spot right now."; }
     }, ()=>{ t.classList.remove('think'); t.textContent='Location permission needed.'; });
   }
@@ -1393,12 +1976,12 @@
         if(!p){ t.classList.remove('think'); t.textContent="I don't have your partner's location yet — ask them to share theirs first."; say("I don't have your partner's location yet."); return; }
         let etaText='';
         try{
-          const {status,data}=await api('/directions',{originLat:pos.coords.latitude,originLng:pos.coords.longitude,destination:`${p.lat},${p.lng}`,mode:'walking'});
+          const {status,data}=await api('/directions',{originLat:pos.coords.latitude,originLng:pos.coords.longitude,destination:`${p.lat},${p.lng}`,mode:travelModeGet()});
           if(status===200&&data.durationText) etaText=data.durationText;
         }catch(e){}
         if(!etaText) etaText=Math.max(1,Math.round((p.meters||0)/80))+' min'; // ~80m/min walking fallback
         const line=`You're about ${etaText} walk from ${p.name}.`;
-        t.remove(); addMsg('buddy',line); say(line);
+        settle(t,line); say(line);
         await api('/share',{code,name:myName(),message:`On my way — about ${etaText} away.`});
         addMsg('buddy','✓ Told them you\'re on your way.');
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't work out the ETA right now."; }
@@ -1436,7 +2019,7 @@
     const t=addMsg('buddy','Writing your trip story…','think');
     try{
       const {data}=await api('/journal',{code});
-      t.remove(); addMsg('buddy',data.spoken||''); say(data.spoken||'');
+      settle(t,data.spoken||''); say(data.spoken||'');
       if(data.story) addMsg('buddy',data.story);
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't write the journal right now."; }
   }
@@ -1739,14 +2322,13 @@
     try{
       const {status,data}=await api('/itinerary');
       if(status===501){ t.classList.remove('think'); t.textContent='Connect your inbox first (Email needs setup).'; return; }
-      t.remove();
-      addMsg('buddy',data.spoken||'Here\'s your trip.'); say(data.spoken||'');
+            settle(t,data.spoken||'Here\'s your trip.'); say(data.spoken||'');
       (data.items||[]).forEach(it=>addMsg('buddy',`${it.type==='flight'?'✈️':it.type==='hotel'?'🏨':it.type==='train'?'🚆':'📍'} ${it.what||''}\n${it.when||''}${it.where?' · '+it.where:''}`.trim()));
       if(!(data.items||[]).length) addMsg('buddy','No bookings found in your inbox.');
       // BUDDY BRAIN: offer to navigate to the next booking's location
       const nxt=(data.items||[]).find(i=>i.where);
       if(nxt){ brain.setPlace(nxt.where, nxt.where); brain.lastTopic='itinerary';
-        brain.suggest(`Directions to ${nxt.where}`, ()=>navigateWith(nxt.where,'walking')); }
+        brain.suggest(`Directions to ${nxt.where}`, ()=>confirmNavigate(nxt.where)); }
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't read your itinerary right now."; }
   }
 
@@ -2085,7 +2667,16 @@
     const tip=tips[Math.floor(Math.random()*tips.length)];
     sub.textContent = bits.length? bits.join(' · ')+' — '+tip : 'Tap the orb and talk. '+tip;
   }
-  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); applyGlassChip(); });
+  // Add the ⓘ helper dot to every tile that has a tip registered.
+  function mountTips(){
+    document.querySelectorAll('.tile[data-tip]').forEach(t=>{
+      if(t.querySelector('.tip-dot')) return;
+      const d=document.createElement('div'); d.className='tip-dot'; d.textContent='ⓘ';
+      d.onclick=(e)=>{ e.stopPropagation(); showTip(t.getAttribute('data-tip')); };
+      t.appendChild(d);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', ()=>{ renderGlance(); heroInit(); applyGlassChip(); mountTips(); if(lifelogOn()) lifelogStart(); });
   function openChat(){
     document.getElementById('chat').classList.add('open');
     if(chatHistory.length===0){ addMsg('buddy', openingBrief()); watcherNews(); }
@@ -2108,6 +2699,15 @@
     return lines.join(' ');
   }
   function closeChat(){ document.getElementById('chat').classList.remove('open'); }
+  function scrollChat(){ try{ const l=document.getElementById('chatLog'); if(l) l.scrollTop=l.scrollHeight; }catch(e){} }
+  // Batch 60: replace a thinking bubble with its answer IN PLACE — the message
+  // stays in the log permanently instead of being removed. Nothing flashes past.
+  function settle(bubble, text){
+    try{
+      if(!bubble){ return addMsg('buddy', text); }
+      bubble.classList.remove('think'); bubble.textContent = text; scrollChat(); return bubble;
+    }catch(e){ return addMsg('buddy', text); }
+  }
   function addMsg(who, text, cls){
     const log=document.getElementById('chatLog');
     const d=document.createElement('div');
@@ -2136,7 +2736,14 @@
   async function dispatchSkill(skill, a, original){
     brain.lastAsked = original || '';
     const handled = await dispatchSkillInner(skill, a, original);
-    if(handled){ brain.lastTopic = skill; prefRecord('skill', skill); brain.save(); renderGlance(); }
+    if(handled){ brain.lastTopic = skill; prefRecord('skill', skill); brain.save(); renderGlance();
+      nextMoves(skill);       // batch 63: every skill offers the obvious next step
+      rememberSkill(skill, original);  // batch 65: every skill deposits a memory
+      maybeCapture(skill);             // batch 67: adaptive — only if it earns it
+      if(['nearby','findfood','landmark','stay'].includes(skill)) coach('placefound');
+      if(skill==='ride'||skill==='booktable') coach('ridehandoff');
+      if(skill==='lifelog') coach('lifelog');
+    }
     return handled;
   }
   async function dispatchSkillInner(skill, a, original){
@@ -2176,7 +2783,7 @@
         // BUDDY BRAIN: remember the first stop, offer to navigate there
         const first=(data.stops||[])[0];
         if(first){ brain.setPlace(first.name, first.name); brain.lastTopic='planday';
-          brain.suggest(`Directions to ${first.name}`, ()=>navigateWith(first.name,'walking')); }
+          brain.suggest(`Directions to ${first.name}`, ()=>confirmNavigate(first.name)); }
         return true;
       }
       if(skill==='landmark'){
@@ -2186,7 +2793,7 @@
         // BUDDY BRAIN: remember this place, anticipate next steps
         const placeName=a.place||data.name||original;
         brain.setPlace(placeName, placeName); brain.lastTopic='landmark';
-        brain.suggest(`Directions to ${placeName}`, ()=>navigateWith(placeName,'walking'));
+        brain.suggest(`Directions to ${placeName}`, ()=>confirmNavigate(placeName));
         brain.suggest(`Etiquette & customs here`, ()=>{ document.getElementById('chatText').value='what should I know about etiquette here?'; sendChat(); });
         return true;
       }
@@ -2226,7 +2833,14 @@
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
       if(skill==='nearby'){ nearbyQuery(a.query||original); return true; }
-      if(skill==='navigate' && a.destination){ const saved={...favPlacesGet(),...placesGet()}; const k=String(a.destination).trim().toLowerCase(); const m=/train|bus|transit|metro|subway|public transport/i.test(original)?'transit':'walking'; const wantsMaps=/\b(in|into|open|use|via|with)\s+(google\s+|apple\s+)?maps\b/i.test(original||''); navigateWith(saved[k]||a.destination,m,wantsMaps); return true; }
+      if(skill==='navigate' && a.destination){
+        const saved={...favPlacesGet(),...placesGet()}; const k=String(a.destination).trim().toLowerCase();
+        const spoken=normMode(a.mode||original); const m=spoken||travelModeGet();
+        if(spoken) travelModeSave(spoken);
+        const dest=saved[k]||a.destination;
+        const wantsMaps=/\b(in|into|open|use|via|with)\s+(google\s+|apple\s+)?maps\b/i.test(original||'')||/\btake me\b/i.test(original||'');
+        if(wantsMaps||localStorage.buddy_automaps==='on') navigateWith(dest,m,true); else confirmNavigate(dest,m);
+        return true; }
       if(skill==='itinerary'){ tripItinerary(); return true; }
       if(skill==='status'){ statusBriefing(); return true; }
       if(skill==='orderupdate'){ orderUpdate(); return true; }
@@ -2263,6 +2877,16 @@
       if(skill==='tripbudget'){ await tripBudget(a); return true; }
       if(skill==='esim'){ await esimInfo(a); return true; }
       if(skill==='livelook'){ liveLook(); return true; }
+      if(skill==='dayview'){ await dayView(a.offset!=null?Number(a.offset):(a.date?0:0)); return true; }
+      if(skill==='lifelog'){ await lifelogToday(); return true; }
+      if(skill==='spend'){ await spendCheck(); return true; }
+      if(skill==='sharedmoments'){ await sharedMoments(); return true; }
+      if(skill==='capture'){ await captureMoment(a.seconds||30, a.note||''); return true; }
+      if(skill==='ride'){ rideHandoff(a.destination||'', a.lat, a.lng); return true; }
+      if(skill==='transit'){ transitHandoff(a.destination||''); return true; }
+      if(skill==='booktable'){ await askThenBook(a); return true; }
+      if(skill==='whatsapp'){ waHandoff(a.number||'', a.message||''); return true; }
+      if(skill==='seenrecall'){ await seenRecall(a.query||original); return true; }
       if(skill==='watcher'){ await watcherAdd(a.request||original); return true; }
       if(skill==='readpage'){ const m=(a.url||original||'').match(/https?:\/\/\S+/); await readPage(m?m[0]:a.url); return true; }
       if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
@@ -2272,6 +2896,8 @@
   }
 
   async function sendChat(){
+    coachedThisTurn=false;
+    try{ const _t=(document.getElementById('chatText')||{}).value||''; if(_t) api('/diag',{action:'note',cat:'voice',msg:'heard: '+_t.slice(0,80)}).catch(()=>{}); }catch(e){}
     const box=document.getElementById('chatText');
     const text=(box.value||'').trim();
     if(!text) return;
@@ -2322,10 +2948,61 @@
         const m=data.removed?`Forgotten — ${data.removed} note${data.removed>1?'s':''} gone.`:'Nothing matching that in memory.';
         addMsg('buddy',m); say(m); }catch(e){} })(); return;
     }
-    if(m51=text.match(/^(?:remember|note to self|memo)[:,]? (.{2,300})$/i)){
+    // "remember when/that time/how..." is a QUESTION about the past, not a
+    // command to store — let it fall through to the router for recall.
+    if(!/^remember\s+(when|that time|how|the time|what|where|who|why|our|us)\b/i.test(text) &&
+       (m51=text.match(/^(?:remember|note to self|memo)[:,]? (.{2,300})$/i))){
       (async()=>{ try{ await api('/memory',{action:'add',text:m51[1]});
         const m='Remembered.'; addMsg('buddy',m); say(m); }catch(e){} })(); return;
     }
+    // Travel mode by voice (batch 59): "always drive" / "default to motorbike"
+    if(m51=text.match(/\b(always|default to|i (?:usually |normally )?(?:ride|drive|walk|take))\s+(a |the )?(walk\w*|driv\w*|car|motorbik\w*|motorcycle|scooter|moto|transit|train|bus|bike|bicycle|cycl\w*)\b/i)){
+      const nm=normMode(m51[3]); if(nm){ travelModeSave(nm); const m=`Righto — I'll default to ${TRAVEL_LABEL[nm]} for directions.`; addMsg('buddy',m); say(m); return; }
+    }
+    if(m51=text.match(/^(?:vis(?:ion)?,?\s*)?capture (?:this|that|it)(?:\s+for\s+(\d+)\s*(?:sec|secs|seconds))?(?:\s*[—-]\s*(.+))?$/i)){
+      captureMoment(m51[1]?Number(m51[1]):30, m51[2]||''); return;
+    }
+    if(/^(start|turn on) (life ?log|logging my day|my day)$/i.test(text)){
+      lifelogStart(); const m="Life log on — I'll quietly note where we are and what's around, and glance only when somewhere's new. Say stop life log anytime."; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(stop|turn off) (life ?log|logging)$/i.test(text)){
+      lifelogStop(); const m='Life log off.'; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(what have i|what'?s my|my) (day|spend|cost)/i.test(text) && /cost|spend/i.test(text)){ spendCheck(); return; }
+    if(/^(start|turn on) auto ?capture$/i.test(text)){
+      localStorage.buddy_autocapture='on';
+      const m="Auto-capture on — I'll look when a moment seems worth it, up to "+(localStorage.buddy_capmax||20)+" a day."; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(stop|turn off|no more) (auto ?)?captur(e|ing)$/i.test(text)){
+      localStorage.buddy_autocapture='off'; const m='Auto-capture off. "Capture this" still works anytime.'; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(stop|pause|turn off) (remembering|memory)$/i.test(text)){
+      localStorage.buddy_memory='off'; const m="Memory paused — I won't store anything new until you say start remembering."; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(start|resume|turn on) (remembering|memory)$/i.test(text)){
+      localStorage.buddy_memory='on'; const m='Remembering again.'; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(stop|no more) (coaching|tips|hints)( me)?$/i.test(text)){
+      localStorage.buddy_coach='off'; const m="No more tips — I'll stay out of your way."; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(what can you do|show me tips|coach me( again)?)$/i.test(text)){
+      localStorage.buddy_coach='on'; coachReset();
+      const m="Tips are back on — I'll mention things as they come up. Or tap the ⓘ on any tile."; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(stop|no more|turn off) suggestions?$/i.test(text)){
+      localStorage.buddy_nextmoves='off'; const m="Suggestions off — I'll just answer."; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(start|turn on|give me) suggestions?$/i.test(text)){
+      localStorage.buddy_nextmoves='on'; const m="Suggestions back on."; addMsg('buddy',m); say(m); return;
+    }
+    // TIMERS + REMINDERS (batch 61)
+    if(m51=text.match(/^(?:set (?:a )?)?timer (?:for )?(\d+(?:\.\d+)?)\s*(min|mins|minute|minutes|hour|hours|sec|secs|second|seconds)\b(?:\s+(?:for|to|called)\s+(.{2,40}))?$/i)){
+      let n=Number(m51[1]); const unit=m51[2].toLowerCase();
+      if(/hour/.test(unit)) n*=60; else if(/sec/.test(unit)) n/=60;
+      timerAdd(n, m51[3]? m51[3].trim() : `${m51[1]} ${unit} timer`); return;
+    }
+    if(/^(my |what )?timers?\??$/i.test(text) || /^(what|how) (timers|long).*(left|running)/i.test(text)){ timerList(); return; }
+    if(/^(my |what are my )?reminders?\??$/i.test(text) || /what are my (upcoming )?reminders/i.test(text)){ reminderList(); return; }
     // STYLE (batch 52): "speak to me like a calm professional" / "reset your style"
     if(m51=text.match(/^(?:speak|talk) to me like (.{3,120})$/i) || (m51=text.match(/^(?:change|set) your (?:style|tone|persona) to (.{3,120})$/i)) || (m51=text.match(/^be more (.{3,80})$/i))){
       const st=m51[1].trim();
@@ -2609,7 +3286,7 @@
         // BUDDY BRAIN: remember what we found + anticipate the next step
         brain.lastList=list; brain.lastTopic='nearby';
         const top=list[0]; if(top){ brain.setPlace(top.name, top.vicinity||top.name);
-          brain.suggest(`Directions to ${top.name}`, ()=>navigateWith(brain.lastDestination,'walking'));
+          brain.suggest(`Directions to ${top.name}`, ()=>confirmNavigate(brain.lastDestination));
           // Context-aware follow-up: "fair price?" only makes sense where you'd
           // pay for something — not for a bank, pharmacy or park (Shaun's catch).
           const t=(top.types||[]).join(' ');
@@ -2652,16 +3329,48 @@
       const addr=prompt(`Address or place name for "${name}":`); if(!addr) return;
       const o=placesGet(); o[name]=addr; placesSave(o); say(`Saved ${name}.`); savedPlaces(); };
   }
+  // Batch 59: travel mode is a remembered preference, not a hardcoded guess.
+  // Shaun rides a motorbike in Asia — walking was the wrong default.
+  function travelModeGet(){ return localStorage.buddy_travelmode || 'walking'; }
+  function travelModeSave(m){ localStorage.buddy_travelmode = m; }
+  const TRAVEL_LABEL = { walking:'🚶 Walk', driving:'🚗 Drive / motorbike', transit:'🚆 Transit', bicycling:'🚲 Bike' };
+  function normMode(m){
+    const s=String(m||'').toLowerCase();
+    if(/driv|car|motorbik|motorcycle|scooter|bike taxi|moto/.test(s)) return 'driving';
+    if(/trans|train|bus|metro|subway/.test(s)) return 'transit';
+    if(/bicy|cycl|pushbike/.test(s)) return 'bicycling';
+    if(/walk|foot/.test(s)) return 'walking';
+    return '';
+  }
+  // Ask before opening Maps — with the mode they can change on the spot.
+  function confirmNavigate(dest, mode){
+    const m = mode || travelModeGet();
+    openChat();
+    const card = addMsg('buddy', `Navigate to ${dest}?\n${TRAVEL_LABEL[m]||m} · tap to go`);
+    card.style.cursor='pointer';
+    card.onclick = ()=> navigateWith(dest, m, true);
+    const alt = addMsg('buddy', 'Change mode: ' + Object.entries(TRAVEL_LABEL).filter(([k])=>k!==m).map(([k,v])=>v).join('  ·  '));
+    alt.style.cursor='pointer'; alt.style.opacity='.85';
+    alt.onclick = ()=>{
+      const pick = prompt('Walk, drive/motorbike, transit or bike?', m);
+      const nm = normMode(pick); if(!nm) return;
+      travelModeSave(nm);
+      toast('Default set: ' + (TRAVEL_LABEL[nm]||nm));
+      navigateWith(dest, nm, true);
+    };
+    say(`Navigate to ${dest}? Tap to go.`);
+  }
+
   function navigateToPlace(name){
     const p=placesGet(); const dest=p[name]; if(!dest){ say(`I don't have ${name} saved.`); return; }
-    navigateWith(dest, 'walking');
+    navigateWith(dest, travelModeGet());
   }
   // Open Google Maps straight into directions (app scheme first, web fallback).
   // location.href inside the tap keeps iOS's popup blocker happy — window.open after a prompt gets blocked.
   function openMaps(dest, mode){
     prefRecord('maps','google');
     const d=encodeURIComponent(dest);
-    const tm=(mode&&/driv/.test(mode))?'driving':(mode&&/trans/.test(mode))?'transit':(mode&&/(bik|cyc)/.test(mode))?'bicycling':'walking';
+    const tm=normMode(mode)||travelModeGet();
     const t=Date.now();
     window.location.href=`comgooglemaps://?daddr=${d}&directionsmode=${tm}`;
     setTimeout(()=>{ if(Date.now()-t<1600) window.location.href=`https://www.google.com/maps/dir/?api=1&destination=${d}&travelmode=${tm}&dir_action=navigate`; }, 700);
@@ -2669,7 +3378,7 @@
   function openAppleMaps(dest, mode){
     prefRecord('maps','apple');
     const d=encodeURIComponent(dest);
-    const f=(mode&&/driv/.test(mode))?'d':(mode&&/trans/.test(mode))?'r':'w';
+    const _nm=normMode(mode)||travelModeGet(); const f=_nm==='driving'?'d':_nm==='transit'?'r':'w';
     window.location.href=`https://maps.apple.com/?daddr=${d}&dirflg=${f}`;
   }
 
@@ -2681,7 +3390,8 @@
     // If they typed a saved place name, use its address.
     const key=dest.trim().toLowerCase();
     const realDest=saved[key]||dest;
-    const mode=(prompt("Walk, drive, transit, or bike?","walking")||"walking").toLowerCase();
+    const mode=normMode(prompt("Walk, drive/motorbike, transit, or bike?",travelModeGet())||travelModeGet())||travelModeGet();
+    travelModeSave(mode);
     navigateWith(realDest, mode);
   }
   // Trains & buses: jump straight to transit mode (no mode prompt), read line + platform.
