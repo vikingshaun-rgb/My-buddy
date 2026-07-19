@@ -339,7 +339,7 @@
     <div class="tile" onclick="watcherList()"><span class="badge live">live</span><div class="ic">🔭</div><h3>Watchers</h3><p>Overnight eyes</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
-    <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>Translate offline</h3><p>No signal — opens Google</p></div>
+    <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>No-signal backup</h3><p>Opens Google Translate packs</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Navigate</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -427,7 +427,7 @@
   <div class="group" onclick="toggleCat(this)"><h2>Settings</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Settings</h3><p>Backend, themes &amp; more</p></div>
-    <div class="tile" onclick="runHealth()"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
+    <div class="tile" onclick="runHealth(true)"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
     <div class="tile" onclick="location.href='./trainer.html'"><span class="badge live">live</span><div class="ic">🎓</div><h3>Learn commands</h3><p>Practice out loud</p></div>
     <div class="tile" onclick="lowPower()"><span class="badge live">live</span><div class="ic">🔋</div><h3>Low power</h3><p>Dim &amp; simplify</p></div>
   </div>
@@ -511,7 +511,7 @@
   async function saveSettings(){
     localStorage.setItem('ap_url', inUrl.value.trim().replace(/\/$/,''));
     localStorage.setItem('ap_tok', inTok.value.trim());
-    closeSettings(); runHealth();
+    closeSettings(); runHealth(true);
   }
 
   // ---- Vision: snap a photo, Vision tells you what it is (phone-camera test) ----
@@ -1858,6 +1858,11 @@
   }
 
   // ---- Fair price? scam & price-check guard ----
+  function priorSpends(item){
+    try{ const words=String(item||'').toLowerCase().split(/\s+/).filter(w=>w.length>2);
+      return spendGet().filter(s=>{ const n=String(s.note||'').toLowerCase(); return words.some(w=>n.includes(w)); })
+        .slice(-3).map(s=>({amt:s.amt,note:s.note})); }catch(e){ return []; }
+  }
   async function scamCheck(){
     const item=prompt("What are you buying? (e.g. tuk-tuk to airport, bowl of pho, SIM card)"); if(!item) return;
     const price=prompt("What price are they asking? (just the number)"); if(!price) return;
@@ -1865,7 +1870,7 @@
     openChat(); addMsg('me',`🛡️ ${item} — ${price} ${currency}`);
     const t=addMsg('buddy','Checking local prices…','think');
     try{
-      const {data}=await api('/scamcheck',{item,price:Number(price)||price,currency,country:localStorage.getItem('buddy_country')||''});
+      const {data}=await api('/scamcheck',{item,price:Number(price)||price,currency,country:localStorage.getItem('buddy_country')||'',prior:priorSpends(item)});
       const v=data.verdict?` (${data.verdict})`:''; const range=data.fairRange?`  Fair: ${data.fairRange}`:'';
       const line=(data.spoken||"Trust your gut and haggle a little.")+range;
       t.classList.remove('think'); t.textContent=line+v; say(data.spoken||line);
@@ -2148,7 +2153,7 @@
     try{
       if(skill==='scamcheck' && a.price!=null){
         const t=addMsg('buddy','Checking local prices…','think');
-        const {data}=await api('/scamcheck',{item:a.item||original,price:Number(a.price)||a.price,currency:a.currency||'',country});
+        const {data}=await api('/scamcheck',{item:a.item||original,price:Number(a.price)||a.price,currency:a.currency||'',country,prior:priorSpends(a.item||original)});
         const v=data.verdict?` (${data.verdict})`:''; const rg=data.fairRange?`  Fair: ${data.fairRange}`:'';
         t.classList.remove('think'); t.textContent=(data.spoken||'')+rg+v; say(data.spoken||'');
         brain.lastTopic='scamcheck';
@@ -2221,7 +2226,7 @@
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
       if(skill==='nearby'){ nearbyQuery(a.query||original); return true; }
-      if(skill==='navigate' && a.destination){ const saved=placesGet(); const k=String(a.destination).trim().toLowerCase(); const m=/train|bus|transit|metro|subway|public transport/i.test(original)?'transit':'walking'; const wantsMaps=/\b(in|into|open|use|via|with)\s+(google\s+|apple\s+)?maps\b/i.test(original||''); navigateWith(saved[k]||a.destination,m,wantsMaps); return true; }
+      if(skill==='navigate' && a.destination){ const saved={...favPlacesGet(),...placesGet()}; const k=String(a.destination).trim().toLowerCase(); const m=/train|bus|transit|metro|subway|public transport/i.test(original)?'transit':'walking'; const wantsMaps=/\b(in|into|open|use|via|with)\s+(google\s+|apple\s+)?maps\b/i.test(original||''); navigateWith(saved[k]||a.destination,m,wantsMaps); return true; }
       if(skill==='itinerary'){ tripItinerary(); return true; }
       if(skill==='status'){ statusBriefing(); return true; }
       if(skill==='orderupdate'){ orderUpdate(); return true; }
@@ -2295,6 +2300,15 @@
       api('/profile',{partner:m51[3]}).catch(()=>{});
       const m='Got it — '+m51[3]+' it is. When they set up Vision on their phone, we\'ll link you two.'; addMsg('buddy',m); say(m); return;
     }
+    if(/^(favourite|favorite) (that|this|it)$|^(that|this) place was (great|amazing|awesome|good)$/i.test(text)){
+      if(brain.lastPlace&&brain.lastPlace.name){
+        const f=favPlacesGet(); f[brain.lastPlace.name.toLowerCase()]=brain.lastPlace.addr||brain.lastPlace.name; favPlacesSave(f);
+        api('/memory',{action:'add',text:'loved place: '+brain.lastPlace.name+(brain.lastPlace.addr?(' — '+brain.lastPlace.addr):'')}).catch(()=>{});
+        const m='⭐ '+brain.lastPlace.name+' saved to your favourites. Say "take me to '+brain.lastPlace.name+'" anytime.';
+        addMsg('buddy',m); say(m);
+      } else { const m="Which place? Find it first, then say favourite that."; addMsg('buddy',m); say(m); }
+      return;
+    }
     if(/what do you know about me/i.test(text)){
       (async()=>{ try{ const {data}=await api('/memory',{action:'all'});
         const p=data.profile||{};
@@ -2308,7 +2322,7 @@
         const m=data.removed?`Forgotten — ${data.removed} note${data.removed>1?'s':''} gone.`:'Nothing matching that in memory.';
         addMsg('buddy',m); say(m); }catch(e){} })(); return;
     }
-    if(m51=text.match(/^remember (.{2,300})$/i)){
+    if(m51=text.match(/^(?:remember|note to self|memo)[:,]? (.{2,300})$/i)){
       (async()=>{ try{ await api('/memory',{action:'add',text:m51[1]});
         const m='Remembered.'; addMsg('buddy',m); say(m); }catch(e){} })(); return;
     }
@@ -2454,7 +2468,7 @@
     if(tile) tile.classList.toggle('loading', !!on);
   }
 
-  async function runHealth(){
+  async function runHealth(detail){
     try{
       busy('healthSub',true);
       healthSub.textContent='Checking…';
@@ -2472,7 +2486,7 @@
         currency:['💱 Currency','Free service — if down it\'s usually a blip; try again shortly.'],
         mail:['📧 Email briefing','Optional — set ICLOUD_USER + app-specific password on Render.'],
       };
-      if(data.checks){
+      if(detail && data.checks){
         openChat(); addMsg('me','📡 Status check');
         const downs=[];
         for(const [k,c] of Object.entries(data.checks)){
@@ -2480,6 +2494,11 @@
           if(c.ok===true) addMsg('buddy',`✅ ${label} — up (${c.ms}ms)`);
           else if(c.ok===null||c.ok===undefined) addMsg('buddy',`⚪ ${label} — not set up. ${hint}`);
           else { addMsg('buddy',`❌ ${label} — DOWN. ${hint}`); downs.push(label.replace(/^[^\s]+\s/,'')); }
+        }
+        if(data.storage){
+          const st=data.storage;
+          const disk = st.diskFreeMB!=null ? ` · ${st.diskFreeMB>1024?(st.diskFreeMB/1024).toFixed(1)+'GB':st.diskFreeMB+'MB'} free` : '';
+          addMsg('buddy',`💾 Memory: ${st.storeKB||0}KB used${disk} · ${st.durable?'durable disk':'⚠️ EPHEMERAL — add a Render Disk at /var/data'}`);
         }
         const line = downs.length? `${downs.join(' and ')} ${downs.length>1?'are':'is'} down — everything else is running.` : 'Everything that\'s set up is running.';
         addMsg('buddy',line); say(line);
@@ -2580,7 +2599,8 @@
         if(!list.length){ addMsg('buddy',`No ${q} found nearby.`); say(`I couldn't find ${q} nearby.`); return; }
         const line=data.recommendation||`Here are ${q} near you.`;
         addMsg('buddy',line); say(line);
-        list.forEach(p=>{ const walk=p.walkMin?` · 🚶${p.walkMin} min`:''; addMsg('buddy',`📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${walk}${p.address?`\n${p.address}`:(p.vicinity?`\n${p.vicinity}`:'')}`); });
+        const _favs=favPlacesGet();
+        list.forEach(p=>{ const walk=p.walkMin?` · 🚶${p.walkMin} min`:''; const loved=_favs[String(p.name||'').toLowerCase()]?'💛 you loved this — ':''; addMsg('buddy',`${loved}📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${walk}${p.address?`\n${p.address}`:(p.vicinity?`\n${p.vicinity}`:'')}`); });
         // MAPS DEPTH: the top pick arrives enriched — photo, today's hours, phone.
         const top0=list[0];
         if(top0&&top0.photo) addImg(top0.photo, top0.name);
@@ -2619,6 +2639,8 @@
   // ---- Navigate: type a destination, Vision speaks the guide ----
   // ---- Saved places: name your regular spots (home, gym, hotel) ----
   function placesGet(){ try{return JSON.parse(localStorage.getItem('buddy_places')||'{}');}catch{return{};} }
+  function favPlacesGet(){ try{return JSON.parse(localStorage.getItem('buddy_favplaces')||'{}');}catch{return{};} }
+  function favPlacesSave(f){ localStorage.setItem('buddy_favplaces',JSON.stringify(f)); }
   function placesSave(o){ localStorage.setItem('buddy_places',JSON.stringify(o)); }
   function savedPlaces(){
     const p=placesGet(); const names=Object.keys(p);

@@ -261,10 +261,14 @@ app.post("/translate", requireAuth, async (req, res) => {
 
 // --- Scam & price-check guard: is this a fair price here? ---
 app.post("/scamcheck", requireAuth, async (req, res) => {
-  const { item, price, currency, country } = req.body || {};
+  const { item, price, currency, country, prior } = req.body || {};
   if (!item || price == null) return res.status(400).json({ error: "item and price required" });
   const where = country ? ` in ${country}` : "";
   const cur = currency || "local currency";
+  // Batch 58: his own spend history is the best price guide there is.
+  const priorNote = (Array.isArray(prior) && prior.length)
+    ? ` For reference, he himself recently paid: ${prior.slice(0, 3).map(p => `${p.amt} for "${p.note}"`).join("; ")}. Compare against his own history when relevant.`
+    : "";
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 220,
@@ -272,7 +276,7 @@ app.post("/scamcheck", requireAuth, async (req, res) => {
     messages: [{
       role: "user",
       content:
-        `Shaun is being asked to pay ${price} ${cur} for "${item}"${where}. ` +
+        `Shaun is being asked to pay ${price} ${cur} for "${item}"${where}.${priorNote} ` +
         `Reply as compact JSON ONLY (no markdown) with keys: ` +
         `"verdict" (one of: "fair", "high", "rip-off", "unsure"), ` +
         `"spoken" (one short friendly spoken sentence Vision would say — e.g. what a fair price is, or "that's steep, offer X"), ` +
@@ -1515,7 +1519,11 @@ app.get("/health", requireAuth, async (req, res) => {
   ]);
 
   const ok = Object.values(checks).every(c => c.ok !== false);
-  res.json({ ok, checkedAt: new Date().toISOString(), checks });
+  // Batch 58: memory storage indicator — store size + disk free + durability.
+  let storage = { durable: DURABLE };
+  try { storage.storeKB = Math.round((require("fs").statSync(STORE_FILE).size || 0) / 1024 * 10) / 10; } catch { storage.storeKB = 0; }
+  try { const sf = require("fs").statfsSync(DATA_DIR); storage.diskFreeMB = Math.round(sf.bavail * sf.bsize / 1048576); } catch {}
+  res.json({ ok, checkedAt: new Date().toISOString(), checks, storage });
 });
 
 // --- Weather: current + short forecast (Open-Meteo, no key) ---
