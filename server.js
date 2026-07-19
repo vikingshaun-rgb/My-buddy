@@ -93,7 +93,7 @@ function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: f
 function rememberBrief(uid, b) { if (typeof b === "string" && b.trim()) { STORE.briefs[uid] = { text: b.slice(0, 900), at: Date.now() }; saveStore(); } }
 function briefOf(uid) { return STORE.briefs[uid] || null; }
 
-app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid) }); });
+app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid), patterns: patternScan(uid) }); });
 app.post("/state", requireAuth, (req, res) => {
   const uid = uidOf(req);
   const f = (req.body || {}).flags || {}; const cur = flagsOf(uid);
@@ -605,6 +605,7 @@ function buddyPersona(ctx) {
     // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
     ctx.styleLine || "",
     ctx.core || "",
+    ctx.patterns || "",
     ctx.recall || "",
     ctx.recentDays ? `HOW HIS LAST COUPLE OF DAYS WENT (context only, don't recite): ${ctx.recentDays}` : "",
     ctx.upcoming ? `WHAT'S COMING UP FOR HIM (mention only if relevant): ${ctx.upcoming}` : "",
@@ -625,7 +626,7 @@ function buddyPersona(ctx) {
     ctx.place ? `Shaun's rough location is ${ctx.place} — use it only if relevant.` : "",
     // TRIP STATE from the app's brain — this is what makes Vision answer like it
     // knows him rather than meeting him fresh every message.
-    ctx.brief ? `WHAT YOU KNOW ABOUT SHAUN'S SITUATION RIGHT NOW: ${ctx.brief} Use this naturally — factor it into answers without reciting it back at him. If he has an allergy or diet restriction listed, it overrides everything when food is involved.` : "",
+    ctx.brief ? `WHAT YOU KNOW ABOUT SHAUN'S SITUATION RIGHT NOW: ${ctx.brief} Use this naturally — factor it into answers without reciting it back at him. If a diet restriction is listed it overrides everything when food is involved; if none is listed, do not invent one or ask about allergies.` : "",
     ctx.profile ? `What you remember about Shaun (use naturally when relevant, don't recite it): ${ctx.profile}` : "",
   ].filter(Boolean).join(" ").split("Shaun").join(NAME);
 }
@@ -968,7 +969,7 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"status\" (my status/briefing/how am I doing/catch me up; args: none), " +
       "\"orderupdate\" (any update on my order/where's my food/my delivery; args: none), " +
       "\"flight\" (track/check the status of a SPECIFIC flight he is already booked on or names by number — 'how's my flight', 'track BA292', 'is my flight delayed', 'what gate'. NOT for finding or pricing flights to buy; args: flightNumber optional), " +
-      "\"allergy\" (is this safe to eat / can I eat X / does this have nuts; args: dish), " +
+      "\"allergy\" (what's in this dish / is this safe to eat / is this street food alright; args: dish), " +
       "\"logspend\" (log/record spending — spent 50 on lunch, log 12 for coffee; args: amount, note), " +
       "\"readtexts\" (read my texts/messages; args: none), " +
       "\"mailbrief\" (check/read my email/inbox; args: none), " +
@@ -1055,6 +1056,7 @@ app.post("/chat", requireAuth, async (req, res) => {
       style: profileOf(uidOf(req)).style || "",
       recall: recallBrief(uidOf(req), message || ""),
       core: coreBrief(uidOf(req)),
+      patterns: patternBrief(uidOf(req)),
       recentDays: daySummaryBrief(uidOf(req), 2),
       upcoming: upcomingBrief(uidOf(req)),
       pending: pendingBrief(uidOf(req)),
@@ -2616,6 +2618,83 @@ app.post("/flowcheck", requireAuth, async (req, res) => {
   } catch { res.json({ found: [] }); }
 });
 
+// --- 🔮 PATTERN ANTICIPATION (batch 98) ---
+// Reacting to a booking tomorrow is scheduling. Real anticipation is noticing
+// what REPEATS and what's MISSING — he eats around seven and it's quarter past;
+// he photographed a menu two days ago and never went; he logs spend daily and
+// hasn't today. The data is already in the pool; this reads it.
+function patternScan(uid) {
+  const mem = STORE.mem[uid] || [];
+  if (mem.length < 40) return [];
+  const now = Date.now(), hour = new Date().getHours(), day = 86400000;
+  const recent = mem.filter(m => now - m.at < 30 * day);
+  const out = [];
+
+  // 1. TIME-OF-DAY HABITS — what does he usually do around now?
+  const nearNow = recent.filter(m => {
+    const h = new Date(m.at).getHours();
+    return Math.abs(h - hour) <= 1 && now - m.at > 2 * day;
+  });
+  const verbs = {};
+  for (const m of nearNow) {
+    const v = (String(m.t).match(/^(\w+)/) || [])[1];
+    if (v && !/^(log|core|day|plan)$/.test(v)) verbs[v] = (verbs[v] || 0) + 1;
+  }
+  const habit = Object.entries(verbs).sort((a, b) => b[1] - a[1])[0];
+  if (habit && habit[1] >= 3) {
+    const doneToday = recent.some(m => now - m.at < 8 * 3600000 && String(m.t).startsWith(habit[0]));
+    if (!doneToday) out.push({ kind: "habit", note: `Around this hour he usually does "${habit[0]}" (${habit[1]} times lately) and hasn't today.` });
+  }
+
+  // 2. LOOSE ENDS — things he looked at and never acted on.
+  const looked = recent.filter(m => /^(menu read|saw:|moment|nearby|log:.*—)/.test(String(m.t)) && now - m.at < 5 * day);
+  for (const m of looked.slice(-6)) {
+    const subject = String(m.t).replace(/^[a-z ]+:?/i, "").slice(0, 40).trim();
+    if (!subject || subject.length < 6) continue;
+    const words = subject.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4).slice(0, 3);
+    if (!words.length) continue;
+    const followed = recent.some(o => o.at > m.at &&
+      /^(booking|completed|logspend|receipt|favourite|loved)/.test(String(o.t)) &&
+      words.some(w => String(o.t).toLowerCase().includes(w)));
+    if (!followed) { out.push({ kind: "loose-end", note: `He looked at "${subject}" ${Math.round((now - m.at) / day)} days ago and never followed it up.` }); break; }
+  }
+
+  // 3. REPEATS — a place or subject he keeps returning to.
+  const counts = {};
+  for (const m of recent) {
+    for (const w of String(m.t).toLowerCase().split(/[^a-z]+/)) {
+      if (w.length > 5 && !/^(vision|memory|because|through|nearby|around)$/.test(w)) counts[w] = (counts[w] || 0) + 1;
+    }
+  }
+  const top = Object.entries(counts).filter(([, n]) => n >= 5).sort((a, b) => b[1] - a[1])[0];
+  if (top) out.push({ kind: "repeat", note: `"${top[0]}" keeps coming up (${top[1]} times) — it clearly matters to him.` });
+
+  // 4. GONE QUIET — a routine that has stopped.
+  const kinds = ["logspend", "log:", "moment", "conversation"];
+  for (const k of kinds) {
+    const all = recent.filter(m => String(m.t).startsWith(k));
+    if (all.length >= 6) {
+      const last = all[all.length - 1];
+      const gapDays = (now - last.at) / day;
+      const typical = (last.at - all[0].at) / day / all.length;
+      if (typical > 0 && gapDays > typical * 4 && gapDays > 2) {
+        out.push({ kind: "stopped", note: `He used to "${k.replace(":", "")}" every ${typical.toFixed(1)} days and hasn't for ${gapDays.toFixed(0)}.` });
+        break;
+      }
+    }
+  }
+  return out.slice(0, 3);
+}
+// Patterns ride in the brief so the brain can raise them naturally — as an
+// observation, never a nag.
+function patternBrief(uid) {
+  const p = patternScan(uid);
+  if (!p.length) return "";
+  return "PATTERNS YOU'VE NOTICED (raise at most ONE, only if it fits the conversation, phrased as an observation not a reminder): "
+    + p.map(x => x.note).join(" | ");
+}
+app.post("/patterns", requireAuth, (req, res) => res.json({ patterns: patternScan(uidOf(req)) }));
+
 // --- 🧪 DISTILLATION (batch 94) ---
 // Memory fills in about four days of real use, then silently discards the
 // OLDEST facts — the first place he loved, the first deal he struck. This is
@@ -2842,6 +2921,11 @@ app.post("/plan", requireAuth, async (req, res) => {
       "If he mentions his partner, include telling her as a step. " +
       "NEVER invent a capability: you can open a dialer but cannot speak to a human; you can open a booking or " +
       "airline page but cannot pay. Use handoff for those and say so plainly. " +
+      "PARALLEL: mark a step \"parallel\":true when it does NOT depend on any earlier step " +
+      "(checking weather, converting currency, looking up etiquette). Those run at the same time, so the plan feels instant. " +
+      "Anything that uses {{prev}} or needs an earlier answer must NOT be parallel. " +
+      "FALLBACK: give any step that might come up empty a \"fallback\" object {\"skill\":\"...\",\"args\":{}} " +
+      "to try automatically before bothering him (e.g. nearby with a wider area, or a different search term). " +
       "STEP RESULTS: later steps can use what earlier ones found — write {{prev}} in an argument to mean " +
       "'whatever the previous step produced' (e.g. booking the restaurant that step 1 found). " +
       "ABORT SENSIBLY: order steps so that if an early lookup finds nothing, the rest would be pointless — " +
@@ -3026,6 +3110,11 @@ app.post("/plan", requireAuth, async (req, res) => {
       "If he mentions his partner, include telling her as a step. " +
       "NEVER invent a capability: you can open a dialer but cannot speak to a human; you can open a booking or " +
       "airline page but cannot pay. Use handoff for those and say so plainly. " +
+      "PARALLEL: mark a step \"parallel\":true when it does NOT depend on any earlier step " +
+      "(checking weather, converting currency, looking up etiquette). Those run at the same time, so the plan feels instant. " +
+      "Anything that uses {{prev}} or needs an earlier answer must NOT be parallel. " +
+      "FALLBACK: give any step that might come up empty a \"fallback\" object {\"skill\":\"...\",\"args\":{}} " +
+      "to try automatically before bothering him (e.g. nearby with a wider area, or a different search term). " +
       "STEP RESULTS: later steps can use what earlier ones found — write {{prev}} in an argument to mean " +
       "'whatever the previous step produced' (e.g. booking the restaurant that step 1 found). " +
       "ABORT SENSIBLY: order steps so that if an early lookup finds nothing, the rest would be pointless — " +
@@ -3123,8 +3212,9 @@ function pendingBrief(uid) {
 }
 
 // --- 🍽️ MENU READER (batch 86) ---
-// Photograph a menu: translated, checked against what he must avoid, with
-// what's actually worth ordering. Pairs the vision and allergy work together.
+// Photograph a menu: translated, priced, and steered toward what's actually
+// worth ordering. If he's stated restrictions they're honoured; if not, the
+// "avoid" list becomes genuine risk — the stuff travellers regret.
 app.post("/menu", requireAuth, async (req, res) => {
   const { image, mediaType, avoid, country, budget } = req.body || {};
   if (!image) return res.status(400).json({ error: "image required" });
@@ -3135,12 +3225,17 @@ app.post("/menu", requireAuth, async (req, res) => {
     system: "You read menus for a traveller. JSON only: " +
       '{"spoken":"2-3 sentences aloud: what kind of menu, roughly what things cost, your top pick and why",' +
       '"safe":[{"name":"dish as written","english":"what it is","price":"as printed","why":"one line"}],' +
-      '"avoid":[{"name":"dish","reason":"which of his restrictions it breaks"}],' +
-      '"unsure":["anything you cannot verify against his restrictions"]}. ' +
-      "Be honest in unsure — if you cannot tell whether a dish contains something he must avoid, say so rather than guessing. No markdown.",
+      '"avoid":[{"name":"dish","reason":"why to skip it"}],' +
+      '"unsure":["anything you genuinely cannot read or identify"]}. ' +
+      "If he has stated restrictions, flag anything that breaks them and say so plainly. " +
+      "If he has NO restrictions, do not invent any — use 'avoid' for real risk instead " +
+      "(raw or undercooked items in places with poor refrigeration, tourist-priced dishes, " +
+      "anything obviously past its best) and leave it empty if nothing warrants it. " +
+      "Be honest in unsure — if you cannot read a dish, say so rather than guessing. No markdown.",
     messages: [{ role: "user", content: [
       { type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } },
-      { type: "text", text: `Menu${country ? ` in ${country}` : ""}. He must avoid: ${avoid || "nothing stated"}.` +
+      { type: "text", text: `Menu${country ? ` in ${country}` : ""}. ` +
+        (avoid ? `He must avoid: ${avoid}.` : "He has no dietary restrictions — judge on quality and value, not diet.") +
         `${budget ? ` Budget around ${budget}.` : ""}${mem ? ` What he's enjoyed before: ${mem}` : ""}` }] }],
   };
   try {

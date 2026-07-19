@@ -89,9 +89,12 @@
   body[data-font="sacred"] .msg, body[data-font="celestial"] .msg{font-size:16.5px;line-height:1.55}
 
   html,body{background:var(--midnight);color:var(--paper);font-family:var(--f-body);-webkit-font-smoothing:antialiased}
-  /* Batch 80: everything real sits above the animated background layer.
-     Previously body::before used z-index:-1, which painted it BEHIND body's
-     own solid fill — the themes were rendering but completely hidden. */
+  /* Batch 95: the background lives on HTML, not body. body::before sat behind
+     opaque children (the wrap and tile grids paint their own backgrounds), so
+     only thin bands showed through. Now: html paints the theme, body is
+     transparent, and content sits naturally on top. */
+  html{background:var(--midnight)}
+  body{background:transparent !important}
   body>*{position:relative;z-index:1}
   body{max-width:520px;margin:0 auto;padding:0 18px 40px;min-height:100vh;
     background:radial-gradient(1200px 500px at 80% -10%,rgba(245,166,35,.10),transparent 60%),
@@ -394,38 +397,38 @@
 
   /* ===== THEMED BACKGROUNDS ===== */
   /* Themed backgrounds are richer than the default aurora — give them presence. */
-  body[data-theme]::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;opacity:.30}
-  body[data-theme="digital"]::before{
+  html[data-theme]::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;opacity:.30}
+  html[data-theme="digital"]::before{
     background:linear-gradient(rgba(80,200,255,.10) 1px, transparent 1px) 0 0/100% 34px,
                linear-gradient(90deg, rgba(80,200,255,.10) 1px, transparent 1px) 0 0/34px 100%,
                radial-gradient(60% 50% at 50% 20%, rgba(60,160,255,.18), transparent 70%);
     opacity:.5;filter:none;animation:gridDrift 24s linear infinite}
   @keyframes gridDrift{to{background-position:0 34px, 34px 0, 0 0}}
 
-  body[data-theme="matrix"]::before{
+  html[data-theme="matrix"]::before{
     background:repeating-linear-gradient(180deg, rgba(60,255,130,.16) 0 2px, transparent 2px 5px),
                radial-gradient(70% 60% at 50% 0%, rgba(20,140,60,.28), transparent 75%);
     opacity:.45;filter:none;animation:rain 2.2s linear infinite}
   @keyframes rain{to{background-position:0 5px, 0 0}}
 
-  body[data-theme="alien"]::before{
+  html[data-theme="alien"]::before{
     background:radial-gradient(45% 40% at 25% 30%, #7B2CBF, transparent 70%),
                radial-gradient(40% 35% at 75% 25%, #00F5D4, transparent 70%),
                radial-gradient(50% 45% at 55% 80%, #F72585, transparent 70%);
     opacity:.16;filter:blur(45px);animation:ambient 20s ease-in-out infinite alternate}
 
-  body[data-theme="machine"]::before{
+  html[data-theme="machine"]::before{
     background:repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 12px),
                radial-gradient(60% 50% at 50% 30%, rgba(255,170,50,.14), transparent 70%);
     opacity:.5;filter:none;animation:none}
 
-  body[data-theme="nature"]::before{
+  html[data-theme="nature"]::before{
     background:radial-gradient(40% 35% at 15% 20%, #4E8B2B, transparent 70%),
                radial-gradient(45% 40% at 85% 35%, #86efac, transparent 70%),
                radial-gradient(55% 50% at 50% 90%, #14532d, transparent 70%);
     opacity:.22;filter:blur(40px);animation:ambient 30s ease-in-out infinite alternate}
 
-  body[data-theme="jarvis"]::before{
+  html[data-theme="jarvis"]::before{
     background:radial-gradient(circle at 50% 45%, transparent 28%, rgba(90,200,255,.09) 29%, transparent 30%),
                radial-gradient(circle at 50% 45%, transparent 40%, rgba(90,200,255,.07) 41%, transparent 42%),
                radial-gradient(circle at 50% 45%, transparent 54%, rgba(90,200,255,.05) 55%, transparent 56%),
@@ -460,7 +463,7 @@
     filter:blur(3px);inset:-30px;animation:orbSpin 26s linear infinite reverse}
   @keyframes heavenRise{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-8px) scale(1.03)}}
 
-  body[data-theme="heaven"]::before{
+  html[data-theme="heaven"]::before{
     background:
       conic-gradient(from 200deg at 50% -10%, transparent 0deg, rgba(255,240,200,.22) 8deg, transparent 16deg,
         transparent 30deg, rgba(255,240,200,.16) 38deg, transparent 46deg,
@@ -485,7 +488,7 @@
   @keyframes hellBreathe{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.05);filter:brightness(1.25)}}
   @keyframes hellFlare{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.14)}}
 
-  body[data-theme="hell"]::before{
+  html[data-theme="hell"]::before{
     background:
       radial-gradient(2px 2px at 18% 88%, rgba(255,140,40,.9), transparent 60%),
       radial-gradient(1px 1px at 42% 78%, rgba(255,90,20,.8), transparent 60%),
@@ -517,7 +520,7 @@
   @keyframes leoPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
   @keyframes leoMane{0%,100%{transform:scale(1) rotate(0deg);opacity:.7}50%{transform:scale(1.10) rotate(6deg);opacity:1}}
 
-  body[data-theme="leo"]::before{
+  html[data-theme="leo"]::before{
     background:
       radial-gradient(1px 1px at 12% 22%, rgba(255,240,200,.9), transparent 60%),
       radial-gradient(1px 1px at 28% 62%, rgba(255,240,200,.7), transparent 60%),
@@ -544,7 +547,7 @@
     filter:blur(9px);inset:-26px;animation:wispPulse 5s ease-in-out infinite}
   @keyframes sagDrift{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-7px) rotate(-3deg)}}
 
-  body[data-theme="sagittarius"]::before{
+  html[data-theme="sagittarius"]::before{
     background:
       radial-gradient(1px 1px at 18% 28%, rgba(230,220,255,.9), transparent 60%),
       radial-gradient(2px 2px at 36% 14%, rgba(255,255,255,1), transparent 60%),
@@ -560,7 +563,7 @@
   /* ===== BATCH 74: SIX MORE WORLDS ===== */
 
   /* --- NEON NOIR (Blade Runner): rain-streaked dark, magenta/cyan bleed --- */
-  body[data-theme="noir"]::before{
+  html[data-theme="noir"]::before{
     background:repeating-linear-gradient(96deg, rgba(255,255,255,.05) 0 1px, transparent 1px 26px),
                radial-gradient(45% 40% at 22% 18%, #FF2E88, transparent 68%),
                radial-gradient(42% 38% at 78% 30%, #00E5FF, transparent 68%),
@@ -575,7 +578,7 @@
     inset:-11px;animation:orbSpin 5s linear infinite}
 
   /* --- DESERT TECH (Dune): warm sand + brass, readable in bright sun --- */
-  body[data-theme="desert"]::before{
+  html[data-theme="desert"]::before{
     background:radial-gradient(50% 45% at 30% 20%, #E8B95F, transparent 70%),
                radial-gradient(45% 40% at 75% 40%, #C97B3C, transparent 70%),
                radial-gradient(60% 50% at 50% 95%, #4a2c12, transparent 75%);
@@ -588,7 +591,7 @@
     filter:blur(10px);inset:-9px;animation:orbSpin 18s linear infinite}
 
   /* --- CRT TERMINAL: amber phosphor, scanlines, screen curve --- */
-  body[data-theme="crt"]::before{
+  html[data-theme="crt"]::before{
     background:repeating-linear-gradient(180deg, rgba(255,176,0,.14) 0 1px, transparent 1px 4px),
                radial-gradient(75% 65% at 50% 45%, rgba(255,176,0,.14), transparent 78%),
                radial-gradient(120% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.6) 100%);
@@ -603,7 +606,7 @@
   body[data-orb="crt"] #orb::after{display:none}
 
   /* --- DEEP SEA: near-black with drifting bioluminescence --- */
-  body[data-theme="deepsea"]::before{
+  html[data-theme="deepsea"]::before{
     background:radial-gradient(35% 30% at 20% 30%, #0FF4C6, transparent 70%),
                radial-gradient(30% 28% at 80% 55%, #3A86FF, transparent 70%),
                radial-gradient(70% 60% at 50% 100%, #001220, transparent 70%);
@@ -618,7 +621,7 @@
   body[data-orb="deepsea"] #orb::after{display:none}
 
   /* --- PAPER: the anti-sci-fi. Cream, ink, calm. --- */
-  body[data-theme="paper"]::before{
+  html[data-theme="paper"]::before{
     background:repeating-linear-gradient(0deg, rgba(120,90,50,.05) 0 1px, transparent 1px 28px),
                radial-gradient(80% 70% at 50% 30%, rgba(230,214,184,.5), transparent 75%);
     opacity:.5;filter:none;animation:none}
@@ -632,7 +635,7 @@
   body[data-orb="paper"] #orb::after{display:none}
 
   /* --- SOLAR: molten heat-map, high visibility outdoors --- */
-  body[data-theme="solar"]::before{
+  html[data-theme="solar"]::before{
     background:radial-gradient(45% 40% at 30% 25%, #FF9E00, transparent 70%),
                radial-gradient(40% 35% at 75% 35%, #FF206E, transparent 70%),
                radial-gradient(60% 55% at 50% 95%, #2b0a00, transparent 72%);
@@ -686,7 +689,7 @@
     #voiceBars.listening span:nth-child(5){animation-delay:.6s}
     @keyframes vbar{0%,100%{height:6px}50%{height:20px}}
     /* Ambient aurora wash behind everything */
-    body:not([data-theme])::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;opacity:.07;
+    html:not([data-theme])::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;opacity:.07;
       background:radial-gradient(40% 35% at 20% 25%, #B44CFF, transparent 70%),
                  radial-gradient(35% 30% at 80% 20%, #4CC9FF, transparent 70%),
                  radial-gradient(45% 40% at 60% 85%, #FF4C9D, transparent 70%);
@@ -740,7 +743,7 @@
   <div class="grid">
     <div class="tile" onclick="arrivalAutopilot()"><span class="badge live">live</span><div class="ic">🛬</div><h3>I just landed</h3><p>One-tap arrival setup</p></div>
     <div class="tile" onclick="scamCheck()"><span class="badge live">live</span><div class="ic">🛡️</div><h3>Fair price?</h3><p>Scam &amp; price-check guard</p></div>
-    <div class="tile" onclick="allergyCheck()"><span class="badge live">live</span><div class="ic">🥜</div><h3>Safe to eat?</h3><p>Allergy &amp; diet shield</p></div>
+    <div class="tile" onclick="allergyCheck()"><span class="badge live">live</span><div class="ic">🍲</div><h3>What's in this?</h3><p>Ingredients &amp; street-food risk</p></div>
     <div class="tile" onclick="conversationMode()"><span class="badge live">live</span><div class="ic">🗣️</div><h3>Conversation</h3><p>Two-way live translate</p></div>
     <div class="tile" onclick="phrasebook()"><span class="badge live">live</span><div class="ic">📖</div><h3>Phrasebook</h3><p>Your phrases, spoken local</p></div>
     <div class="tile" onclick="etiquetteWhisper()"><span class="badge live">live</span><div class="ic">🙏</div><h3>Etiquette</h3><p>How to be polite here</p></div>
@@ -804,18 +807,25 @@
     <div class="tile" onclick="seeHerView()"><span class="badge soon">glasses</span><div class="ic">🔭</div><h3>See her view</h3><p>What she's seeing</p></div>
   </div>
 
-  <div class="group" onclick="toggleCat(this)"><h2>Settings</h2><div class="rule"></div><span class="chev">▾</span></div>
+  <div class="group" onclick="toggleCat(this)"><h2>My Records</h2><div class="rule"></div><span class="chev">▾</span></div>
+  <div class="grid">
+    <div class="tile" onclick="bookingsView('')"><span class="badge live">live</span><div class="ic">🎫</div><h3>My bookings</h3><p>Refs, times, seats</p></div>
+    <div class="tile" onclick="recallConversation('')"><span class="badge live">live</span><div class="ic">🗣️</div><h3>Conversations</h3><p>What we agreed</p></div>
+    <div class="tile" onclick="docsView()"><span class="badge live">live</span><div class="ic">📋</div><h3>Documents</h3><p>Insurance &amp; embassy</p></div>
+    <div class="tile" onclick="memoryHealth()"><span class="badge live">live</span><div class="ic">🧠</div><h3>What I know</h3><p>Durable facts, editable</p></div>
+    
+  </div>
+
+  <div class="group" onclick="toggleCat(this)"><h2>Setup &amp; Health</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">🔌</div><h3>Connection</h3><p>Server, token & colours</p></div>
     <div class="tile" onclick="chooseLooks()"><span class="badge live">live</span><div class="ic">🎨</div><h3>Looks</h3><p>Orb & background</p></div>
     <div class="tile" onclick="readMenu()"><span class="badge live">live</span><div class="ic">🍽️</div><h3>Read a menu</h3><p>Safe picks & prices</p></div>
-    <div class="tile" onclick="bookingsView('')"><span class="badge live">live</span><div class="ic">🎫</div><h3>My bookings</h3><p>Refs, times, seats</p></div>
-    <div class="tile" onclick="docsView()"><span class="badge live">live</span><div class="ic">📋</div><h3>Documents</h3><p>Insurance & embassy</p></div>
-    <div class="tile" onclick="recallConversation('')"><span class="badge live">live</span><div class="ic">🗣️</div><h3>Conversations</h3><p>What we agreed</p></div>
+    
     <div class="tile" onclick="keysView()"><span class="badge live">live</span><div class="ic">🔑</div><h3>Service keys</h3><p>Set & test from here</p></div>
-    <div class="tile" onclick="memoryHealth()"><span class="badge live">live</span><div class="ic">🧠</div><h3>What I know</h3><p>Durable facts, editable</p></div>
     <div class="tile" onclick="logBug('')"><span class="badge live">live</span><div class="ic">🐞</div><h3>Log a bug</h3><p>Captures the context</p></div>
     <div class="tile" onclick="bugsView()"><span class="badge live">live</span><div class="ic">📋</div><h3>Bug log</h3><p>Copy for Claude</p></div>
+    <div class="tile" onclick="testRunner()"><span class="badge live">live</span><div class="ic">🧪</div><h3>Test runner</h3><p>Check every function</p></div>
     <div class="tile" onclick="diagView('all')"><span class="badge live">live</span><div class="ic">🔍</div><h3>Diagnostics</h3><p>Logs for testing</p></div>
     <div class="tile" onclick="runHealth(true)" data-tip="status"><span class="badge live">live</span><div class="ic">📡</div><h3>Status</h3><p id="healthSub">Check the backend</p></div>
     <div class="tile" onclick="location.href='./trainer.html'"><span class="badge live">live</span><div class="ic">🎓</div><h3>Learn commands</h3><p>Practice out loud</p></div>
@@ -1236,6 +1246,128 @@
       scrollChat();
     }catch(e){ settle(t,'Day view unreachable — is the brain deployed?'); }
   }
+  // 🧪 TEST RUNNER (batch 96): 85 functions is too many to hold in your head.
+  // This lists every one, lets you run it, mark it pass or fail, and remembers
+  // where you got to. Failures go straight into the bug log with context.
+  function testCatalogue(){
+    // Built from the live tiles, so it can never drift out of date.
+    const out=[];
+    document.querySelectorAll('.grid').forEach(grid=>{
+      const hdr=grid.previousElementSibling;
+      const group=(hdr&&hdr.querySelector('h2'))?hdr.querySelector('h2').textContent.trim():'Other';
+      grid.querySelectorAll('.tile').forEach(t=>{
+        const onclick=t.getAttribute('onclick')||'';
+        const name=(t.querySelector('h3')||{}).textContent||'?';
+        const sub=(t.querySelector('p')||{}).textContent||'';
+        if(onclick) out.push({group,name,sub,onclick});
+      });
+    });
+    return out;
+  }
+  function testState(){ try{ return JSON.parse(localStorage.buddy_tests||'{}'); }catch(e){ return {}; } }
+  function testMark(key,status){
+    const s=testState(); s[key]={status,at:Date.now()};
+    localStorage.buddy_tests=JSON.stringify(s);
+  }
+  async function testRunner(filter){
+    openChat(); addMsg('me','🧪 Test runner');
+    const all=testCatalogue();
+    const state=testState();
+    const done=all.filter(t=>state[t.name]).length;
+    const passed=all.filter(t=>state[t.name]&&state[t.name].status==='pass').length;
+    const failed=all.filter(t=>state[t.name]&&state[t.name].status==='fail');
+    addMsg('buddy',`${all.length} functions · ${passed} passed · ${failed.length} failed · ${all.length-done} untested`);
+
+    if(failed.length){
+      addMsg('buddy','❌ FAILED — these need looking at:');
+      failed.forEach(t=>addMsg('buddy',`   ❌ ${t.name} [${t.group}]`));
+    }
+    // Show untested first — that's what you're here for.
+    const todo=all.filter(t=>!state[t.name]);
+    const list=filter==='all'?all:todo;
+    if(!list.length){
+      const m='Everything tested. Say "reset tests" to go again.'; addMsg('buddy',m); say(m); return;
+    }
+    addMsg('buddy',`${filter==='all'?'All':'Untested'} — tap to run, then mark it:`);
+    let lastGroup='';
+    list.slice(0,60).forEach(t=>{
+      if(t.group!==lastGroup){ lastGroup=t.group;
+        const g=addMsg('buddy','── '+t.group+' ──'); g.style.cssText+='opacity:.5;font-size:12px'; }
+      const st=state[t.name];
+      const mark=st?(st.status==='pass'?'✅':'❌'):'⬜';
+      const el=addMsg('buddy',`${mark} ${t.name} — ${t.sub}`);
+      el.style.cursor='pointer';
+      el.onclick=()=>{
+        // run it, then offer the verdict buttons
+        try{ (new Function(t.onclick))(); }catch(e){ toast('Failed to run: '+e.message); }
+        setTimeout(()=>{
+          const v=addMsg('buddy',`Did "${t.name}" work?`);
+          [['✅ Worked','pass'],['❌ Broken','fail'],['⏭️ Skip','skip']].forEach(([label,status])=>{
+            const b=document.createElement('div');
+            b.style.cssText='margin-top:6px;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer';
+            b.textContent=label;
+            b.onclick=async()=>{
+              if(status!=='skip') testMark(t.name,status);
+              v.textContent = status==='pass'?`✅ ${t.name} — passed`
+                            : status==='fail'?`❌ ${t.name} — logged as broken`
+                            : `⏭️ ${t.name} — skipped`;
+              if(status==='fail'){
+                const why=prompt(`What went wrong with "${t.name}"?`,'');
+                if(why!==null) await logBug(`[${t.name}] ${why||'no detail given'}`);
+              }
+            };
+            v.appendChild(b);
+          });
+          scrollChat();
+        }, 900);
+      };
+    });
+    if(list.length>60) addMsg('buddy',`…and ${list.length-60} more — mark some off and run this again.`);
+    say(`${list.length} to test. Tap one to run it.`);
+    scrollChat();
+  }
+  function testReset(){
+    localStorage.removeItem('buddy_tests');
+    const m='Test results cleared — starting fresh.'; addMsg('buddy',m); say(m);
+  }
+
+  // 🔍 TILE SEARCH (batch 95): 87 tiles is a lot to scroll. Type two letters
+  // and everything irrelevant disappears. Groups with no matches collapse.
+  function mountSearch(){
+    if(document.getElementById('tileSearch')) return;
+    const first=document.querySelector('.group');
+    if(!first) return;
+    const wrap=document.createElement('div');
+    wrap.style.cssText='padding:0 16px 6px';
+    const inp=document.createElement('input');
+    inp.id='tileSearch'; inp.type='search'; inp.placeholder='🔍 Find anything — menu, flight, memory…';
+    inp.style.cssText='width:100%;padding:12px 14px;border-radius:12px;font-size:15px;'+
+      'border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;'+
+      'font-family:var(--f-mono)';
+    wrap.appendChild(inp);
+    first.parentNode.insertBefore(wrap, first);
+    inp.oninput=()=>{
+      const q=inp.value.trim().toLowerCase();
+      document.querySelectorAll('.grid').forEach(grid=>{
+        let shown=0;
+        grid.querySelectorAll('.tile').forEach(t=>{
+          const txt=t.textContent.toLowerCase();
+          const hit=!q||txt.includes(q);
+          t.style.display=hit?'':'none';
+          if(hit) shown++;
+        });
+        const hdr=grid.previousElementSibling;
+        if(q){
+          grid.classList.add('open');
+          if(hdr&&hdr.classList.contains('group')) hdr.style.display=shown?'':'none';
+        } else {
+          grid.classList.remove('open');
+          if(hdr&&hdr.classList.contains('group')) hdr.style.display='';
+        }
+      });
+    };
+  }
+
   // 🧠 MEMORY HEALTH (batch 94): see what Vision has distilled into durable
   // truths about you — and correct anything it got wrong. Memory you can't
   // inspect isn't yours.
@@ -1281,7 +1413,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='94';
+  const BUILD_VERSION='98';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -1431,12 +1563,33 @@
         } else { finishPlan(''); }
         return;
       }
+      // PARALLEL: fire off every independent step waiting behind this one, so
+      // weather and currency don't queue behind a restaurant search.
+      if(st.parallel){
+        const batch=[st];
+        let j=p.i+1;
+        while(j<p.steps.length && p.steps[j].parallel && p.steps[j].mode!=='ask' && p.steps[j].mode!=='handoff'){
+          batch.push(p.steps[j]); j++;
+        }
+        if(batch.length>1){
+          p.i=j;
+          await Promise.all(batch.map(b=>dispatchSkill(b.skill,b.args||{},p.goal).catch(()=>false)));
+          await new Promise(r=>setTimeout(r,300));
+          continue;
+        }
+      }
       // AUTO: just do it, and notice if it got nowhere.
       p.i++;
       let worked=true;
       const before=document.querySelectorAll('#chatLog .msg.buddy').length;
       try{ worked = await dispatchSkill(st.skill, st.args||{}, p.goal); }
       catch(e){ worked=false; }
+      // RECOVER: try the planner's fallback before interrupting him.
+      if(worked===false && st.fallback && st.fallback.skill){
+        const f=addMsg('buddy','· trying another way'); f.style.cssText+='opacity:.5;font-size:13px';
+        try{ worked = await dispatchSkill(st.fallback.skill, st.fallback.args||{}, p.goal); }
+        catch(e){ worked=false; }
+      }
       // Capture what this step produced, for the next one to use.
       try{
         const msgs=[...document.querySelectorAll('#chatLog .msg.buddy')];
@@ -1570,7 +1723,7 @@
 
   // 🍽️ MENU READER (batch 86): photograph a menu, hear what's safe and good.
   async function readMenu(){
-    const avoid=(localStorage.getItem('buddy_avoid')||'').trim();
+    const avoid=(localStorage.getItem('buddy_avoid')||'').trim();   // usually empty
     const f=await pickImageFile(); if(!f) return;
     openChat(); addMsg('me','🍽️ Read this menu');
     const t=addMsg('buddy','Reading the menu…','think');
@@ -2142,7 +2295,9 @@
     let th=localStorage.buddy_bg||'aurora';
     if(th==='auto') th=contextTheme();
     if(orb==='aurora') document.body.removeAttribute('data-orb'); else document.body.setAttribute('data-orb',orb);
-    if(th==='aurora') document.body.removeAttribute('data-theme'); else document.body.setAttribute('data-theme',th);
+    // data-theme lives on <html> now (that's where the background paints)
+    const root=document.documentElement;
+    if(th==='aurora') root.removeAttribute('data-theme'); else root.setAttribute('data-theme',th);
   }
   async function chooseOrb(){
     const v=await pick('Pick your orb', ORB_STYLES, {allowSpeech:false, allowType:false});
@@ -3921,7 +4076,10 @@
     const clean=next.trim();
     localStorage.setItem('buddy_profile',clean);
     const homeM=clean.match(/home currency[:\s]+([A-Za-z]{3})/i); if(homeM) localStorage.setItem('buddy_home',homeM[1].toUpperCase());
-    const avoidM=clean.match(/(?:avoid|allerg[a-z]*)[:\s]+([^.;\n]+)/i); if(avoidM) localStorage.setItem('buddy_avoid',avoidM[1].trim());
+    // Batch 97: no longer auto-harvests dietary restrictions from chat — he has
+    // none, and guessing them from stray words was making advice worse.
+    const avoidM=clean.match(/^\s*(?:i (?:must )?avoid|i'?m allergic to)[:\s]+([^.;\n]+)/i);
+    if(avoidM){ localStorage.setItem('buddy_avoid',avoidM[1].trim()); localStorage.buddy_avoid_confirmed='1'; }
     document.getElementById('memSub').textContent = clean ? 'Vision remembers you ✓' : 'Hotel, diet, prefs';
     say(clean ? "Got it — I'll remember that from now on." : "Cleared what I remembered.");
   }
@@ -3948,8 +4106,9 @@
 
   // ---- Safe to eat? allergy & diet shield (text or photo) ----
   async function allergyCheck(){
+    // No restrictions by default — this is about what a dish actually contains
+    // and whether it's a sensible thing to eat from a street stall.
     let avoid=localStorage.getItem('buddy_avoid')||'';
-    if(!avoid){ avoid=prompt("What must you avoid? (e.g. peanuts, shellfish, pork) — I'll remember it")||''; if(avoid) localStorage.setItem('buddy_avoid',avoid); }
     if(!avoid) return;
     const dish=prompt(`Avoiding: ${avoid}\n\nWhat's the dish? (name it, or leave blank to photograph it)`)||'';
     const country=localStorage.getItem('buddy_country')||'';
@@ -4163,7 +4322,10 @@
       t.appendChild(d);
     });
   }
-  document.addEventListener('DOMContentLoaded', async ()=>{ await autoConfig(); renderGlance(); heroInit(); applyGlassChip(); mountTips(); mountBack(); applyLooks(); applyFont(); orb3dStart(); resumePending(); resumePlan(); setInterval(()=>{ if(localStorage.buddy_bg==='auto') applyLooks(); }, 900000); if(lifelogOn()) lifelogStart(); });
+  document.addEventListener('DOMContentLoaded', async ()=>{ await autoConfig(); renderGlance(); heroInit(); applyGlassChip(); mountTips(); mountBack(); mountSearch();
+    // Batch 97: Shaun has no allergies — clear any stored avoid list once and
+    // stop the app volunteering dietary restrictions it doesn't have.
+    try{ if(localStorage.buddy_avoid && !localStorage.buddy_avoid_confirmed){ localStorage.removeItem('buddy_avoid'); } }catch(e){} applyLooks(); applyFont(); orb3dStart(); resumePending(); resumePlan(); setInterval(()=>{ if(localStorage.buddy_bg==='auto') applyLooks(); }, 900000); if(lifelogOn()) lifelogStart(); });
   function openChat(){
     try{ history.pushState({vision:'layer'},''); }catch(e){} updateBackBtn();
     document.getElementById('chat').classList.add('open');
@@ -4522,6 +4684,9 @@
     if(m51=text.match(/^(?:log|report)\s*(?:a\s*)?bug\b[:\s-]*(.*)$/i)){ logBug(m51[1].trim()); return; }
     if(/^(my bugs|bug log|show (me )?(the )?bugs)$/i.test(text)){ bugsView(); return; }
     if(/^(what do you know|memory health|my memory|tidy (up )?(my )?memory)$/i.test(text)){ memoryHealth(); return; }
+    if(/^(test|test runner|run tests|what needs testing)$/i.test(text)){ testRunner(); return; }
+    if(/^(test all|show all tests)$/i.test(text)){ testRunner('all'); return; }
+    if(/^reset tests$/i.test(text)){ testReset(); return; }
     // LOOKS (batch 73)
     if(/^(change|pick|choose|set) (the )?(look|theme|style|orb|background|colou?rs?)$/i.test(text)){ chooseLooks(); return; }
     if(m51=text.match(/^(?:make|set) (?:the )?orb (\w+)$/i)){
