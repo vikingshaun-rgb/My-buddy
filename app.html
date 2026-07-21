@@ -247,6 +247,7 @@
     <div class="ribbon-row">
       <div class="brand">My<b>Vision</b></div>
       <div class="ribbon-spacer"></div>
+      <span class="chip" id="quietChip" onclick="toggleQuiet()" title="Silence Vision">🔊</span>
       <span class="chip" id="glassChip" onclick="toggleGlasses()" title="Tap when wearing your glasses">🕶️</span>
       <span class="chip" onclick="openSettings()"><span class="dot warn" id="sysDot"></span><span id="sysTxt">Set up</span></span>
     </div>
@@ -2195,7 +2196,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='150';
+  const BUILD_VERSION='152';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -3241,6 +3242,24 @@
   }
   // 🔤 ADDRESS PICKER: two letters and it suggests. Saved places first, then
   // live Google suggestions biased to where you are.
+  // A location fix for search biasing. Cached for two minutes because the
+  // picker fires on every keystroke, and being a block out is irrelevant when
+  // the bias radius is 30km. Falls back to his saved city so a denied
+  // permission still beats searching the entire planet.
+  let _fix=null, _fixAt=0;
+  function placeFix(){
+    return new Promise(resolve=>{
+      if(_fix && Date.now()-_fixAt < 120000){ resolve(_fix); return; }
+      if(!navigator.geolocation){ resolve(null); return; }
+      const give=(v)=>{ if(v){ _fix=v; _fixAt=Date.now(); } resolve(v); };
+      const bail=setTimeout(()=>give(_fix), 2500);
+      navigator.geolocation.getCurrentPosition(
+        p=>{ clearTimeout(bail); give({lat:p.coords.latitude,lng:p.coords.longitude}); },
+        ()=>{ clearTimeout(bail); give(_fix); },
+        {enableHighAccuracy:false, timeout:2200, maximumAge:300000});
+    });
+  }
+
   function pickPlace(question){
     return new Promise(resolve=>{
       const back=document.createElement('div');
@@ -3277,9 +3296,13 @@
         clearTimeout(timer);
         const v=inp.value.trim();
         if(v.length<2){ renderSaved(); return; }
-        timer=setTimeout(()=>{
-          const st=brain.state();
-          api('/autocomplete',{q:v,lat:st.lat,lng:st.lng}).then(({data})=>{
+        timer=setTimeout(async ()=>{
+          // Batch 151: this used to read st.lat from brain.state(), which has
+          // never returned a location — so `undefined` went up and Google
+          // searched globally. "restaurant near me" came back with Las Vegas,
+          // Birmingham and Tamil Nadu.
+          const fix=await placeFix();
+          api('/autocomplete',{q:v,lat:fix?fix.lat:undefined,lng:fix?fix.lng:undefined}).then(({data})=>{
             list.innerHTML='';
             const sugg=(data&&data.suggestions)||[];
             sugg.forEach(sg=>list.appendChild(row(sg.label, sg.sub, sg.value, '📍')));
@@ -4023,6 +4046,34 @@
   }
   document.addEventListener('touchend', unlockVoice, {once:true});
   document.addEventListener('click', unlockVoice, {once:true});
+  // Batch 152: he turned the volume down and Vision kept talking, with his
+  // wife asleep. Two problems — speakIn() ignored quiet mode entirely, and
+  // quiet mode itself was buried several taps into Settings. This is the
+  // second half: one tap, always on screen, and it stops mid-sentence rather
+  // than letting the current utterance finish.
+  function toggleQuiet(){
+    const on = localStorage.buddy_quiet==='on';
+    if(on){ localStorage.removeItem('buddy_quiet'); }
+    else {
+      localStorage.buddy_quiet='on';
+      // Cut whatever is being said RIGHT NOW. Waiting for the sentence to end
+      // defeats the point of reaching for it.
+      try{ speechSynthesis.cancel(); buddySpeaking=false; orbState('idle'); }catch(e){}
+    }
+    paintQuiet();
+    toast(on ? 'Sound on' : 'Silenced — Vision will show, not speak');
+  }
+  function paintQuiet(){
+    const el=document.getElementById('quietChip'); if(!el) return;
+    const on = localStorage.buddy_quiet==='on';
+    el.textContent = on ? '🔇' : '🔊';
+    el.title = on ? 'Vision is silenced - tap for sound' : 'Silence Vision';
+    el.style.opacity = on ? '1' : '.7';
+    // Amber when muted, so a glance is enough — he should never have to tap
+    // it to find out which state it's in.
+    el.style.background = on ? 'rgba(245,166,35,.22)' : '';
+  }
+
   function say(text){
     // QUIET MODE: show it, never speak it.
     if(localStorage.buddy_quiet==='on'){ toast(text); return; }
@@ -4582,12 +4633,18 @@
   try{ speechSynthesis.onvoiceschanged=()=>{ _voiceCache=speechSynthesis.getVoices()||[]; }; }catch(e){}
 
   function speakIn(text,lang){
+    // Batch 152: this had NO quiet check. say() honoured quiet mode and this
+    // didn't, so translation and conversation mode kept talking with the
+    // volume down and his wife asleep. Every path that makes a sound has to
+    // respect one switch, or the switch is a lie.
+    if(localStorage.buddy_quiet==='on'){ toast(text); return; }
     try{
       buddySpeaking=true; pauseListening();
       speechSynthesis.resume(); speechSynthesis.cancel();
       const u=new SpeechSynthesisUtterance(text);
       const tag=langTag(lang);
       if(tag){ u.lang=tag; const v=voiceFor(tag); if(v) u.voice=v; }
+      if(localStorage.buddy_whisper==='on') u.volume=0.25;   // batch 152: was say()-only too
       // Foreign speech at native rate is a wall of sound to whoever's listening.
       if(tag && !/^en/i.test(tag)) u.rate=0.92;
       u.onend=u.onerror=()=>{ buddySpeaking=false; if(handsFree) setTimeout(startListening, 300); };
@@ -5429,6 +5486,7 @@
     try{ history.pushState({vision:'layer'},''); }catch(e){} updateBackBtn();
     document.getElementById('chat').classList.add('open');
     if(chatHistory.length===0){
+      paintQuiet();
       addMsg('buddy', openingBrief()); watcherNews(); pttCheck(); partnerPing();
       // Hold-to-talk: pointer events so it works with a thumb or a mouse.
       const _pt=document.getElementById('pttTile');

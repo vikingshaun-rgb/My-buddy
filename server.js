@@ -3454,7 +3454,21 @@ app.post("/autocomplete", requireAuth, async (req, res) => {
     const u = new URL("https://maps.googleapis.com/maps/api/place/autocomplete/json");
     u.searchParams.set("input", String(q).slice(0, 120));
     u.searchParams.set("key", GMAPS_KEY);
-    if (lat != null && lng != null) { u.searchParams.set("location", `${lat},${lng}`); u.searchParams.set("radius", "30000"); }
+    if (lat != null && lng != null) {
+      // strictbounds keeps results inside the radius rather than merely
+      // preferring them. Without it, "restaurant near me" still returned
+      // Las Vegas and Tamil Nadu because Google treats location as a hint.
+      u.searchParams.set("location", `${lat},${lng}`);
+      u.searchParams.set("radius", "30000");
+      u.searchParams.set("strictbounds", "true");
+    } else {
+      // Batch 151: no fix — but we usually know where he IS, because /arrival
+      // records it. A city name beats searching the entire planet.
+      const p = profileOf(uidOf(req)) || {};
+      if (p.city || p.country) {
+        u.searchParams.set("input", `${String(q).slice(0, 100)} ${p.city || ""} ${p.country || ""}`.trim());
+      }
+    }
     const j = await (await fetch(u)).json();
     const suggestions = (j.predictions || []).slice(0, 6).map(p => ({
       label: p.structured_formatting?.main_text || p.description,
