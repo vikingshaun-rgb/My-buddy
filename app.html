@@ -1433,6 +1433,11 @@
       if(status===400&&data.spoken){ settle(t,data.spoken); say(data.spoken); return; }
       if(!ok){ settle(t,'Couldn\'t set that watcher up — try rewording it?'); return; }
       settle(t,data.spoken); say(data.spoken);
+      // Batch 154: work out what this reminder will NEED him to do, now, while
+      // he's here — so when it fires at 6:30 it can offer rather than just
+      // read itself back. Fire-and-forget: a reminder that saves is worth more
+      // than one that waits for this.
+      if(data.id) planFollowUp(request, data.when||'', data.id);
     }catch(e){ settle(t,'Couldn\'t set that watcher up — is the brain deployed?'); }
   }
   async function watcherList(){
@@ -1463,6 +1468,10 @@
         el.style.opacity='.8';
       }
       chimeNews(); say(shown[0].spoken); coach('watcherfired');
+      // Batch 154: a reminder that fires and just reads itself back is a note.
+      // Offer what it worked out this would need — the server decides whether
+      // to, based on what he's actually taken before.
+      shown.forEach(r=>{ if(r.id) setTimeout(()=>offerFollowUp(r.id, r.label||r.spoken), 900); });
       // Acknowledge AFTER rendering, and only up to the newest one shown.
       const upto=Math.max(...shown.map(r=>r.at||0));
       api('/watchers',{action:'seen',upto}).catch(()=>{});
@@ -2196,7 +2205,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='152';
+  const BUILD_VERSION='156';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -5689,13 +5698,18 @@
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
       if(skill==='nearby'){ nearbyQuery(a.query||original); return true; }
-      if(skill==='navigate' && a.destination){
-        const saved={...favPlacesGet(),...placesGet()}; const k=String(a.destination).trim().toLowerCase();
-        const spoken=normMode(a.mode||original); const m=spoken||travelModeGet();
+      if(skill==='navigate'){
+        // Batch 153: asking for directions IS the instruction. This used to
+        // auto-open only if he happened to say "take me" or "in maps", and
+        // otherwise showed a card to tap — which is useless on a scooter.
+        // Mode comes from his words, or his usual. No picker either way.
+        // The fast path hands the whole sentence over as a.said; the router
+        // path has it in `original`. Either way autoNavigate needs the words,
+        // because that's where the mode lives.
+        const heard = a.said || original || '';
+        const spoken = normMode(a.mode || heard);
         if(spoken) travelModeSave(spoken);
-        const dest=saved[k]||a.destination;
-        const wantsMaps=/\b(in|into|open|use|via|with)\s+(google\s+|apple\s+)?maps\b/i.test(original||'')||/\btake me\b/i.test(original||'');
-        if(wantsMaps||localStorage.buddy_automaps==='on') navigateWith(dest,m,true); else confirmNavigate(dest,m);
+        await autoNavigate(heard, a.destination, spoken);
         return true; }
       if(skill==='itinerary'){ tripItinerary(); return true; }
       if(skill==='status'){ statusBriefing(); return true; }
@@ -5792,6 +5806,7 @@
       if(skill==='digest'){ await attentionDigest(); return true; }
       if(skill==='notnow'){ await attentionDismiss('any', a.subject||original, a.scope); return true; }
       if(skill==='whyquiet'){ await attentionStatus(); return true; }
+      if(skill==='learned'){ await whatLearned(); return true; }
       if(skill==='talkto'){ convoOpen(); return true; }
       if(skill==='phrasebook'){ await convoPhrasebook(); return true; }
       if(skill==='convohistory'){ await convoHistory(a.query||''); return true; }
@@ -6609,6 +6624,17 @@
     { re: /^(?:my\s+)?phrase\s*book\??$/i,
       skill: 'phrasebook', args: () => ({}) },
 
+    // --- getting somewhere ---
+    // Time-critical: he's about to move, and the router costs ~1.6s. These
+    // phrasings are unambiguous, so there's nothing for the model to weigh.
+    { re: /^(?:take|get|walk|drive|ride|bring)\s+me\s+to\s+(.+)$/i,
+      skill: 'navigate', args: (m, t) => ({ destination: '', mode: '', said: t }) },
+    { re: /^(?:navigate|directions)\s+to\s+(.+)$/i,
+      skill: 'navigate', args: (m, t) => ({ destination: '', mode: '', said: t }) },
+    // The whole phrasing he actually used, mode and all.
+    { re: /^(?:i'?m\s+)?(?:jumping|hopping|getting)\s+(?:on|in)\s+(?:my|the)\s+\w+.*\bto\s+.+$/i,
+      skill: 'navigate', args: (m, t) => ({ destination: '', mode: '', said: t }) },
+
     // --- everyday ---
     { re: /^(?:what(?:'s| is)? the\s+)?weather(?:\s+(?:today|now|like))?\??$/i,
       skill: 'weather', args: () => ({}) },
@@ -6984,6 +7010,81 @@
       el.style.cssText+=';cursor:pointer;font-weight:700';
       el.onclick=()=>attentionDigest();
     }
+  }
+
+  // ============================================================
+  // FOLLOW-THROUGH (batch 154)
+  // A reminder that says "get milk" is a note. One that says
+  // "get milk — want me to take you to the IGA on the way home?"
+  // is an assistant. This is the difference.
+  // ============================================================
+
+  // Worked out ONCE when he sets the reminder, so firing is instant.
+  async function planFollowUp(label, when, id){
+    try{ await api('/follow/plan',{label,when:when||'',id:id||''}); }catch(e){}
+  }
+
+  // When a reminder fires. Offers only if his own history says he wants it.
+  async function offerFollowUp(id, label){
+    const {data}=await api('/follow/fire',{id,label}).catch(()=>({data:{}}));
+    const o = data && data.offer;
+    if(!o) return;   // either nothing to offer, or he's shown he doesn't want it
+
+    openChat();
+    const line = addMsg('buddy','💡 '+o.spoken);
+    say(o.spoken);
+
+    // Taking it should be one tap, and the action should just happen.
+    const go = addMsg('buddy', o.action==='navigate' ? '🧭 Yes, take me there'
+                    : o.action==='call' ? '📞 Yes, call them'
+                    : o.action==='book' ? '📅 Yes, book it' : '✅ Yes');
+    go.style.cssText+=';cursor:pointer;font-weight:700';
+    go.onclick=async()=>{
+      go.textContent = '✅ On it';
+      api('/follow/outcome',{category:o.category,action:o.action,label,outcome:'taken'}).catch(()=>{});
+      if(o.action==='navigate'){
+        // The constraint matters — a shop behind him is no use.
+        const q = [o.what, o.constraint].filter(Boolean).join(' ');
+        await autoNavigate(q, o.what, null);
+      } else if(o.action==='call'){
+        addMsg('buddy','Say the name and I\'ll find the number.');
+      } else {
+        document.getElementById('chatText').value = o.what || label;
+        sendChat();
+      }
+    };
+
+    // Refusing has to be as easy as accepting, or the learning is skewed by
+    // how hard it is to say no.
+    const no = addMsg('buddy','   no need');
+    no.style.cssText+=';cursor:pointer;opacity:.6;font-size:12px';
+    no.onclick=async()=>{
+      no.textContent='   righto';
+      const {data:d2}=await api('/follow/outcome',{category:o.category,action:o.action,label,outcome:'refused'}).catch(()=>({data:{}}));
+      if(d2&&d2.spoken){ addMsg('buddy',d2.spoken); say(d2.spoken); }
+    };
+
+    // No answer either way is itself a signal — weaker than a refusal, because
+    // he might simply have been driving.
+    setTimeout(()=>{
+      if(go.textContent.startsWith('✅ On it')) return;
+      if(no.textContent.includes('righto')) return;
+      api('/follow/outcome',{category:o.category,action:o.action,label,outcome:'ignored'}).catch(()=>{});
+    }, 5*60000);
+  }
+
+  // "What have you learned about me?" — seeing it is what makes the learning
+  // trustworthy rather than unsettling.
+  async function whatLearned(){
+    openChat(); addMsg('me','🧠 What have you learned about me?');
+    const _w=addMsg('buddy','Having a look…');
+    const {data}=await api('/follow/learned',{}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Nothing yet.';
+    addMsg('buddy',m); say(m);
+    (data&&data.patterns||[]).forEach(p=>{
+      addMsg('buddy',`   ${p.plain} (${p.taken} of ${p.n})`).style.opacity='.8';
+    });
   }
 
   async function sendChat(){
@@ -7497,12 +7598,41 @@
         if(top){
           openChat();
           if(data.recommendation) addMsg('buddy',data.recommendation);
-          (data.places||[]).slice(0,3).forEach(p=>{
-            const el=addMsg('buddy',`🧭 ${p.name}${p.rating?` ★${p.rating}`:''} — tap to navigate`);
-            el.style.cssText+=';cursor:pointer';
-            el.onclick=()=>{ say(`Taking you to ${p.name}.`); openMaps(p.address||p.name); };
-          });
-          brain.setPlace(top.name, top.address||top.name);
+
+          // Batch 156: this listed all three in Google's order, with the
+          // recommended one third — so the recommendation was undermined by
+          // the list directly beneath it. Name the pick, offer to go, and keep
+          // the rest behind a tap for when he actually wants a choice.
+          const rec = (data.places||[]).find(p =>
+            data.recommendation && data.recommendation.toLowerCase().includes(String(p.name||'').toLowerCase().slice(0,12))
+          ) || top;
+
+          const go = addMsg('buddy',`🧭 Take me to ${rec.name}`);
+          go.style.cssText+=';cursor:pointer;font-weight:700';
+          go.onclick=()=>{
+            const far = metresTo(rec.lat, rec.lng);
+            say(`Taking you to ${rec.name}.`);
+            navigateWith(rec.address||rec.name, modeForDistance(far)||travelModeGet(), true, '');
+          };
+
+          const others=(data.places||[]).filter(p=>p!==rec).slice(0,3);
+          if(others.length){
+            const more=addMsg('buddy',`   or ${others.length} other${others.length>1?'s':''} nearby`);
+            more.style.cssText+=';cursor:pointer;opacity:.6;font-size:12px';
+            more.onclick=()=>{
+              more.remove();
+              others.forEach(p=>{
+                const el=addMsg('buddy',`🧭 ${p.name}${p.rating?` ★${p.rating}`:''}`);
+                el.style.cssText+=';cursor:pointer';
+                el.onclick=()=>{
+                  const far=metresTo(p.lat,p.lng);
+                  say(`Taking you to ${p.name}.`);
+                  navigateWith(p.address||p.name, modeForDistance(far)||travelModeGet(), true, '');
+                };
+              });
+            };
+          }
+          brain.setPlace(rec.name, rec.address||rec.name);
         }
       }catch(e){} finally{ busy('nearbySub',false); }
     }, ()=>{ busy('nearbySub',false); say('Location permission needed.'); });
@@ -7510,19 +7640,140 @@
 
   // ---- Navigate: type a destination, Vision speaks the guide ----
   // ---- Saved places: name your regular spots (home, gym, hotel) ----
-  function placesGet(){ try{return JSON.parse(localStorage.getItem('buddy_places')||'{}');}catch{return{};} }
+  /* --- SAVED PLACES (batch 155) -------------------------------------------
+   * Was a flat name->address map: no way to see the list, edit an address, or
+   * delete a stale one. It also carried nothing useful — a place that knows
+   * it's a hotel, that it's temporary, and how he usually gets there is worth
+   * far more than a pin.
+   *
+   * Stored as an object per place so it can grow, with the old string form
+   * read transparently — he has places saved already and losing them to a
+   * schema change would be unforgivable.
+   * ---------------------------------------------------------------------- */
+  const PLACE_TYPES = [
+    { value:'home',   label:'🏠 Home',   hint:'where he lives' },
+    { value:'work',   label:'🏢 Work',   hint:'a job site or office' },
+    { value:'stay',   label:'🏨 Staying', hint:'hotel, guesthouse — usually temporary' },
+    { value:'food',   label:'🍽️ Food',   hint:'a place he eats' },
+    { value:'gym',    label:'💪 Gym',    hint:'routine, rarely worth mentioning' },
+    { value:'family', label:'👨‍👩‍👧 Family', hint:'people, not just a location' },
+    { value:'other',  label:'📍 Other',  hint:'' },
+  ];
+
+  function placeNormalise(v){
+    // Old format was a bare address string. Read it rather than lose it.
+    if (typeof v === 'string') return { address:v, type:'other', mode:'', until:0, at:0 };
+    return { address:v.address||'', type:v.type||'other', mode:v.mode||'', until:v.until||0, at:v.at||0 };
+  }
+  function placesGetRaw(){ try{return JSON.parse(localStorage.getItem('buddy_places')||'{}');}catch{return{};} }
+  function placesAll(){
+    const raw=placesGetRaw(); const out={};
+    const now=Date.now();
+    for(const [k,v] of Object.entries(raw)){
+      const p=placeNormalise(v);
+      // A stay that's expired is clutter — he asked for exactly this. Drop it
+      // quietly rather than making him tidy up after himself.
+      if(p.until && p.until < now) continue;
+      out[k]=p;
+    }
+    return out;
+  }
+  // Everything that already existed expects name -> address. Keep that working.
+  function placesGet(){
+    const out={}; for(const [k,p] of Object.entries(placesAll())) out[k]=p.address; return out;
+  }
   function favPlacesGet(){ try{return JSON.parse(localStorage.getItem('buddy_favplaces')||'{}');}catch{return{};} }
   function favPlacesSave(f){ localStorage.setItem('buddy_favplaces',JSON.stringify(f)); }
   function placesSave(o){ localStorage.setItem('buddy_places',JSON.stringify(o)); }
+  const PLACE_ICON = { home:'🏠', work:'🏢', stay:'🏨', food:'🍽️', gym:'💪', family:'👨‍👩‍👧', other:'📍' };
+
   async function savedPlaces(){
-    const p=placesGet(); const names=Object.keys(p);
+    const all=placesAll(); const names=Object.keys(all).sort();
     openChat(); addMsg('me','📍 Saved places');
-    if(names.length) names.forEach(n=>{ const el=addMsg('buddy',`📍 ${n} — tap to go`); el.style.cursor='pointer'; el.onclick=()=>navigateToPlace(n); });
-    else addMsg('buddy','No saved places yet.');
-    const add=addMsg('buddy','➕ Add a place (home, gym, hotel…)'); add.style.cursor='pointer';
-    add.onclick=async()=>{ const name=((await pick('What kind of place?',[{label:'🏠 Home',value:'home'},{label:'🏨 Hotel',value:'hotel'},{label:'💪 Gym',value:'gym'},{label:'🏢 Work',value:'work'},{label:'🚗 Parked car',value:'parked car'}]))||'').trim().toLowerCase(); if(!name) return;
-      const addr=await pickPlace(`Where is "${name}"?`); if(!addr) return;
-      const o=placesGet(); o[name]=addr; placesSave(o); say(`Saved ${name}.`); savedPlaces(); };
+    if(!names.length) addMsg('buddy','Nothing saved yet. Adding your home, gym and hotel means "take me to my gym" just works — no asking, no lookup.');
+
+    names.forEach(n=>{
+      const p=all[n];
+      const days = p.until ? Math.ceil((p.until-Date.now())/86400000) : 0;
+      const bits = [p.address];
+      if(p.mode) bits.push(TRAVEL_LABEL[p.mode]||p.mode);
+      if(days>0) bits.push(`${days} day${days>1?'s':''} left`);
+      const el=addMsg('buddy',`${PLACE_ICON[p.type]||'📍'} ${n}\n${bits.join(' · ')}`);
+      el.style.cursor='pointer';
+      el.onclick=()=>navigateToPlace(n);
+
+      // Editing has to be reachable, or the list rots. One row, three actions.
+      const row=addMsg('buddy','   ✏️ edit    ·    🗑️ remove');
+      row.style.cssText+=';cursor:pointer;opacity:.6;font-size:12px';
+      row.onclick=async()=>{
+        const what=await pick(`"${n}"`,[
+          {label:'✏️ Change the address',value:'addr'},
+          {label:'🏷️ Change what it is',value:'type'},
+          {label:'🚗 Set how I usually get there',value:'mode'},
+          {label:'🗑️ Remove it',value:'del'},
+        ]);
+        if(!what) return;
+        const raw=placesGetRaw();
+        if(what==='del'){
+          delete raw[n]; placesSave(raw); say(`Removed ${n}.`); savedPlaces(); return;
+        }
+        const cur=placeNormalise(raw[n]);
+        if(what==='addr'){
+          const a=await pickPlace(`Where is "${n}"?`); if(!a) return; cur.address=a;
+        }
+        if(what==='type'){
+          const t=await pick('What kind of place is it?', PLACE_TYPES); if(!t) return;
+          cur.type=t;
+          // A stay is temporary by nature — ask, rather than leaving a hotel
+          // from two trips ago sitting in the list forever.
+          if(t==='stay'){
+            const wk=await pick('How long are you there?',[
+              {label:'A few days',value:'7'},{label:'A couple of weeks',value:'21'},
+              {label:'A month or so',value:'45'},{label:'No end date',value:'0'}]);
+            cur.until = wk && wk!=='0' ? Date.now()+Number(wk)*86400000 : 0;
+          } else cur.until=0;
+        }
+        if(what==='mode'){
+          const m=await pick(`How do you usually get to ${n}?`, PICKS.travelMode); if(!m) return;
+          cur.mode=normMode(m)||'';
+        }
+        raw[n]=cur; placesSave(raw); savedPlaces();
+      };
+    });
+
+    const add=addMsg('buddy','➕ Add a place');
+    add.style.cssText+=';cursor:pointer;font-weight:700';
+    add.onclick=()=>addPlace();
+  }
+
+  async function addPlace(presetName){
+    // Name first — his words, not a fixed list. "the gym" and "Jess's mum's"
+    // are both legitimate and neither fits a dropdown.
+    const name=(presetName || await sayOrType('What do you want to call it? (home, my gym, the hotel…)')||'').trim().toLowerCase();
+    if(!name) return;
+    const addr=await pickPlace(`Where is "${name}"?`); if(!addr) return;
+    const type=await pick('What kind of place is it?', PLACE_TYPES) || 'other';
+
+    let until=0;
+    if(type==='stay'){
+      const wk=await pick('How long are you there?',[
+        {label:'A few days',value:'7'},{label:'A couple of weeks',value:'21'},
+        {label:'A month or so',value:'45'},{label:'No end date',value:'0'}]);
+      if(wk && wk!=='0') until=Date.now()+Number(wk)*86400000;
+    }
+
+    // How he usually gets there is the thing that makes "take me to Brisbane"
+    // work without asking a single question.
+    const m=await pick(`How do you usually get to ${name}?`, [
+      {label:'⏭️ Ask me each time',value:''}, ...PICKS.travelMode]);
+
+    const raw=placesGetRaw();
+    raw[name]={ address:addr, type, mode:normMode(m)||'', until, at:Date.now() };
+    placesSave(raw);
+    const line=`Saved ${name}.${m?` I'll ${TRAVEL_LABEL[normMode(m)]||'go'} by default.`:''}`;
+    say(line);
+    try{ api('/memory',{action:'add',text:`place: ${name} is ${type} at ${addr}`}).catch(()=>{}); }catch(e){}
+    savedPlaces();
   }
   // Batch 59: travel mode is a remembered preference, not a hardcoded guess.
   // Shaun rides a motorbike in Asia — walking was the wrong default.
@@ -7557,8 +7808,10 @@
   }
 
   function navigateToPlace(name){
-    const p=placesGet(); const dest=p[name]; if(!dest){ say(`I don't have ${name} saved.`); return; }
-    navigateWith(dest, travelModeGet());
+    const all=placesAll(); const rec=all[name];
+    if(!rec){ say(`I don't have ${name} saved.`); return; }
+    // Use the mode he set for this place, not the global default.
+    navigateWith(rec.address, rec.mode || travelModeGet(), true);
   }
   // Open Google Maps straight into directions (app scheme first, web fallback).
   // location.href inside the tap keeps iOS's popup blocker happy — window.open after a prompt gets blocked.
@@ -7575,6 +7828,172 @@
     const d=encodeURIComponent(dest);
     const _nm=normMode(mode)||travelModeGet(); const f=_nm==='driving'?'d':_nm==='transit'?'r':'w';
     window.location.href=`https://maps.apple.com/?daddr=${d}&dirflg=${f}`;
+  }
+
+  /* --- AUTO-NAVIGATE (batch 153) --------------------------------------------
+   * "I'm jumping on my scooter, can you take me to my gym" should just go.
+   * No mode picker, no confirm card, no "Open turn-by-turn" to tap. He is
+   * holding handlebars.
+   *
+   * So: read the mode out of what he SAID, use his usual when he didn't say,
+   * and hand straight to Maps. Only stop to ask when genuinely ambiguous —
+   * two Bunnings 3km apart is worth a question; everything else is not.
+   * ------------------------------------------------------------------------ */
+
+  // Words that name a travel mode, in the way he'd actually say them.
+  const MODE_WORDS = [
+    [/\b(scooter|moped|motorbike|motorcycle|bike|riding|ride the bike)\b/i, 'driving'],
+    [/\b(drive|driving|car|ute|taxi|grab|uber|cab)\b/i,                     'driving'],
+    [/\b(walk|walking|on foot|stroll|wander)\b/i,                           'walking'],
+    [/\b(bus|train|metro|transit|public transport|ferry)\b/i,               'transit'],
+    [/\b(cycle|cycling|bicycle|push ?bike)\b/i,                             'bicycling'],
+  ];
+  // A scooter is 'driving' to Google — there's no scooter mode — but bicycling
+  // would route him down paths he can't legally ride, so driving is right.
+  function modeFromWords(text){
+    const t = String(text||'');
+    for (const [re, mode] of MODE_WORDS) if (re.test(t)) return mode;
+    return null;
+  }
+
+  // Strip the mode phrase out so it doesn't end up in the place search —
+  // "scooter to the gym" should search for "the gym", not both.
+  function destFromWords(text){
+    let t = String(text||'');
+    // Everything before the LAST "to" is preamble — "I'm jumping on my scooter
+    // can you take me to my gym" and "walk me to the night market" both end
+    // with the place. Matching a fixed list of verbs missed "walk ME to" and
+    // "catch a bus to", which left the verb in the search.
+    const lastTo = t.toLowerCase().lastIndexOf(' to ');
+    if (lastTo > -1) t = t.slice(lastTo + 4);
+    // Trailing mode phrases: "the hotel by scooter" -> "the hotel"
+    t = t.replace(/\b(by|on) (scooter|bike|foot|bus|train|car|motorbike|taxi)\b.*$/i, '');
+    t = t.replace(/\b(can you|could you|please|mate|thanks)\b/ig, '');
+    return t.replace(/\s+/g, ' ').replace(/^[\s,.-]+|[\s,.-]+$/g, '').trim();
+  }
+
+  /* The whole flow in one call. Everything optional — say what you know and it
+   * fills the rest in.  */
+  /* When he says "tomorrow" or "at 8" about a train, that changes the answer
+   * entirely — the 7am and 7pm services are different journeys. Driving
+   * doesn't care, so this only matters for transit. */
+  function departAtFrom(said){
+    const t = String(said||'').toLowerCase();
+    const now = new Date();
+    let d = null;
+
+    if (/\btomorrow\b/.test(t)) { d = new Date(now); d.setDate(d.getDate()+1); d.setHours(9,0,0,0); }
+    else if (/\btonight\b/.test(t)) { d = new Date(now); d.setHours(19,0,0,0); }
+    else if (/\bthis (arvo|afternoon)\b/.test(t)) { d = new Date(now); d.setHours(15,0,0,0); }
+    else if (/\bin the morning\b/.test(t)) { d = new Date(now); d.setDate(d.getDate()+1); d.setHours(8,0,0,0); }
+
+    // An explicit time overrides the vague one: "tomorrow at 7" -> 7am tomorrow.
+    const m = t.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+    if (m && (m[3] || m[2] || /\bat\b/.test(t))) {
+      const base = d || new Date(now);
+      let h = Number(m[1]); const mins = Number(m[2]||0);
+      if (m[3]==='pm' && h < 12) h += 12;
+      if (m[3]==='am' && h === 12) h = 0;
+      // No am/pm and it's already gone today — he almost certainly means later.
+      if (!m[3] && h < 12 && !d && h < now.getHours()) h += 12;
+      base.setHours(h, mins, 0, 0);
+      if (!d && base < now) base.setDate(base.getDate()+1);
+      d = base;
+    }
+    return d ? d.getTime() : 0;
+  }
+
+  /* How would he actually get there? The old answer was "whatever he picked
+   * last", which gave a 26-minute walk to a chemist because he'd walked
+   * somewhere the day before.
+   *
+   * Two things decide it: how far, and where in the world he is. Under ten
+   * minutes on foot is a walk anywhere. Beyond that, Brisbane means the car
+   * and Hanoi means the scooter — which Google has no mode for, so it routes
+   * as driving (bicycling would send him down paths he can't legally ride).
+   *
+   * This is only ever the FALLBACK. His words win, then a saved place's mode,
+   * then this. */
+  const SCOOTER_COUNTRIES = /vietnam|thailand|indonesia|cambodia|laos|philippines|malaysia|myanmar|india|sri lanka/i;
+
+  function modeForDistance(metres){
+    const country = localStorage.getItem('buddy_country') || '';
+    const scooterLand = SCOOTER_COUNTRIES.test(country);
+
+    if (metres == null) return null;              // nothing to infer from
+    if (metres < 900) return 'walking';           // ~10 min on foot, walk it
+    if (metres < 2200) return scooterLand ? 'driving' : 'walking';  // borderline
+    return 'driving';                             // scooter or car, same routing
+  }
+
+  // Straight-line distance is enough to choose a mode — the exact route
+  // distance would need another API call for no better answer.
+  function metresTo(lat, lng){
+    if (!_fix || lat == null) return null;
+    const R = 6371000, rad = d => d * Math.PI / 180;
+    const dLat = rad(lat - _fix.lat), dLng = rad(lng - _fix.lng);
+    const h = Math.sin(dLat/2)**2 + Math.cos(rad(_fix.lat)) * Math.cos(rad(lat)) * Math.sin(dLng/2)**2;
+    return Math.round(2 * R * Math.asin(Math.sqrt(h)));
+  }
+
+  async function autoNavigate(said, destHint, modeHint){
+    const saved = placesGet();
+
+    // 1. Mode. His words always win. Everything below is a fallback, and the
+    //    order matters: what he told us about the place beats a guess from
+    //    distance, which beats whatever he happened to pick last time.
+    const spokenMode = normMode(modeHint) || modeFromWords(said);
+
+    // 2. Destination. A saved place ("my gym") wins outright — no ambiguity
+    //    possible, so no question.
+    let dest = (destHint || destFromWords(said) || '').trim();
+    if (!dest) { navigateTo(); return; }          // nothing to work with, fall back
+
+    const key = dest.toLowerCase().replace(/^(my|the)\s+/, '');
+    if (saved[key]) {
+      // A saved place can carry HOW he usually gets there — that's the whole
+      // point of setting it, so it beats any inference.
+      const rec = (placesAll()||{})[key];
+      const useMode = spokenMode || (rec && rec.mode) || travelModeGet();
+      navigateWith(saved[key], useMode, true, said);
+      return;
+    }
+
+    // 3. Otherwise resolve it against real places near him. Auto-launch on a
+    //    clear winner; ask only when two are genuinely close together.
+    const fix = await placeFix();
+    const {data} = await api('/autocomplete', {
+      q: dest, lat: fix ? fix.lat : undefined, lng: fix ? fix.lng : undefined,
+    }).catch(()=>({data:{}}));
+    const hits = (data && data.suggestions) || [];
+
+    if (!hits.length) { navigateWith(dest, spokenMode || travelModeGet(), true, said); return; }   // trust his words
+
+    // Two results whose names are near-identical ("Bunnings Caboolture" vs
+    // "Bunnings Morayfield") is the case worth a question — launching into the
+    // wrong one means he's riding before he notices.
+    const ambiguous = hits.length > 1 &&
+      hits[1].label && hits[0].label &&
+      hits[1].label.toLowerCase().slice(0,8) === hits[0].label.toLowerCase().slice(0,8);
+
+    if (!ambiguous) {
+      // Now we know where it actually is, so the mode can be sensible rather
+      // than inherited: 2km to a chemist is a drive, not a 26-minute walk.
+      const far = metresTo(hits[0].lat, hits[0].lng);
+      navigateWith(hits[0].value, spokenMode || modeForDistance(far) || travelModeGet(), true, said);
+      return;
+    }
+
+    // Ask out loud, and let him answer out loud.
+    const q = `Which one — ${hits[0].sub || hits[0].label}, or ${hits[1].sub || hits[1].label}?`;
+    openChat(); addMsg('buddy', q); say(q);
+    const answer = await sayOrType('Which one?');
+    if (!answer) return;
+    const pickIdx = /2|second|latter|morayfield/i.test(answer) &&
+                    !new RegExp(String(hits[0].sub||'').split(',')[0], 'i').test(answer) ? 1 : 0;
+    const chosen = hits.find(h => new RegExp(answer.split(' ')[0], 'i').test(h.sub || h.label)) || hits[pickIdx];
+    const chosenFar = metresTo(chosen.lat, chosen.lng);
+    navigateWith(chosen.value, spokenMode || modeForDistance(chosenFar) || travelModeGet(), true, said);
   }
 
   async function navigateTo(){
@@ -7597,7 +8016,7 @@
     navigateWith(saved[key]||dest, 'transit');
   }
 
-  function navigateWith(dest, mode, autoOpen){
+  function navigateWith(dest, mode, autoOpen, said){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     // AUTO-HANDOVER: hand straight to Maps without a tap when asked ("in maps")
     // or when the always-on preference is set by voice ("always open maps").
@@ -7607,7 +8026,9 @@
       try{
         const {ok,status,data}=await api('/directions',{
           originLat:pos.coords.latitude, originLng:pos.coords.longitude,
-          destination:dest, mode:mode.includes('driv')?'driving':mode.includes('trans')?'transit':mode.includes('bik')||mode.includes('cyc')?'bicycling':'walking'
+          destination:dest, mode:mode.includes('driv')?'driving':mode.includes('trans')?'transit':mode.includes('bik')||mode.includes('cyc')?'bicycling':'walking',
+          // Batch 155: "Brisbane tomorrow" used to return today's trains.
+          departAt: departAtFrom(said||'')
         });
         if(status===501){ say("Maps aren't set up yet — add your Google Maps key to switch this on."); 
           openChat(); addMsg('buddy','🗺️ Directions need a Google Maps key. For now, tap to open in Maps:');
@@ -7623,6 +8044,27 @@
           // (not window.open) so iOS allows it without a tap; iOS may still show
           // a one-tap "Open in Maps?" confirm — OS-level, can't be removed from web.
           setTimeout(()=>{ (prefTop('maps')==='apple'?openAppleMaps:openMaps)(dest, mode); }, 1600);
+        }
+        // Batch 155: the transit detail was always in Google's response and
+        // never shown. When you're catching a train, the departure time is the
+        // only thing that actually matters.
+        (data.rides||[]).forEach(r=>{
+          const bits=[
+            r.departs ? `${r.departs} ${r.kind}` : r.kind,
+            r.line ? `(${r.line})` : '',
+            r.towards ? `towards ${r.towards}` : '',
+          ].filter(Boolean).join(' ');
+          const el=addMsg('buddy',`🚆 ${bits}\n   ${r.from} → ${r.to}${r.arrives?`, in at ${r.arrives}`:''}${r.stops?` · ${r.stops} stops`:''}`);
+          el.style.fontWeight='600';
+        });
+        if(data.minsUntil!=null && data.minsUntil>0 && data.minsUntil<90){
+          addMsg('buddy',`⏱️ Leaves in ${data.minsUntil} minutes.`).style.opacity='.9';
+        }
+        if(data.fare){
+          addMsg('buddy',`💰 About ${data.fare.text}`).style.opacity='.85';
+        } else if((data.rides||[]).length){
+          // Say so rather than leaving a silent gap he might read as free.
+          addMsg('buddy','💰 No fare from Google for this network — check at the gate.').style.opacity='.7';
         }
         const steps=(data.steps||[]).slice(0,6).map((s,i)=>`${i+1}. ${s.text}`).join('\n');
         if(steps) addMsg('buddy', steps);

@@ -414,6 +414,24 @@ function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
  * one place to improve, and no drift between endpoints.
  * ------------------------------------------------------------------------ */
 
+/* The SHAPE of a spoken answer, applied everywhere. Not what to say — how to
+ * say it. Written after a "closest chemist" reply came back as a paragraph of
+ * reasoning plus three options in no clear order: the answer buried, and the
+ * choosing still left to him.
+ *
+ * Deliberately about structure rather than length. "Be brief" produces clipped
+ * unhelpful answers; "lead with the answer and give each thing one clause"
+ * produces short ones that are still complete. */
+const ANSWER_FIRST =
+  " Lead with the ANSWER, never the reasoning. Say the thing he asked for in the first few words. " +
+  "Detail he did not ask for — ratings, addresses, opening hours, why you picked it — is noise until he decides, " +
+  "so leave it out and let him ask. " +
+  "If there is a clear best option, NAME IT rather than listing alternatives: a list is you making him do the work. " +
+  "When he asks for several things at once, answer them ALL in one short reply, ordered by what matters soonest " +
+  "rather than the order he said them, and give each one a single clause — not a paragraph. " +
+  "If you could not do part of it, say so in the same breath rather than quietly dropping it. " +
+  "End with at most ONE question, and make it answerable with yes.";
+
 // The single most important line in the system. A confident invention is worse
 // than an admitted blank — especially for a price, a visa rule or an allergen.
 const NO_INVENT =
@@ -646,7 +664,7 @@ app.post("/scamcheck", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 220,
-    system: "You are Vision, a savvy travel companion who protects Shaun from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. Be honest and practical, never alarmist." + NO_FALSE_COMFORT + NO_INVENT +
+    system: "You are Vision, a savvy travel companion who protects Shaun from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. Be honest and practical, never alarmist." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
       _memNote,
     messages: [{
       role: "user",
@@ -766,7 +784,7 @@ app.post("/gooddeal", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 200,
-    system: "You are Vision, Shaun's savvy money companion abroad. You judge whether a price is good value for the country, in plain friendly terms. You know rough local costs across SE Asia and worldwide." + NO_FALSE_COMFORT + NO_INVENT +
+    system: "You are Vision, Shaun's savvy money companion abroad. You judge whether a price is good value for the country, in plain friendly terms. You know rough local costs across SE Asia and worldwide." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
       _memNote,
     messages: [{
       role: "user",
@@ -802,7 +820,7 @@ app.post("/planday", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", // planning benefits from the stronger model
     max_tokens: 900,
-    system: "You are Vision, Shaun's travel companion who PLANS his day, not just answers. Build a realistic, well-paced itinerary for the place and budget, with actual place types, rough times, and rough costs. Be specific and local, mindful of opening hours and travel time. Keep it doable, not a rushed checklist." + NO_INVENT_STRICT +
+    system: "You are Vision, Shaun's travel companion who PLANS his day, not just answers. Build a realistic, well-paced itinerary for the place and budget, with actual place types, rough times, and rough costs. Be specific and local, mindful of opening hours and travel time. Keep it doable, not a rushed checklist." + NO_INVENT_STRICT + ANSWER_FIRST +
       _memNote,
     messages: [{
       role: "user",
@@ -882,7 +900,7 @@ app.post("/etiquette", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 240,
-    system: "You are Vision, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic." + SPOKEN_PLAIN +
+    system: "You are Vision, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT,
     messages: [{
       role: "user",
@@ -923,7 +941,7 @@ app.post("/landmark", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", // identification benefits from stronger vision
     max_tokens: 320,
-    system: "You are Vision, Shaun's knowledgeable, enthusiastic travel guide. When he looks at something, you tell him what it is and something genuinely interesting — like a great local guide would, briefly." + SPOKEN_PLAIN +
+    system: "You are Vision, Shaun's knowledgeable, enthusiastic travel guide. When he looks at something, you tell him what it is and something genuinely interesting — like a great local guide would, briefly." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT_STRICT,
     messages: [{ role: "user", content }],
   };
@@ -947,7 +965,7 @@ app.post("/survival", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 600,
-    system: "You are Vision, preparing Shaun an offline survival phrase pack for travel. Give the most useful emergency and everyday phrases in the local language with pronunciation and English." + SPOKEN_PLAIN +
+    system: "You are Vision, preparing Shaun an offline survival phrase pack for travel. Give the most useful emergency and everyday phrases in the local language with pronunciation and English." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_FALSE_COMFORT,
     messages: [{
       role: "user",
@@ -1298,7 +1316,7 @@ app.post("/arrival", requireAuth, async (req, res) => {
     const body = {
       model: "claude-sonnet-4-6",
       max_tokens: 600,
-      system: "You are Vision, Shaun's Aussie travel companion. He has JUST LANDED somewhere new. Give him the arrival essentials, warm and brief, spoken-style." + SPOKEN_PLAIN +
+      system: "You are Vision, Shaun's Aussie travel companion. He has JUST LANDED somewhere new. Give him the arrival essentials, warm and brief, spoken-style." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT,
       messages: [{ role: "user", content: `Shaun just landed in ${city ? city + ", " : ""}${country}. Reply as compact JSON ONLY: "currency" (ISO code), "spoken" (warm 3-4 sentence arrival brief: emergency number, the #1 scam to dodge arriving here, tipping norm, rough AUD exchange rate), "emergency", "scam", "tipping", "rate" (each one short line).` }],
     };
@@ -1391,7 +1409,7 @@ app.post("/findfood", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6",
     max_tokens: 700,
-    system: "You are Vision, Shaun's food concierge abroad. Given what he's craving and where he is, suggest realistic nearby options a delivery app like Grab would have, with plausible price, rating, and delivery ETA. Be realistic for the city; don't invent famous names — describe the kind of place. Rank best-value first." + NO_INVENT_STRICT +
+    system: "You are Vision, Shaun's food concierge abroad. Given what he's craving and where he is, suggest realistic nearby options a delivery app like Grab would have, with plausible price, rating, and delivery ETA. Be realistic for the city; don't invent famous names — describe the kind of place. Rank best-value first." + NO_INVENT_STRICT + ANSWER_FIRST +
       _memNote,
     messages: [{
       role: "user",
@@ -1443,7 +1461,7 @@ app.post("/itinerary", requireAuth, async (req, res) => {
     const body = {
       model: "claude-sonnet-4-6",
       max_tokens: 900,
-      system: "You are Vision, building Shaun a clean trip timeline from his booking-confirmation emails. Extract flights, hotels, trains, and reservations with dates/times/locations. Ignore marketing." + SPOKEN_PLAIN +
+      system: "You are Vision, building Shaun a clean trip timeline from his booking-confirmation emails. Extract flights, hotels, trains, and reservations with dates/times/locations. Ignore marketing." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT_STRICT,
       messages: [{ role: "user", content:
         `Here are booking-related emails:\n${raw.map(r => `SUBJECT: ${r.subject}\n${r.body}`).join("\n---\n")}\n\n` +
@@ -1578,7 +1596,8 @@ const ROUTER_SKILLS =
       "\"timeline\" (log a step / how long have I been here / what did I do and when; args: entry, job), " +
       "\"digest\" (what have you got for me / what have you been holding / catch me up / anything saved up; args: none), " +
       "\"notnow\" (not now / not today / stop telling me that / leave it / I'm busy — he is brushing something off; args: subject, scope = once|today|trip), " +
-      "\"whyquiet\" (what are you sitting on / why are you quiet / are you holding anything; args: none). ";
+      "\"whyquiet\" (what are you sitting on / why are you quiet / are you holding anything; args: none), " +
+      "\"learned\" (what have you learned about me / what do you know about my habits / what patterns have you noticed; args: none). ";
 
 // Derived from ROUTER_SKILLS itself so the validator can never drift from
 // what the model was actually offered.
@@ -1971,6 +1990,14 @@ app.post("/directions", requireAuth, async (req, res) => {
   url.searchParams.set("destination", destination); // Google geocodes the text for us
   url.searchParams.set("mode", travelMode);
   url.searchParams.set("key", GMAPS_KEY);
+  // Batch 155: transit is time-sensitive in a way driving isn't — the 7am and
+  // 7pm answers are different journeys. Without a departure time Google
+  // assumes "now", which is why "Brisbane tomorrow" returned today's trains.
+  if (travelMode === "transit") {
+    const dep = Number((req.body || {}).departAt) || 0;
+    url.searchParams.set("departure_time", dep ? String(Math.floor(dep / 1000)) : "now");
+    url.searchParams.set("alternatives", "true");
+  }
 
   try {
     const r = await fetch(url);
@@ -1992,6 +2019,37 @@ app.post("/directions", requireAuth, async (req, res) => {
       lng: s.start_location?.lng,
     }));
 
+    /* Batch 155: the transit detail Google already sends and we were binning.
+     * Platform is deliberately absent — Google almost never provides it, and
+     * inventing a platform number is exactly the kind of confident-and-wrong
+     * that gets someone on the wrong train. */
+    const rides = leg.steps
+      .filter(s => s.travel_mode === "TRANSIT" && s.transit_details)
+      .map(s => {
+        const t = s.transit_details;
+        return {
+          line: t.line?.short_name || t.line?.name || "",
+          kind: (t.line?.vehicle?.name || "service").toLowerCase(),
+          towards: t.headsign || "",
+          from: t.departure_stop?.name || "",
+          to: t.arrival_stop?.name || "",
+          departs: t.departure_time?.text || "",
+          departsAt: t.departure_time?.value ? t.departure_time.value * 1000 : 0,
+          arrives: t.arrival_time?.text || "",
+          stops: t.num_stops || 0,
+        };
+      });
+
+    const first = rides[0] || null;
+    const minsUntil = first && first.departsAt
+      ? Math.round((first.departsAt - Date.now()) / 60000) : null;
+
+    // Google gives a fare for some networks and not others. Saying "about $X"
+    // when it does, and admitting when it doesn't, beats guessing either way.
+    const fare = route.fare
+      ? { text: route.fare.text, value: route.fare.value, currency: route.fare.currency }
+      : null;
+
     // Concierge voice: a warm one-line summary Vision can speak before guiding.
     let spoken = "";
     try {
@@ -1999,10 +2057,18 @@ app.post("/directions", requireAuth, async (req, res) => {
       const g = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 120,
-        system: "You are Vision guiding Shaun through his glasses. One warm, natural spoken sentence — no lists." + NO_INVENT,
-        messages: [{ role: "user", content:
-          `Summarise this walk/drive for Shaun in ONE friendly spoken sentence (mention the time and roughly what to do first). ` +
-          `${leg.duration?.text || ""}, ${leg.distance?.text || ""}. First moves: ${firstFew}` }],
+        system: "You are Vision guiding Shaun through his glasses. One warm, natural spoken sentence — no lists." + NO_INVENT + ANSWER_FIRST,
+        messages: [{ role: "user", content: first
+          ? // A train answer lives or dies on the departure time. Lead with it.
+            `Tell Shaun about this journey in ONE spoken sentence. Lead with WHEN the service leaves and which one it is. ` +
+            `The ${first.departs} ${first.kind}${first.line ? ` (${first.line})` : ""}` +
+            `${first.towards ? ` towards ${first.towards}` : ""} from ${first.from}, arriving ${first.arrives} at ${first.to}. ` +
+            `${minsUntil !== null && minsUntil > 0 && minsUntil < 90 ? `That is ${minsUntil} minutes away. ` : ""}` +
+            `Whole trip ${leg.duration?.text || ""}.` +
+            `${fare ? ` Fare about ${fare.text}.` : " Do not mention the fare — Google did not give one."}` +
+            ` Never state a platform number; it was not provided.`
+          : `Summarise this walk/drive for Shaun in ONE friendly spoken sentence (mention the time and roughly what to do first). ` +
+            `${leg.duration?.text || ""}, ${leg.distance?.text || ""}. First moves: ${firstFew}` }],
       });
       if (g.status === 200) {
         const j = JSON.parse(g.text);
@@ -2010,11 +2076,26 @@ app.post("/directions", requireAuth, async (req, res) => {
       }
     } catch {}
 
+    // Fall back to a real sentence with the times in it, rather than a generic
+    // one — if the model call fails he still needs to know when it leaves.
+    const plainFallback = first
+      ? `The ${first.departs}${first.line ? ` ${first.line}` : ""}${first.towards ? ` towards ${first.towards}` : ""}` +
+        ` from ${first.from}, in at ${first.arrives}.` +
+        (minsUntil !== null && minsUntil > 0 && minsUntil < 90 ? ` That's ${minsUntil} minutes away.` : "")
+      : `It's ${leg.duration?.text || "a short trip"} — I'll guide you.`;
+
     res.json({
       summary: route.summary || "",
-      spoken: spoken || `It's ${leg.duration?.text || "a short trip"} — I'll guide you.`,
+      spoken: spoken || plainFallback,
       distanceText: leg.distance?.text || "",
       durationText: leg.duration?.text || "",
+      departs: first ? first.departs : "",
+      arrives: first ? first.arrives : "",
+      minsUntil,
+      rides,
+      fare,
+      // Said plainly so the app never has to guess why a fare is absent.
+      fareNote: fare ? "" : "no fare from Google for this network",
       steps,
     });
   } catch (e) {
@@ -2163,7 +2244,7 @@ app.post("/places", requireAuth, async (req, res) => {
       const rec = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 220,
-        system: "You are Vision, Shaun's warm companion in his glasses. Recommend places like a helpful local friend — never a raw list dump." + NO_INVENT_STRICT,
+        system: "You are Vision, Shaun's warm companion in his glasses. Recommend places like a helpful local friend — never a raw list dump." + NO_INVENT_STRICT + ANSWER_FIRST,
         messages: [{ role: "user", content: `${wants}\n\nNearby options:\n${top}` }],
       });
       let recommendation = "";
@@ -2265,7 +2346,7 @@ app.post("/stay", requireAuth, async (req, res) => {
     if (places.length) {
       const body = {
         model: "claude-haiku-4-5-20251001", max_tokens: 200,
-        system: "You are Vision, a warm travel companion. Given hotel options, recommend ONE in 2 short spoken sentences (why it stands out), mention a runner-up by name. No lists, no markdown." + NO_INVENT_STRICT +
+        system: "You are Vision, a warm travel companion. Given hotel options, recommend ONE in 2 short spoken sentences (why it stands out), mention a runner-up by name. No lists, no markdown." + NO_INVENT_STRICT + ANSWER_FIRST +
       _memNote,
         messages: [{ role: "user", content: JSON.stringify(places) }],
       };
@@ -2291,7 +2372,7 @@ app.post("/activities", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, a warm travel companion speaking aloud. Suggest 4-5 genuinely good things to do — current, specific, not tourist-trap filler. Use web search if it helps (events, seasonal). Reply as JSON only: {\"spoken\": \"2-3 sentence pick of the best one or two\", \"items\": [\"short line each\"]}. No markdown." + NO_INVENT_STRICT,
+    system: "You are Vision, a warm travel companion speaking aloud. Suggest 4-5 genuinely good things to do — current, specific, not tourist-trap filler. Use web search if it helps (events, seasonal). Reply as JSON only: {\"spoken\": \"2-3 sentence pick of the best one or two\", \"items\": [\"short line each\"]}. No markdown." + NO_INVENT_STRICT + ANSWER_FIRST,
     messages: [{ role: "user", content: `Things to do in ${where}${interests ? " — he's into " + interests : ""}.${_memNote}` }],
   };
   try {
@@ -2313,7 +2394,7 @@ app.post("/tripplan", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", max_tokens: 1500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, a sharp travel planner. Build a realistic day-by-day plan — geographically sensible (cluster nearby things), paced like a human (not 12 stops a day), with real place names. Web-search if current info helps. Reply as JSON ONLY: {\"spoken\": \"2-3 sentences selling the shape of the trip\", \"days\": [{\"day\": 1, \"title\": \"...\", \"items\": [{\"when\": \"morning|afternoon|evening\", \"what\": \"short line\"}]}]}. No markdown." + NO_INVENT_STRICT,
+    system: "You are Vision, a sharp travel planner. Build a realistic day-by-day plan — geographically sensible (cluster nearby things), paced like a human (not 12 stops a day), with real place names. Web-search if current info helps. Reply as JSON ONLY: {\"spoken\": \"2-3 sentences selling the shape of the trip\", \"days\": [{\"day\": 1, \"title\": \"...\", \"items\": [{\"when\": \"morning|afternoon|evening\", \"what\": \"short line\"}]}]}. No markdown." + NO_INVENT_STRICT + ANSWER_FIRST,
     messages: [{ role: "user", content: `${nDays}-day plan for ${destination}.${budget ? ` Budget ${budget} ${currency || ""}/day.` : ""}${interests ? ` Into: ${interests}.` : ""}` }],
   };
   try {
@@ -2335,7 +2416,7 @@ app.post("/packlist", requireAuth, async (req, res) => {
   const { destination, days, month } = req.body || {};
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
-    system: "You are Vision. Build a tight packing list for the trip — climate-aware, no obvious filler (\"clothes\"), include the things people forget (adapters, meds, offline maps). JSON only: {\"spoken\": \"1-2 sentences with the non-obvious highlights\", \"items\": [\"item — why, only when not obvious\"]}. Max 15 items." + SPOKEN_PLAIN +
+    system: "You are Vision. Build a tight packing list for the trip — climate-aware, no obvious filler (\"clothes\"), include the things people forget (adapters, meds, offline maps). JSON only: {\"spoken\": \"1-2 sentences with the non-obvious highlights\", \"items\": [\"item — why, only when not obvious\"]}. Max 15 items." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT_STRICT,
     messages: [{ role: "user", content: `Packing for ${destination || "a trip"}${days ? `, ${days} days` : ""}${month ? `, in ${month}` : ""}. He's travelling from Australia.${_memNote}` }],
   };
@@ -2388,7 +2469,7 @@ app.post("/esim", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, practical about phone data abroad. For the country given: best eSIM options for an Australian traveller (e.g. Airalo/Holafly/local telco), rough current prices, and whether a local physical SIM at the airport beats them. Web-search for current pricing. JSON only: {\"spoken\": \"2-3 sentences with your actual pick\", \"options\": [\"short line each\"]}." + SPOKEN_PLAIN +
+    system: "You are Vision, practical about phone data abroad. For the country given: best eSIM options for an Australian traveller (e.g. Airalo/Holafly/local telco), rough current prices, and whether a local physical SIM at the airport beats them. Web-search for current pricing. JSON only: {\"spoken\": \"2-3 sentences with your actual pick\", \"options\": [\"short line each\"]}." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT_STRICT,
     messages: [{ role: "user", content: `Data/eSIM for ${country}.${_memNote}` }],
   };
@@ -2545,7 +2626,7 @@ app.post("/summarize", requireAuth, async (req, res) => {
     system:
       "You condense something for a traveller who is busy and will act on what you say. " +
       "Lead with anything urgent or time-bound. Summarise only what is actually in the text — " +
-      "if something looks important but is ambiguous, say it's unclear rather than deciding for him." + NO_INVENT + SPOKEN_PLAIN,
+      "if something looks important but is ambiguous, say it's unclear rather than deciding for him." + NO_INVENT + ANSWER_FIRST + SPOKEN_PLAIN,
     messages: [{ role: "user", content: `${instruction}\n\n${joined}` }],
   };
   try {
@@ -2810,7 +2891,7 @@ app.post("/local", requireAuth, async (req, res) => {
       "You brief a traveller on what's happening around them right now. " +
       "Only state something as fact if the search results actually support it — otherwise say what's typical and that it needs checking. " +
       "Lead with anything time-sensitive; skip anything he can't act on today." +
-      NO_INVENT_STRICT + SPOKEN_PLAIN,
+      NO_INVENT_STRICT + SPOKEN_PLAIN + ANSWER_FIRST,
     messages: [{
       role: "user",
       content: `For someone in or near ${place}, give a brief spoken briefing covering: ${asks}. ${_memNote}` +
@@ -3725,7 +3806,7 @@ app.post("/recover", requireAuth, (req, res) => {
                      "budgets", "lastDistil", "spend", "smsHold", "smsSeen", "recovery",
                      "calPrefs", "calCache", "calSeen", "calHold", "calToday", "calPending", "jobs",
                      "convoLive", "convoLangs", "phrases",
-                     "scenes", "timelines", "dismissed"];
+                     "scenes", "timelines", "dismissed", "followLog"];
     let moved = 0;
     for (const b of buckets) {
       if (STORE[b] && STORE[b][target] !== undefined) {
@@ -4425,7 +4506,7 @@ app.post("/menu", requireAuth, async (req, res) => {
   const mem = recallFor(uid, "food eaten liked dish restaurant", 4).map(m => m.t).join(" | ");
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 900,
-    system: "You read menus for a traveller. JSON only: " + NO_INVENT_STRICT +
+    system: "You read menus for a traveller. JSON only: " + NO_INVENT_STRICT + ANSWER_FIRST +
       '{"spoken":"2-3 sentences aloud: what kind of menu, roughly what things cost, your top pick and why",' +
       '"safe":[{"name":"dish as written","english":"what it is","price":"as printed","why":"one line"}],' +
       '"avoid":[{"name":"dish","reason":"why to skip it"}],' +
@@ -7216,6 +7297,250 @@ app.post("/attention/status", requireAuth, (req, res) => {
       : a.held.length
         ? `${a.held.length} thing${a.held.length > 1 ? "s" : ""} saved for your brief. Say "what have you got" and I'll run through them.`
         : "Nothing waiting.",
+  });
+});
+
+
+/* ===========================================================================
+ * FOLLOW-THROUGH (batch 154)
+ *
+ * A reminder that says "get milk" is a note. A reminder that says "get milk —
+ * want me to take you to the IGA on the way home?" is an assistant.
+ *
+ * The gap between those two is small to describe and easy to get wrong, so
+ * three decisions shape everything here:
+ *
+ * 1. THE MODEL WORKS OUT THE FOLLOW-THROUGH, NOT A RULES TABLE.
+ *    "Get milk" implies a shop. "Ring the dentist" implies a call. "Grab the
+ *    thing for Jess's mum" implies a shop too, and no list of keywords would
+ *    ever cover that. So it's asked ONCE, when the reminder is set, and the
+ *    answer is stored. At 6:30 it reads what it already decided — no thinking,
+ *    no latency, no surprise.
+ *
+ * 2. IT LEARNS FROM WHAT HE ACTUALLY TAKES.
+ *    Every offer records an outcome: taken, ignored, or refused. After a few
+ *    weeks that's a real signal — "offered navigation on shopping reminders
+ *    six times, he took five" is worth more than any guess. The hierarchy is
+ *    EARNED rather than designed.
+ *
+ * 3. IT MUST NOT HARDEN TOO FAST.
+ *    Three ignores is not a preference; it might be three bad moments. So the
+ *    learning needs a real sample before it suppresses anything, and a single
+ *    "yes" after a run of ignores resets the doubt. Getting this wrong makes
+ *    it stubborn, which is worse than making it naive.
+ * ======================================================================== */
+
+const FOLLOW_MIN_SAMPLE = 5;      // before history outweighs the model's judgement
+const FOLLOW_SUPPRESS_AT = 0.2;   // taken less than 1 in 5 times -> stop offering
+const FOLLOW_MAX_LOG = 120;
+
+/* --- what does this reminder actually need him to DO? --------------------
+ * Asked once, at the moment he sets it. The model is good at this and a
+ * keyword table never would be.
+ * ---------------------------------------------------------------------- */
+async function workOutFollowThrough(uid, label, when) {
+  // What he usually does with reminders like this. Given to the model as
+  // context, so its guess starts from his behaviour rather than from nothing.
+  const past = followHistoryFor(uid).slice(0, 8)
+    .map(h => `"${h.label}" -> offered ${h.action}, he ${h.outcome}`).join(" | ");
+
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 220,
+      system:
+        "A reminder has just been set. Work out what it will actually need him to DO when it fires, " +
+        "so Vision can offer that rather than just reading the reminder back. " +
+        "Most reminders need nothing — that is the normal answer and you should give it freely. " +
+        "Only name an action when the reminder plainly implies one: buying something needs a shop, " +
+        "'ring X' needs a call, 'book Y' needs a booking. " +
+        "If he says 'on the way home' or 'while I'm out', that is a real constraint — record it, " +
+        "because a shop behind him is no use." + NO_INVENT,
+      messages: [{ role: "user", content:
+        `Reminder: "${label}"${when ? ` (due ${when})` : ""}` +
+        (past ? `\n\nWhat he's done with similar offers before: ${past}` : "") +
+        `\n\nReply as compact JSON ONLY: ` +
+        `"action" (one of: navigate, call, book, none), ` +
+        `"what" (short — what he needs, e.g. "a supermarket"; "" if action is none), ` +
+        `"constraint" (e.g. "on the way home", "before 9am", or ""), ` +
+        `"offer" (one short spoken sentence offering it, or "" if action is none), ` +
+        `"category" (a short kind-of-thing label like "shopping", "work call", "booking" — used to learn from).` }],
+    });
+    if (status !== 200) return null;
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    if (!p.action || p.action === "none") return null;
+    return {
+      action: String(p.action).slice(0, 20),
+      what: String(p.what || "").slice(0, 80),
+      constraint: String(p.constraint || "").slice(0, 60),
+      offer: String(p.offer || "").slice(0, 200),
+      category: String(p.category || "general").slice(0, 40),
+    };
+  } catch { return null; }
+}
+
+/* --- the learning ---------------------------------------------------------
+ * Three outcomes, recorded every time: taken, ignored, refused. "Refused" is
+ * weighted harder than "ignored" because it's a decision rather than a
+ * distraction — he might simply have been driving.
+ * ---------------------------------------------------------------------- */
+function followHistoryFor(uid) {
+  STORE.followLog = STORE.followLog || {};
+  return (STORE.followLog[uid] = STORE.followLog[uid] || []);
+}
+
+function recordFollowOutcome(uid, { category, action, label, outcome }) {
+  const log = followHistoryFor(uid);
+  log.unshift({ category: category || "general", action, label: String(label || "").slice(0, 80), outcome, at: Date.now() });
+  if (log.length > FOLLOW_MAX_LOG) log.length = FOLLOW_MAX_LOG;
+  saveStore();
+  try { dlog(uid, "memory", `follow-through: ${category}/${action} -> ${outcome}`); } catch {}
+}
+
+/* Should this offer be made at all? Returns a reason either way, so the
+ * behaviour can be explained rather than just happening. */
+function shouldOffer(uid, category, action) {
+  const log = followHistoryFor(uid).filter(h => h.category === category && h.action === action);
+
+  // Not enough to go on: offer, and find out. Being naive early is the
+  // correct trade — that's how the sample gets built.
+  if (log.length < FOLLOW_MIN_SAMPLE) {
+    return { offer: true, why: `only ${log.length} of these so far — still learning` };
+  }
+
+  // A recent "yes" resets the doubt entirely. A run of ignores might have been
+  // a bad week; one acceptance says the offer is still wanted.
+  const lastTaken = log.findIndex(h => h.outcome === "taken");
+  if (lastTaken > -1 && lastTaken < 3) {
+    return { offer: true, why: "he took one of these recently" };
+  }
+
+  const taken = log.filter(h => h.outcome === "taken").length;
+  const rate = taken / log.length;
+
+  // A flat refusal counts double — it was a decision, not a distraction.
+  const refused = log.filter(h => h.outcome === "refused").length;
+  const adjusted = (taken) / (log.length + refused);
+
+  if (adjusted < FOLLOW_SUPPRESS_AT) {
+    return { offer: false, why: `he's taken ${taken} of ${log.length} — leaving it alone`, rate };
+  }
+  return { offer: true, why: `he takes about ${Math.round(rate * 100)}% of these`, rate };
+}
+
+/* --- endpoints ------------------------------------------------------------ */
+
+// Called when a reminder is set. Works out the follow-through once and stores
+// it, so firing is instant.
+app.post("/follow/plan", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { label, when, id } = req.body || {};
+  if (!label) return res.status(400).json({ error: "label required" });
+
+  const plan = await workOutFollowThrough(uid, label, when);
+  if (!plan) return res.json({ ok: true, followUp: null });
+
+  // Attach it to the watcher so it travels with the reminder.
+  if (id) {
+    const list = (STORE.watchers || {})[uid] || [];
+    const w = list.find(x => x.id === id);
+    if (w) { w.followUp = plan; saveStore(); }
+  }
+  res.json({ ok: true, followUp: plan });
+});
+
+// Called when a reminder fires. Decides whether to offer, based on what he's
+// actually done before.
+app.post("/follow/fire", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { id, label } = req.body || {};
+  const list = (STORE.watchers || {})[uid] || [];
+  const w = list.find(x => x.id === id);
+  const plan = w && w.followUp;
+
+  if (!plan) return res.json({ ok: true, offer: null });
+
+  // He may have told it to stop offering this kind of thing.
+  if (isDismissed(uid, "followup", plan.category)) {
+    return res.json({ ok: true, offer: null, held: "he asked me to stop offering these" });
+  }
+
+  const verdict = shouldOffer(uid, plan.category, plan.action);
+  if (!verdict.offer) {
+    return res.json({ ok: true, offer: null, held: verdict.why });
+  }
+
+  res.json({
+    ok: true,
+    offer: {
+      action: plan.action, what: plan.what, constraint: plan.constraint,
+      category: plan.category,
+      spoken: plan.offer || `Want me to help with that?`,
+    },
+    why: verdict.why,
+  });
+});
+
+// What he did about it. This is the whole learning loop.
+app.post("/follow/outcome", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { category, action, label, outcome } = req.body || {};
+  if (!["taken", "ignored", "refused"].includes(outcome)) {
+    return res.status(400).json({ error: "outcome must be taken, ignored or refused" });
+  }
+  recordFollowOutcome(uid, { category, action, label, outcome });
+
+  // "Stop offering these" is a standing instruction, not one refusal. Only a
+  // deliberate refusal sets it, and only after enough of them to be a pattern
+  // rather than a mood.
+  if (outcome === "refused") {
+    const log = followHistoryFor(uid).filter(h => h.category === category);
+    const refusals = log.filter(h => h.outcome === "refused").length;
+    if (refusals >= 3) {
+      dismiss(uid, "followup", category, "trip");
+      return res.json({ ok: true, spoken: "Righto — I'll stop offering those." });
+    }
+  }
+  res.json({ ok: true });
+});
+
+// "What have you learned about me?" — being able to see it is what makes the
+// learning trustworthy rather than spooky.
+app.post("/follow/learned", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const log = followHistoryFor(uid);
+  if (!log.length) {
+    return res.json({ ok: true, patterns: [], spoken: "Nothing learned yet — I need to offer you a few things first." });
+  }
+
+  const byCat = {};
+  for (const h of log) {
+    const k = `${h.category}|${h.action}`;
+    byCat[k] = byCat[k] || { category: h.category, action: h.action, taken: 0, ignored: 0, refused: 0, n: 0 };
+    byCat[k][h.outcome]++; byCat[k].n++;
+  }
+
+  const patterns = Object.values(byCat)
+    .filter(p => p.n >= 2)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 6)
+    .map(p => ({
+      ...p,
+      rate: Math.round((p.taken / p.n) * 100),
+      // Say it the way a person would, not as a statistic.
+      plain: p.taken / p.n >= 0.6
+        ? `you usually take me up on ${p.category}`
+        : p.taken / p.n <= 0.2
+          ? `you don't want ${p.category} offers`
+          : `you sometimes want ${p.category}`,
+    }));
+
+  res.json({
+    ok: true, patterns,
+    spoken: patterns.length
+      ? patterns.slice(0, 2).map(p => p.plain).join(", and ") + "."
+      : "Still working you out.",
   });
 });
 
