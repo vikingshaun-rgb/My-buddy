@@ -5171,23 +5171,6 @@ setInterval(() => once("watchers", async () => {
   for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) await runWatcher(uid, w).catch(() => {});
 }), 3600000);
 // Texts are checked far more often than watchers — every 4 minutes — because a
-// text sitting unseen for an hour is useless. Cheap: one IMAP call, no model.
-setTimeout(() => setInterval(() => once("texts", async () => {
-  for (const uid of Object.keys(STORE.profiles || { "shaun-default": 1 })) await checkTexts(uid).catch(() => {});
-}), 240000), OFFSET.texts);
-setTimeout(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 60000);
-
-app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));
-
-// Self-ping every 10 min to stay warm (fixes the ~30-50s cold-start on first use).
-// SELF_URL should be this service's own address, e.g. https://my-buddy-xu2x.onrender.com
-const SELF_URL = process.env.SELF_URL || process.env.RENDER_EXTERNAL_URL;
-if (SELF_URL) {
-  setInterval(() => {
-    fetch(`${SELF_URL}/ping`).catch(() => {}); // best-effort, ignore errors
-  }, 10 * 60 * 1000);
-}
-
 /* --- SCHEDULER ORCHESTRATION (batch 112 audit) -----------------------------
  * Audit found five independent setIntervals with no coordination:
  *   distil+learnProcedure 24h | watchers 1h | checkTexts 4min
@@ -5209,6 +5192,24 @@ async function once(name, fn) {
 }
 // Stagger so the hourly marks don't coincide. Prime-ish offsets, not round.
 const OFFSET = { watchers: 0, texts: 37000, calendar: 71000, distil: 113000 };
+
+// text sitting unseen for an hour is useless. Cheap: one IMAP call, no model.
+setTimeout(() => setInterval(() => once("texts", async () => {
+  for (const uid of Object.keys(STORE.profiles || { "shaun-default": 1 })) await checkTexts(uid).catch(() => {});
+}), 240000), OFFSET.texts);
+setTimeout(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 60000);
+
+app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));
+
+// Self-ping every 10 min to stay warm (fixes the ~30-50s cold-start on first use).
+// SELF_URL should be this service's own address, e.g. https://my-buddy-xu2x.onrender.com
+const SELF_URL = process.env.SELF_URL || process.env.RENDER_EXTERNAL_URL;
+if (SELF_URL) {
+  setInterval(() => {
+    fetch(`${SELF_URL}/ping`).catch(() => {}); // best-effort, ignore errors
+  }, 10 * 60 * 1000);
+}
+
 
 /* ===========================================================================
  * BATCH 109 — CALENDAR + LISTS + GEEKS2U WORK LAYER
@@ -6082,16 +6083,36 @@ app.post("/converse/history", requireAuth, (req, res) => {
  *      the correct answer most of the time.
  * ======================================================================== */
 
+/* His local hour has to come from where HE is, not where the server is.
+ * Render runs UTC; the countries he travels are UTC+7 to UTC+10. Getting this
+ * wrong means silent all morning and chatty at midnight. */
+const COUNTRY_TZ = {
+  australia: "Australia/Brisbane", vietnam: "Asia/Ho_Chi_Minh", thailand: "Asia/Bangkok",
+  indonesia: "Asia/Jakarta", malaysia: "Asia/Kuala_Lumpur", singapore: "Asia/Singapore",
+  philippines: "Asia/Manila", cambodia: "Asia/Phnom_Penh", laos: "Asia/Vientiane",
+  myanmar: "Asia/Yangon", japan: "Asia/Tokyo", "new zealand": "Pacific/Auckland",
+};
+
 // Timezone collisions are the single most likely thing to bite him: he works
 // AEST hours from a country 2-4 hours behind, so "4:30" means two things.
 function tzGap(uid) {
   const p = profileOf(uid) || {};
   if (!p.country || /australia/i.test(p.country)) return 0;
   try {
+    // Batch 149: this used to compare Brisbane against the SERVER's clock,
+    // which is not where he is. On Render (UTC) it returned +10 — right for
+    // Vietnam by pure coincidence. Run the same code on a Brisbane PC and it
+    // returns 0, so the advisor went completely silent about a job he'd be
+    // three hours out on. Neither answer was actually correct.
+    //
+    // The question is: how far is Brisbane from WHERE HE IS? So both sides
+    // must be named zones. COUNTRY_TZ already maps the places he travels.
+    const hisZone = COUNTRY_TZ[String(p.country).toLowerCase()];
+    if (!hisZone) return 0;   // unknown country — don't guess a gap
     const now = new Date();
     const au = new Date(now.toLocaleString("en-US", { timeZone: WORK_TZ }));
-    const here = new Date(now.toLocaleString("en-US"));
-    return Math.round((au - here) / 3600000);
+    const there = new Date(now.toLocaleString("en-US", { timeZone: hisZone }));
+    return Math.round((au - there) / 3600000);
   } catch { return 0; }
 }
 
@@ -6960,15 +6981,7 @@ app.post("/scene/timeline", requireAuth, (req, res) => {
  * And the rule that matters most: if he brushes something off, it stays off.
  * ======================================================================== */
 
-/* His local hour has to come from where HE is, not where the server is.
- * Render runs UTC; the countries he travels are UTC+7 to UTC+10. Getting this
- * wrong means silent all morning and chatty at midnight. */
-const COUNTRY_TZ = {
-  australia: "Australia/Brisbane", vietnam: "Asia/Ho_Chi_Minh", thailand: "Asia/Bangkok",
-  indonesia: "Asia/Jakarta", malaysia: "Asia/Kuala_Lumpur", singapore: "Asia/Singapore",
-  philippines: "Asia/Manila", cambodia: "Asia/Phnom_Penh", laos: "Asia/Vientiane",
-  myanmar: "Asia/Yangon", japan: "Asia/Tokyo", "new zealand": "Pacific/Auckland",
-};
+
 
 const ATTENTION = {
   NOW: "now",       // storm, job starting, emergency
