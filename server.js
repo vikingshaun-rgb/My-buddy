@@ -34,8 +34,31 @@ app.use(express.urlencoded({ extended: false })); // Twilio posts form-encoded w
 // CORS: the web app (served from a different origin, or added to the home screen)
 // must be allowed to call this backend from the browser. Without this, every
 // request from the PWA is blocked by the browser before it even leaves.
+// Batch 130 audit: this was Allow-Origin:* — harmless on its own, since the
+// token is still required, but combined with a leaked token it meant any page
+// he happened to visit could quietly use his brain on his bill. Restricting it
+// to the origins that actually serve the app closes that. ALLOWED_ORIGINS lets
+// him add one without a code change; anything unlisted still gets a reply, it
+// just can't be read by a browser from another site.
+const DEFAULT_ORIGINS = [
+  "https://my-buddy-ai.onrender.com",
+  "https://my-buddy-xu2x.onrender.com",
+  "http://localhost:8787",
+  "http://127.0.0.1:8787",
+];
+const ALLOWED_ORIGINS = new Set([
+  ...DEFAULT_ORIGINS,
+  ...String(process.env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean),
+]);
+
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const origin = req.get("origin") || "";
+  // A PWA added to the home screen sends a null/absent origin, and so does
+  // curl — neither is a cross-site browser request, so both are fine.
+  if (!origin || ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204); // preflight
@@ -74,17 +97,94 @@ const DATA_DIR = process.env.DATA_DIR || (fs.existsSync("/var/data") ? "/var/dat
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
 const STORE_FILE = path.join(DATA_DIR, "vision-store.json");
 const DURABLE = DATA_DIR === "/var/data" || !!process.env.DATA_DIR;
-let STORE = { profiles: {}, briefs: {}, flags: {}, mem: {}, watchers: {}, results: {}, seen: {} };
-try { STORE = { ...STORE, ...JSON.parse(fs.readFileSync(STORE_FILE, "utf8")) }; } catch {}
+/* --- DURABLE STORE (hardened, batch 137 audit) ------------------------------
+ * The store is everything Vision knows about him. The audit found four ways it
+ * could vanish without anyone noticing:
+ *
+ *   1. NON-ATOMIC WRITE — writeFileSync truncates then writes. A Render
+ *      restart landing mid-write leaves a half-file; next boot JSON.parse
+ *      throws, the catch swallows it, and STORE silently resets to empty.
+ *   2. NO BACKUP — one file, nothing to fall back to.
+ *   3. SILENT LOAD FAILURE — a corrupt store looked identical to a first run.
+ *      He'd open the app to find Vision had forgotten him, with no error.
+ *   4. NO SHUTDOWN FLUSH — saves debounce 1.5s. Tick milk off the list, deploy
+ *      lands 800ms later, the tick is gone and it looks like it was ignored.
+ * ------------------------------------------------------------------------ */
+const STORE_BAK = STORE_FILE + ".bak";
+const STORE_TMP = STORE_FILE + ".tmp";
+const EMPTY_STORE = { profiles: {}, briefs: {}, flags: {}, mem: {}, watchers: {}, results: {}, seen: {} };
+
+let STORE = { ...EMPTY_STORE };
+let _loadState = "fresh";   // fresh | loaded | recovered | corrupt
+
+function readStoreFile(p) {
+  const raw = fs.readFileSync(p, "utf8");
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+  return parsed;
+}
+
+// Try the live file, then the backup. Only ever start empty if BOTH are gone —
+// and say so loudly if the live file existed but was unreadable.
+try {
+  STORE = { ...EMPTY_STORE, ...readStoreFile(STORE_FILE) };
+  _loadState = "loaded";
+} catch (e) {
+  const liveExisted = fs.existsSync(STORE_FILE);
+  try {
+    STORE = { ...EMPTY_STORE, ...readStoreFile(STORE_BAK) };
+    _loadState = "recovered";
+    console.error("[vision] main store unreadable — RECOVERED FROM BACKUP:", e && e.message);
+  } catch {
+    _loadState = liveExisted ? "corrupt" : "fresh";
+    if (liveExisted) {
+      // Never overwrite evidence. Keep the bad file so it can be inspected
+      // rather than quietly replaced on the next save.
+      try { fs.renameSync(STORE_FILE, STORE_FILE + ".corrupt-" + Date.now()); } catch {}
+      console.error("[vision] STORE CORRUPT AND NO BACKUP — starting empty. Bad file kept for inspection.");
+    }
+  }
+}
+
 let _saveT = null;
 // A failed save is silent memory loss — the one failure you'd never notice
 // until something you told Vision has vanished. Record it and surface it in
 // /health so Status can say so plainly.
 let _saveFails = 0, _lastSaveOk = 0;
+
+// Write to a temp file, fsync it, then rename over the target. rename() is
+// atomic on POSIX, so a crash leaves either the old file or the new one —
+// never a half-written one.
+function writeStoreNow() {
+  // Batch 137 audit caught this: a length check alone is not enough.
+  // JSON.stringify(null) is the four-character string "null", which sailed
+  // past `length < 2` and would have been written straight over the real
+  // store. Check the SHAPE before serialising, not the size after.
+  if (!STORE || typeof STORE !== "object" || Array.isArray(STORE)) {
+    throw new Error("refusing to write a non-object store");
+  }
+  const json = JSON.stringify(STORE);
+  if (!json || json.length < 2 || json === "null") {
+    throw new Error("refusing to write an empty store");
+  }
+  let fd;
+  try {
+    fd = fs.openSync(STORE_TMP, "w");
+    fs.writeSync(fd, json);
+    fs.fsyncSync(fd);           // on disk, not just in the OS buffer
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+  }
+  // Keep the previous good file as the backup before replacing it.
+  try { if (fs.existsSync(STORE_FILE)) fs.copyFileSync(STORE_FILE, STORE_BAK); } catch {}
+  fs.renameSync(STORE_TMP, STORE_FILE);
+  _saveFails = 0; _lastSaveOk = Date.now();
+}
+
 function saveStore() {
   clearTimeout(_saveT);
   _saveT = setTimeout(() => {
-    try { fs.writeFileSync(STORE_FILE, JSON.stringify(STORE)); _saveFails = 0; _lastSaveOk = Date.now(); }
+    try { writeStoreNow(); }
     catch (e) {
       _saveFails++;
       try { dlog(null, "errors", `MEMORY SAVE FAILED (${_saveFails}x): ${String(e.message || e).slice(0, 120)}`); } catch {}
@@ -92,6 +192,21 @@ function saveStore() {
     }
   }, 1500);
 }
+
+// Render sends SIGTERM on every deploy and waits ~30s. Without this, anything
+// saved in the last 1.5 seconds is lost — and that's exactly the moment he'd
+// have just told Vision something.
+let _exiting = false;
+function flushAndExit(signal) {
+  if (_exiting) return;
+  _exiting = true;
+  clearTimeout(_saveT);
+  try { writeStoreNow(); console.error(`[vision] flushed store on ${signal}`); }
+  catch (e) { console.error("[vision] flush on exit FAILED:", e && e.message); }
+  process.exit(0);
+}
+process.on("SIGTERM", () => flushAndExit("SIGTERM"));
+process.on("SIGINT", () => flushAndExit("SIGINT"));
 function uidOf(req) { return String((req.body && req.body.uid) || req.query.uid || "shaun-default").slice(0, 64); }
 function profileOf(uid) { return STORE.profiles[uid] || { name: "Shaun", ainame: "Vision" }; }
 function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: false, whisper: false, saver: false }; }
@@ -137,11 +252,95 @@ app.post("/memory", requireAuth, (req, res) => {
   res.status(400).json({ error: "bad action" });
 });
 
+/* --- AUTH + RATE LIMITING (batch 130 audit) --------------------------------
+ * Three findings, in order of what they'd actually cost him:
+ *
+ * 1. NO RATE LIMITING AT ALL. A leaked token meant unlimited spend on his
+ *    Anthropic account — and his APP_SHARED_TOKEN has already been exposed in
+ *    a chat and a screenshot once. At ~2c a model call, a script hitting /chat
+ *    unattended is real money before he notices.
+ * 2. The token comparison short-circuited on the first wrong character, so
+ *    response time leaked how much of a guess was right. Low risk over the
+ *    internet, but free to fix and it's the correct pattern.
+ * 3. CORS is Allow-Origin:* — harmless without the token, but with a leaked
+ *    one it means any page he visits could quietly use his brain.
+ * ------------------------------------------------------------------------ */
+const crypto = require("crypto");
+
+// Compares in constant time so a wrong guess takes as long as a right one.
+function safeEqual(a, b) {
+  const A = Buffer.from(String(a || ""), "utf8");
+  const B = Buffer.from(String(b || ""), "utf8");
+  if (A.length !== B.length) {
+    // Still burn a comparison so length itself isn't a timing signal.
+    try { crypto.timingSafeEqual(A, A); } catch {}
+    return false;
+  }
+  try { return crypto.timingSafeEqual(A, B); } catch { return false; }
+}
+
+/* Two buckets, because the two failure modes are different:
+ *   - failed auth is someone guessing         -> lock the source out hard
+ *   - successful calls are his own use        -> generous, but not unlimited
+ * In-memory: this resets on redeploy, which is fine. It exists to stop a
+ * runaway, not to be a fortress.
+ */
+const _authFails = new Map();   // ip -> { n, until }
+const _callRate = new Map();    // ip -> { n, windowStart }
+
+const AUTH_FAIL_MAX = 8;              // wrong tokens before a lockout
+const AUTH_LOCK_MS = 15 * 60 * 1000;  // how long that lockout lasts
+const CALL_WINDOW_MS = 60 * 1000;
+const CALL_MAX = 120;                 // per minute — far above real use
+
+function clientIp(req) {
+  return String(req.get("x-forwarded-for") || req.ip || "unknown").split(",")[0].trim();
+}
+
+// Housekeeping so the maps can't grow forever on a long-lived process.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _authFails) if (v.until < now) _authFails.delete(k);
+  for (const [k, v] of _callRate) if (now - v.windowStart > CALL_WINDOW_MS * 5) _callRate.delete(k);
+}, 10 * 60 * 1000);
+
 function requireAuth(req, res, next) {
+  const ip = clientIp(req);
+  const now = Date.now();
+
+  const lock = _authFails.get(ip);
+  if (lock && lock.until > now) {
+    return res.status(429).json({ error: "too many failed attempts", retryAfterSec: Math.ceil((lock.until - now) / 1000) });
+  }
+
   const auth = req.get("authorization") || "";
-  if (auth !== `Bearer ${APP_TOKEN}`) {
+  if (!APP_TOKEN || !safeEqual(auth, `Bearer ${APP_TOKEN}`)) {
+    const f = _authFails.get(ip) || { n: 0, until: 0 };
+    f.n++;
+    if (f.n >= AUTH_FAIL_MAX) {
+      f.until = now + AUTH_LOCK_MS; f.n = 0;
+      try { dlog(null, "errors", `auth: locked out ${ip} after ${AUTH_FAIL_MAX} failed attempts`); } catch {}
+    }
+    _authFails.set(ip, f);
     return res.status(401).json({ error: "unauthorized" });
   }
+
+  // Authenticated, but still bounded — a leaked token shouldn't mean an
+  // unlimited bill.
+  const r = _callRate.get(ip) || { n: 0, windowStart: now };
+  if (now - r.windowStart > CALL_WINDOW_MS) { r.n = 0; r.windowStart = now; }
+  r.n++;
+  _callRate.set(ip, r);
+  if (r.n > CALL_MAX) {
+    try { dlog(null, "errors", `rate limit hit: ${ip} made ${r.n} calls in a minute`); } catch {}
+    return res.status(429).json({
+      error: "rate limited",
+      spoken: "You're going a bit fast for me — give me a moment.",
+      retryAfterSec: Math.ceil((CALL_WINDOW_MS - (now - r.windowStart)) / 1000),
+    });
+  }
+
+  _authFails.delete(ip);   // a good token clears the guess counter
   next();
 }
 
@@ -187,20 +386,142 @@ function usdEstimate() {
 const brainLog = []; // {at, model, ms} cap 200 — EVERY real Claude call
 const perfLog = [];  // {at, ok, worst} cap 30 — each /perf run
 
-async function callClaude(body) {
-  const _t0 = Date.now();
-  const r = await fetch(ANTHROPIC_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await r.text();
-  try { const j = JSON.parse(text); if (r.status === 200 && j && j.usage) recordUsage(body.model, j.usage); } catch {}
-  return { status: r.status, text };
+/* --- CLAUDE API GATEWAY (batch 115 audit) ----------------------------------
+ * 57 call sites go through this one function. It had no timeout, no retry, and
+ * no handling for 429 (rate limit) or 529 (overloaded) — the two statuses the
+ * API actually returns under load. A single blip surfaced to Shaun as "Vision's
+ * brain hiccuped", which is exactly the failure he already spent a night
+ * debugging. What the serious assistants do instead, all added here:
+ *   - bounded request (never hang a watcher or a spoken reply)
+ *   - retry with exponential backoff + jitter, honouring retry-after
+ *   - retry ONLY the transient statuses; never retry a 400 or a bad key
+ *   - surface the real error so a wrong model name says so
+ * ------------------------------------------------------------------------ */
+const CLAUDE_TIMEOUT_MS = 45000;   // vision calls with a big image are slow
+const CLAUDE_RETRIES = 2;          // 3 attempts total
+const RETRYABLE = new Set([408, 429, 500, 502, 503, 504, 529]);
+
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* --- SHARED PROMPT GUARDRAILS (batch 117 audit) -----------------------------
+ * Audit of all 52 model-calling endpoints found:
+ *   - 41 with no "never invent" instruction, including ones giving advice he
+ *     acts on (prices, places, packing, visas, weather)
+ *   - 23 that can return a 5xx, so the app gets an error and Vision says
+ *     nothing useful — the worst possible failure on glasses
+ *
+ * Defining these once beats editing 41 prompts by hand: consistent wording,
+ * one place to improve, and no drift between endpoints.
+ * ------------------------------------------------------------------------ */
+
+// The single most important line in the system. A confident invention is worse
+// than an admitted blank — especially for a price, a visa rule or an allergen.
+const NO_INVENT =
+  " Never invent specifics. If you don't actually know a name, price, time, rule or fact, " +
+  "say plainly that you're not sure and tell him how to check. A guess he acts on is worse than an honest blank.";
+
+// For anything he'd spend money or make a plan on.
+const NO_INVENT_STRICT =
+  NO_INVENT +
+  " Do NOT state opening hours, prices, availability or rules as fact unless they were given to you in this request. " +
+  "Describe the KIND of thing to expect instead, and say it needs confirming.";
+
+// For safety-critical advice.
+// Spoken through the glasses — asterisks, hashes and bullet characters are
+// noise when read aloud. /job/report is the deliberate exception: its dashed
+// bullets are the house format Geeks2U expects, and it's pasted, not spoken.
+const SPOKEN_PLAIN =
+  " This is read ALOUD, so write it as speech: no markdown, no asterisks, no hashes, no bullet characters, no headings.";
+
+const NO_FALSE_COMFORT =
+  " Never give false reassurance. If you cannot be sure from what you were given, say so and name what he should check or ask. " +
+  "It is always better to say 'I can't tell from this' than to be reassuring and wrong.";
+
+/* --- IMAGE VALIDATION (batch 120 audit) -------------------------------------
+ * Eight endpoints accept images. Four had no size check at all, so an
+ * oversized photo travelled the whole way to Anthropic before being rejected —
+ * the user waits out a slow upload and then hears "my brain hiccuped".
+ * Checking here costs nothing and gives him something true to act on.
+ *
+ * Anthropic's own limits: ~5MB per image after decoding, 8000px max edge,
+ * and it rejects anything under roughly 200px on the long edge.
+ * ------------------------------------------------------------------------ */
+const IMG_MAX_B64 = 5 * 1024 * 1024 * 4 / 3;   // ~5MB decoded, base64 is ~4/3
+const IMG_MIN_B64 = 500;                        // below this it isn't a photo
+const IMG_MIME_OK = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+function checkImage(b64, mediaType) {
+  if (typeof b64 !== "string" || !b64) return { ok: false, spoken: "That photo didn't come through — give it another go." };
+  // The client sometimes forgets to strip the data: prefix; be forgiving.
+  const raw = b64.startsWith("data:") ? (b64.split(",")[1] || "") : b64;
+  if (raw.length < IMG_MIN_B64) return { ok: false, spoken: "That image was too small to read — try taking it again." };
+  if (raw.length > IMG_MAX_B64) return { ok: false, spoken: "That photo's too big for me — try again and I'll shrink it first." };
+  if (/^(undefined|null)$/i.test(raw.trim())) return { ok: false, spoken: "That photo didn't come through — give it another go." };
+  const mt = mediaType || "image/jpeg";
+  if (!IMG_MIME_OK.has(mt)) return { ok: false, spoken: "I can't read that kind of image — a photo or screenshot works best." };
+  return { ok: true, data: raw, mediaType: mt };
+}
+
+async function callClaude(body, opts = {}) {
+  const timeout = opts.timeout || CLAUDE_TIMEOUT_MS;
+  const maxRetries = opts.retries === undefined ? CLAUDE_RETRIES : opts.retries;
+  let attempt = 0, lastStatus = 0, lastText = "";
+
+  while (attempt <= maxRetries) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeout);
+    const t0 = Date.now();
+    try {
+      const r = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": KEY,
+          "anthropic-version": "2023-06-01",
+          // Only sent when the body actually uses cache_control, so nothing
+          // else in the system is affected by the beta flag.
+          ...(JSON.stringify(body).includes("cache_control")
+            ? { "anthropic-beta": "prompt-caching-2024-07-31" } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: ctl.signal,
+      });
+      clearTimeout(timer);
+      const text = await r.text();
+      lastStatus = r.status; lastText = text;
+
+      if (r.status === 200) {
+        try { const j = JSON.parse(text); if (j && j.usage) recordUsage(body.model, j.usage); } catch {}
+        if (attempt > 0) { try { dlog(null, "errors", `Claude recovered after ${attempt} retr${attempt > 1 ? "ies" : "y"} (${Date.now() - t0}ms)`); } catch {} }
+        return { status: 200, text, attempts: attempt + 1 };
+      }
+
+      // A 400 or 401 will fail identically every time — retrying just adds delay.
+      if (!RETRYABLE.has(r.status) || attempt === maxRetries) {
+        try { dlog(null, "errors", `Claude ${r.status}: ${String(text).slice(0, 160)}`); } catch {}
+        return { status: r.status, text, attempts: attempt + 1 };
+      }
+
+      // Honour the server's own advice where it gives it.
+      const ra = parseInt(r.headers.get("retry-after") || "", 10);
+      const backoff = ra ? ra * 1000 : Math.min(8000, 600 * Math.pow(2, attempt)) + Math.floor(Math.random() * 400);
+      try { dlog(null, "errors", `Claude ${r.status} — retrying in ${backoff}ms (attempt ${attempt + 1}/${maxRetries + 1})`); } catch {}
+      await _sleep(backoff);
+      attempt++;
+    } catch (e) {
+      clearTimeout(timer);
+      const aborted = e && (e.name === "AbortError" || /abort/i.test(String(e.message || "")));
+      lastStatus = aborted ? 504 : 0;
+      lastText = JSON.stringify({ error: { message: aborted ? `request timed out after ${timeout}ms` : String(e.message || e) } });
+      if (attempt === maxRetries) {
+        try { dlog(null, "errors", `Claude ${aborted ? "timeout" : "network error"} after ${attempt + 1} attempts`); } catch {}
+        return { status: lastStatus, text: lastText, attempts: attempt + 1 };
+      }
+      await _sleep(Math.min(8000, 600 * Math.pow(2, attempt)) + Math.floor(Math.random() * 400));
+      attempt++;
+    }
+  }
+  return { status: lastStatus, text: lastText, attempts: attempt };
 }
 
 // --- Vision: image + prompt in, one short line out (matches ClaudeVisionClient) ---
@@ -218,6 +539,13 @@ const VISION_MODES = {
 };
 app.post("/vision", requireAuth, async (req, res) => {
   try {
+    // Batch 120 audit: this had no size check — an oversized photo went all
+    // the way to Anthropic before being rejected.
+    if (req.body && req.body.image) {
+      const _v = checkImage(req.body.image, req.body.mediaType);
+      if (!_v.ok) return res.status(200).json({ fallback: true, answer: _v.spoken, spoken: _v.spoken });
+      req.body.image = _v.data; req.body.mediaType = _v.mediaType;
+    }
     const b = req.body || {};
     // Back-compat: if the app already sent a full /v1/messages body, forward it.
     if (Array.isArray(b.messages)) {
@@ -230,7 +558,7 @@ app.post("/vision", requireAuth, async (req, res) => {
       ? `Shaun asks: "${b.question}". Answer from what you see, warm and spoken, one or two sentences.`
       : (VISION_MODES[b.mode] || VISION_MODES.identify);
 
-    const system = "You are Vision, Shaun's warm AI companion in his glasses. You're looking through his camera. Keep answers SHORT, warm, and spoken-friendly — no markdown, no lists, no preamble.";
+    const system = "You are Vision, Shaun's warm AI companion in his glasses. You're looking through his camera. Keep answers SHORT, warm, and spoken-friendly — no markdown, no lists, no preamble." + NO_INVENT;
 
     const body = {
       model: "claude-sonnet-4-6", // vision reasoning wants the capable model
@@ -266,7 +594,7 @@ app.post("/translate", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", // fast + cheap; translation doesn't need Opus
     max_tokens: 500,
-    system: "You are Vision, a warm translation helper for Shaun. Be accurate and natural, not literal-clunky.",
+    system: "You are Vision, a warm translation helper for Shaun. Be accurate and natural, not literal-clunky." + NO_INVENT,
     messages: [{
       role: "user",
       content:
@@ -291,6 +619,9 @@ app.post("/translate", requireAuth, async (req, res) => {
       translation: parsed.translation || raw,
       detected: parsed.detected || "",
       note: parsed.note || "",
+      // Batch 138 native-readiness audit: a voice client shouldn't have to
+      // know which field to read out. Every endpoint now answers in words.
+      spoken: (parsed.translation || raw) + (parsed.note ? ` — ${parsed.note}` : ""),
     });
   } catch (e) {
     res.status(200).json({ fallback: true, translation: "Translation hiccup — give it another go." });
@@ -299,6 +630,11 @@ app.post("/translate", requireAuth, async (req, res) => {
 
 // --- Scam & price-check guard: is this a fair price here? ---
 app.post("/scamcheck", requireAuth, async (req, res) => {
+  // Batch 111 audit: this gives personalised ADVICE but was running blind.
+  // Pull what he has paid for things before, and any scam he has already been caught by.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if it genuinely helps; never list it back): ${_mem}` : "";
   const { item, price, currency, country, prior } = req.body || {};
   if (!item || price == null) return res.status(400).json({ error: "item and price required" });
   const where = country ? ` in ${country}` : "";
@@ -310,7 +646,8 @@ app.post("/scamcheck", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 220,
-    system: "You are Vision, a savvy travel companion who protects Shaun from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. Be honest and practical, never alarmist.",
+    system: "You are Vision, a savvy travel companion who protects Shaun from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. Be honest and practical, never alarmist." + NO_FALSE_COMFORT + NO_INVENT +
+      _memNote,
     messages: [{
       role: "user",
       content:
@@ -335,10 +672,21 @@ app.post("/scamcheck", requireAuth, async (req, res) => {
 
 // --- Allergy / dietary shield: is this safe for me to eat? ---
 app.post("/allergy", requireAuth, async (req, res) => {
+  // Batch 111 audit: this gives personalised ADVICE but was running blind.
+  // Pull anything he has told you about what he reacts to or avoids.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if it genuinely helps; never list it back): ${_mem}` : "";
   const { dish, avoid, country, image, mediaType } = req.body || {};
+  // Batch 120 audit: no size check. Safety-critical, so a silent failure is
+  // the worst outcome — better to say plainly that the photo didn't read.
+  if (image) {
+    const _v = checkImage(image, mediaType);
+    if (!_v.ok) return res.status(200).json({ fallback: true, risk: "unsure", spoken: _v.spoken });
+  }
   const avoidList = Array.isArray(avoid) ? avoid.join(", ") : (avoid || "");
   if (!avoidList) return res.status(400).json({ error: "avoid (what to avoid) required" });
-  const sys = "You are Vision, Shaun's dietary safety guard while travelling. You know common hidden sources of allergens/restricted ingredients in local cuisines (e.g. fish sauce, shrimp paste, peanuts in SE Asian food). Be careful and clear. When unsure, say so and advise asking/confirming with the vendor in the local language. NEVER give false reassurance.";
+  const sys = "You are Vision, Shaun's dietary safety guard while travelling. You know common hidden sources of allergens/restricted ingredients in local cuisines (e.g. fish sauce, shrimp paste, peanuts in SE Asian food). Be careful and clear. When unsure, say so and advise asking/confirming with the vendor in the local language." + NO_FALSE_COMFORT;
   const askText =
     `Shaun must AVOID: ${avoidList}.${country ? ` He's in ${country}.` : ""} ` +
     `${dish ? `The dish is: "${dish}". ` : "Assess the food in the image. "}` +
@@ -352,7 +700,7 @@ app.post("/allergy", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", // safety-critical → stronger model
     max_tokens: 320,
-    system: sys,
+    system: sys + _memNote,
     messages: [{ role: "user", content }],
   };
   try {
@@ -396,6 +744,11 @@ app.post("/unlost", requireAuth, async (req, res) => {
 
 // --- Is this a good deal? convert a price AND judge if it's reasonable ---
 app.post("/gooddeal", requireAuth, async (req, res) => {
+  // Batch 111 audit: this gives personalised ADVICE but was running blind.
+  // Pull what he has paid for similar things before.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if it genuinely helps; never list it back): ${_mem}` : "";
   const { item, price, currency, home, country } = req.body || {};
   if (price == null || !currency) return res.status(400).json({ error: "price and currency required" });
   const homeCur = (home || "AUD").toUpperCase();
@@ -413,7 +766,8 @@ app.post("/gooddeal", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 200,
-    system: "You are Vision, Shaun's savvy money companion abroad. You judge whether a price is good value for the country, in plain friendly terms. You know rough local costs across SE Asia and worldwide.",
+    system: "You are Vision, Shaun's savvy money companion abroad. You judge whether a price is good value for the country, in plain friendly terms. You know rough local costs across SE Asia and worldwide." + NO_FALSE_COMFORT + NO_INVENT +
+      _memNote,
     messages: [{
       role: "user",
       content:
@@ -438,12 +792,18 @@ app.post("/gooddeal", requireAuth, async (req, res) => {
 
 // --- Agentic trip-planner: goal → structured day itinerary ---
 app.post("/planday", requireAuth, async (req, res) => {
+  // Batch 111 audit: this gives personalised ADVICE but was running blind.
+  // Pull how he actually likes to spend a day and what he has already done here.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if it genuinely helps; never list it back): ${_mem}` : "";
   const { goal, city, budget, currency, profile, date } = req.body || {};
   if (!goal && !city) return res.status(400).json({ error: "goal or city required" });
   const body = {
     model: "claude-sonnet-4-6", // planning benefits from the stronger model
     max_tokens: 900,
-    system: "You are Vision, Shaun's travel companion who PLANS his day, not just answers. Build a realistic, well-paced itinerary for the place and budget, with actual place types, rough times, and rough costs. Be specific and local, mindful of opening hours and travel time. Keep it doable, not a rushed checklist.",
+    system: "You are Vision, Shaun's travel companion who PLANS his day, not just answers. Build a realistic, well-paced itinerary for the place and budget, with actual place types, rough times, and rough costs. Be specific and local, mindful of opening hours and travel time. Keep it doable, not a rushed checklist." + NO_INVENT_STRICT +
+      _memNote,
     messages: [{
       role: "user",
       content:
@@ -522,7 +882,8 @@ app.post("/etiquette", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 240,
-    system: "You are Vision, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic.",
+    system: "You are Vision, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic." + SPOKEN_PLAIN +
+      NO_INVENT,
     messages: [{
       role: "user",
       content: `${country ? `In ${country}: ` : ""}${question}${_memNote}\n` +
@@ -545,6 +906,11 @@ app.post("/etiquette", requireAuth, async (req, res) => {
 app.post("/landmark", requireAuth, async (req, res) => {
   const { place, image, mediaType, country } = req.body || {};
   if (!place && !image) return res.status(400).json({ error: "place or image required" });
+  // Batch 120 audit: no size check on the image path.
+  if (image) {
+    const _v = checkImage(image, mediaType);
+    if (!_v.ok) return res.status(200).json({ fallback: true, spoken: _v.spoken });
+  }
   const askText =
     `${place ? `Tell Shaun about this landmark/place: "${place}".` : "Identify the landmark or notable place in this image and tell Shaun about it."}` +
     `${country ? ` (He's in ${country}.)` : ""} ` +
@@ -557,7 +923,8 @@ app.post("/landmark", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", // identification benefits from stronger vision
     max_tokens: 320,
-    system: "You are Vision, Shaun's knowledgeable, enthusiastic travel guide. When he looks at something, you tell him what it is and something genuinely interesting — like a great local guide would, briefly.",
+    system: "You are Vision, Shaun's knowledgeable, enthusiastic travel guide. When he looks at something, you tell him what it is and something genuinely interesting — like a great local guide would, briefly." + SPOKEN_PLAIN +
+      NO_INVENT_STRICT,
     messages: [{ role: "user", content }],
   };
   try {
@@ -580,7 +947,8 @@ app.post("/survival", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 600,
-    system: "You are Vision, preparing Shaun an offline survival phrase pack for travel. Give the most useful emergency and everyday phrases in the local language with pronunciation and English.",
+    system: "You are Vision, preparing Shaun an offline survival phrase pack for travel. Give the most useful emergency and everyday phrases in the local language with pronunciation and English." + SPOKEN_PLAIN +
+      NO_FALSE_COMFORT,
     messages: [{
       role: "user",
       content: `Make a compact survival phrase pack for ${country || lang} in ${lang}. ` +
@@ -593,7 +961,12 @@ app.post("/survival", requireAuth, async (req, res) => {
     if (status !== 200) return res.status(200).json({ fallback: true, phrases: [], tip: "Save your hotel address offline before heading out." });
     const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { phrases: [], emergency: "", tip: "" }; }
-    res.json({ phrases: p.phrases || [], emergency: p.emergency || "", tip: p.tip || "" });
+    res.json({
+      spoken: [
+        (p.phrases || []).slice(0, 3).map(x => typeof x === "string" ? x : (x.phrase || x.text || "")).filter(Boolean).join("; "),
+        p.emergency ? `Emergency here is ${p.emergency}.` : "",
+        p.tip || "",
+      ].filter(Boolean).join(" "), phrases: p.phrases || [], emergency: p.emergency || "", tip: p.tip || "" });
   } catch (e) {
     res.status(200).json({ fallback: true, phrases: [], tip: "Save your hotel address offline before heading out." });
   }
@@ -629,8 +1002,12 @@ function buddyPersona(ctx) {
     ctx.recall || "",
     ctx.recentDays ? `HOW HIS LAST COUPLE OF DAYS WENT (context only, don't recite): ${ctx.recentDays}` : "",
     ctx.upcoming ? `WHAT'S COMING UP FOR HIM (mention only if relevant): ${ctx.upcoming}` : "",
-    ctx.pending || "",
     ctx.pending ? `UNFINISHED BUSINESS: ${ctx.pending}` : "",
+    ctx.calendar || "",
+    ctx.jobs || "",
+    ctx.advice || "",
+    ctx.today || "",
+    ctx.thisday || "",
     "YOUR CAPABILITIES — you are not a text-only chatbot. You sit on top of a working app with real tools:",
     "• Maps & places: you CAN find nearby places (restaurants, cafes, bars, banks, ATMs, pharmacies, shops), give walking/driving/transit directions, look up landmarks, save and return to pinned spots, and walk Shaun back when he's lost. Google Maps is connected.",
     "• Location: you CAN get his current location from the phone.",
@@ -648,7 +1025,7 @@ function buddyPersona(ctx) {
     // knows him rather than meeting him fresh every message.
     ctx.brief ? `WHAT YOU KNOW ABOUT SHAUN'S SITUATION RIGHT NOW: ${ctx.brief} Use this naturally — factor it into answers without reciting it back at him. If a diet restriction is listed it overrides everything when food is involved; if none is listed, do not invent one or ask about allergies.` : "",
     ctx.profile ? `What you remember about Shaun (use naturally when relevant, don't recite it): ${ctx.profile}` : "",
-  ].filter(Boolean).join(" ").split("Shaun").join(NAME);
+  ].filter(Boolean).join(" ").split("Shaun").join(NAME) + SPOKEN_PLAIN;
 }
 
 // Light heuristic: is this a hard question (needs the powerful model) or simple (fast/cheap)?
@@ -660,8 +1037,14 @@ function pickModel(message, explicit) {
                 "summarise","pros and cons","difference","how does","calculate","code",
                 "translate a","step by step","help me think","strategy","draft"];
   if (hard.some(h => t.includes(h))) return "claude-sonnet-4-6";
-  if (words > 20) return "claude-sonnet-4-6";
-  return "claude-haiku-4-5-20251001"; // short & simple → fast, cheap
+  // Batch 111 audit: raw word count sent every rambling voice dictation to
+  // Sonnet — but spoken input is long BECAUSE it's spoken, not because it's
+  // hard. Voice is the main path on glasses, so judge by shape, not length.
+  const clauses = (t.match(/[,;]|\band\b|\bthen\b|\bbut\b/g) || []).length;
+  const dense = words > 20 && (clauses / Math.max(words, 1)) < 0.08; // few joins = structured, likely complex
+  if (words > 45) return "claude-sonnet-4-6";      // genuinely long, give it the better model
+  if (dense) return "claude-sonnet-4-6";
+  return "claude-haiku-4-5-20251001"; // short, or long-but-chatty → fast, cheap
 }
 
 // --- SHARED ROOMS: pairing + location/pin/message sync between two Buddies ---
@@ -670,19 +1053,67 @@ function pickModel(message, explicit) {
 // NOTE: in-memory store — resets on redeploy. Fine for a live trip; a database is
 // the durable upgrade. This is also the exact backbone the glasses will use for
 // live "see what I see" + voice walkie-talkie once the native app can stream.
+/* --- SHARED ROOMS (hardened, batch 133 audit) -------------------------------
+ * A room holds live location, dropped pins, messages, camera frames and shared
+ * spend for him and Jess. The audit found four things:
+ *
+ *   1. room(code) auto-created ANY code asked for, so a short or guessable
+ *      code ("US", "1234", "SHAUN") meant anyone past the shared token could
+ *      join and watch his live location. requireAuth is the only gate, and
+ *      that token has already leaked once.
+ *   2. pins and messages were UNBOUNDED — a chatty trip grows without limit.
+ *   3. nothing ever deleted a room, so every typo left one behind forever,
+ *      each potentially holding a base64 frame.
+ *   4. `rooms` is module-level, not in STORE, so it is wiped on every
+ *      redeploy. That is actually the RIGHT call for live location — but it
+ *      needs saying out loud rather than being an accident.
+ * ------------------------------------------------------------------------ */
 const rooms = Object.create(null);
-function room(code) {
+
+const ROOM_MIN_LEN = 6;              // short codes are guessable
+const ROOM_MAX_PINS = 100;
+const ROOM_MAX_MESSAGES = 200;
+const ROOM_IDLE_MS = 7 * 24 * 3600000;  // a room untouched for a week is over
+
+function roomCodeOk(code) {
   const k = String(code || "").trim().toUpperCase();
-  if (!k) return null;
-  if (!rooms[k]) rooms[k] = { members: {}, pins: [], messages: [], frames: {}, spend: [] };
-  return rooms[k];
+  if (k.length < ROOM_MIN_LEN) return { ok: false, why: `Pick a longer code — at least ${ROOM_MIN_LEN} characters, or anyone could guess it.` };
+  if (k.length > 64) return { ok: false, why: "That code's too long." };
+  if (!/^[A-Z0-9][A-Z0-9 _-]*$/.test(k)) return { ok: false, why: "Letters, numbers, dashes and spaces only." };
+  return { ok: true, key: k };
 }
+
+// create=false means "only if it already exists" — used by every read path, so
+// a guessed code returns nothing rather than silently conjuring a room.
+function room(code, { create = false } = {}) {
+  const v = roomCodeOk(code);
+  if (!v.ok) return null;
+  if (!rooms[v.key]) {
+    if (!create) return null;
+    rooms[v.key] = { members: {}, pins: [], messages: [], frames: {}, spend: [], at: Date.now() };
+  }
+  rooms[v.key].at = Date.now();   // touched, so it survives the sweep
+  return rooms[v.key];
+}
+
+// Rooms are in memory only — deliberate, since live location shouldn't outlive
+// a redeploy. This sweep stops abandoned ones (and typos) accumulating.
+setInterval(() => {
+  const now = Date.now();
+  let n = 0;
+  for (const k of Object.keys(rooms)) {
+    if (now - (rooms[k].at || 0) > ROOM_IDLE_MS) { delete rooms[k]; n++; }
+  }
+  if (n) { try { dlog(null, "routing", `cleared ${n} idle room(s)`); } catch {} }
+}, 6 * 3600000);
 
 // Join / announce presence in a room.
 app.post("/pair", requireAuth, (req, res) => {
   const { code, name } = req.body || {};
-  const r = room(code);
-  if (!r) return res.status(400).json({ error: "code required" });
+  // The only place a room may be created.
+  const v = roomCodeOk(code);
+  if (!v.ok) return res.status(400).json({ error: "bad_code", spoken: v.why });
+  const r = room(code, { create: true });
   const who = (name || "me").trim();
   r.members[who] = r.members[who] || { name: who, at: Date.now() };
   r.members[who].joinedAt = Date.now();
@@ -692,13 +1123,21 @@ app.post("/pair", requireAuth, (req, res) => {
 // Push my current state to the room: location, a pin, a message, or a frame stub.
 app.post("/share", requireAuth, (req, res) => {
   const { code, name, lat, lng, pin, message, frame } = req.body || {};
-  const r = room(code);
-  if (!r) return res.status(400).json({ error: "code required" });
+  const r = room(code);   // read-only: a code nobody paired with returns nothing
+  if (!r) return res.status(404).json({ error: "no_such_room", spoken: "I can't find that room — check the code, or pair again." });
   const who = (name || "me").trim();
   const m = (r.members[who] = r.members[who] || { name: who });
   if (lat != null && lng != null) { m.lat = lat; m.lng = lng; m.at = Date.now(); }
-  if (pin && pin.lat != null) r.pins.unshift({ by: who, label: pin.label || "Pin", lat: pin.lat, lng: pin.lng, at: Date.now() });
-  if (message) r.messages.unshift({ by: who, text: String(message).slice(0, 500), at: Date.now() });
+  // Batch 133 audit: pins and messages were unbounded, so a chatty trip grew
+  // without limit in a store that never gets cleaned.
+  if (pin && pin.lat != null) {
+    r.pins.unshift({ by: who, label: String(pin.label || "Pin").slice(0, 80), lat: pin.lat, lng: pin.lng, at: Date.now() });
+    if (r.pins.length > ROOM_MAX_PINS) r.pins.length = ROOM_MAX_PINS;
+  }
+  if (message) {
+    r.messages.unshift({ by: who, text: String(message).slice(0, 500), at: Date.now() });
+    if (r.messages.length > ROOM_MAX_MESSAGES) r.messages.length = ROOM_MAX_MESSAGES;
+  }
   // shared trip spend: both partners log into one pot for split/who-owes-who
   if (req.body.spend && isFinite(Number(req.body.spend.amt))) {
     r.spend = r.spend || [];
@@ -714,8 +1153,8 @@ app.post("/share", requireAuth, (req, res) => {
 // Read the room from my perspective: partner location/distance, pins, messages.
 app.post("/room", requireAuth, (req, res) => {
   const { code, name, lat, lng } = req.body || {};
-  const r = room(code);
-  if (!r) return res.status(400).json({ error: "code required" });
+  const r = room(code);   // read-only: a code nobody paired with returns nothing
+  if (!r) return res.status(404).json({ error: "no_such_room", spoken: "I can't find that room — check the code, or pair again." });
   const me = (name || "me").trim();
   const others = Object.values(r.members).filter(m => m.name !== me);
   // distance to each other member (haversine) if we have both positions
@@ -739,11 +1178,52 @@ app.post("/room", requireAuth, (req, res) => {
   res.json({ partners, pins: r.pins, messages: r.messages, spend: r.spend || [] });
 });
 
+// --- Push-to-talk: a voice note to the room (batch 133) ---------------------
+// NOT live audio. iOS Safari can't hold a stream with the screen off, so a
+// "walkie-talkie" would mean riding with the phone awake under a helmet —
+// worse than useless. A held note is the honest version: it survives a dropped
+// signal, waits for her, and works one-handed at a set of lights.
+// For actual riding, a Cardo/Sena helmet intercom is the right tool and no web
+// app will beat it.
+const ROOM_MAX_NOTES = 20;
+const NOTE_MAX_B64 = 700 * 1024;      // ~30s of compressed speech
+
+app.post("/roomnote", requireAuth, (req, res) => {
+  const { code, name, audio, mediaType, seconds, transcript } = req.body || {};
+  const r = room(code);
+  if (!r) return res.status(404).json({ error: "no_such_room", spoken: "I can't find that room — check the code, or pair again." });
+  const who = String(name || "").trim() || "me";
+
+  if (audio) {
+    if (String(audio).length > NOTE_MAX_B64) {
+      return res.status(200).json({ fallback: true, spoken: "That one's too long — keep it under about thirty seconds." });
+    }
+    r.notes = r.notes || [];
+    r.notes.unshift({
+      by: who, at: Date.now(),
+      secs: Math.min(Number(seconds) || 0, 60),
+      // The transcript is what makes this usable when she can't play audio —
+      // on a bus, in a temple, or with the helmet still on.
+      text: String(transcript || "").slice(0, 300),
+      audio: String(audio), mediaType: mediaType || "audio/webm",
+    });
+    if (r.notes.length > ROOM_MAX_NOTES) r.notes.length = ROOM_MAX_NOTES;
+    return res.json({ ok: true, count: r.notes.length });
+  }
+
+  // Reading: hand back what's unheard for this person, newest first.
+  const since = Number((req.body || {}).since) || 0;
+  const notes = (r.notes || [])
+    .filter(n => n.by !== who && n.at > since)
+    .map(n => ({ by: n.by, at: n.at, secs: n.secs, text: n.text, audio: n.audio, mediaType: n.mediaType }));
+  res.json({ ok: true, notes, spoken: notes.length ? `${notes.length} voice note${notes.length > 1 ? "s" : ""} from ${notes[0].by}.` : "" });
+});
+
 // --- Meet in the middle: find a spot halfway between the two of you ---
 app.post("/meetmiddle", requireAuth, async (req, res) => {
   const { code, name, lat, lng, what } = req.body || {};
-  const r = room(code);
-  if (!r) return res.status(400).json({ error: "code required" });
+  const r = room(code);   // read-only: a code nobody paired with returns nothing
+  if (!r) return res.status(404).json({ error: "no_such_room", spoken: "I can't find that room — check the code, or pair again." });
   if (lat == null || lng == null) return res.status(400).json({ error: "lat and lng required" });
   const who = (name || "me").trim();
   const m = (r.members[who] = r.members[who] || { name: who });
@@ -767,14 +1247,14 @@ app.post("/meetmiddle", requireAuth, async (req, res) => {
     r.pins = r.pins.slice(0, 20);
     r.messages.unshift({ by: "Vision", text: `Meet in the middle: ${place.name}${place.rating ? " ⭐" + place.rating : ""} — pin dropped for you both.`, at: Date.now() });
     res.json({ found: true, place, spoken: `Halfway between you: ${place.name}${place.rating ? ", rated " + place.rating : ""}. I've dropped the pin for both of you.` });
-  } catch (e) { res.status(502).json({ error: "meetmiddle_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "meetmiddle: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- Trip journal: weave the shared room (pins, messages, spend) into a story ---
 app.post("/journal", requireAuth, async (req, res) => {
   const { code } = req.body || {};
-  const r = room(code);
-  if (!r) return res.status(400).json({ error: "code required" });
+  const r = room(code);   // read-only: a code nobody paired with returns nothing
+  if (!r) return res.status(404).json({ error: "no_such_room", spoken: "I can't find that room — check the code, or pair again." });
   const raw = {
     pins: (r.pins || []).slice(0, 20).map(p => ({ label: p.label, by: p.by, at: new Date(p.at).toLocaleString() })),
     messages: (r.messages || []).slice(0, 30).map(m => ({ by: m.by, text: m.text, at: new Date(m.at).toLocaleString() })),
@@ -786,7 +1266,8 @@ app.post("/journal", requireAuth, async (req, res) => {
     const body = {
       model: "claude-sonnet-4-6",
       max_tokens: 700,
-      system: "You are Vision, writing a warm, short day-by-day trip journal for Shaun and his wife from their shared trip data. Weave pins (places they met/marked), messages, and spending into a little story of their trip. Keep it personal and brief.",
+      system: "You are Vision, writing a warm, short day-by-day trip journal for Shaun and his wife from their shared trip data. Weave pins (places they met/marked), messages, and spending into a little story of their trip. Keep it personal and brief." + SPOKEN_PLAIN +
+      NO_INVENT,
       messages: [{ role: "user", content: `Trip data:\n${JSON.stringify(raw)}\n\nReply as compact JSON ONLY: "spoken" (one warm summary line) and "story" (the short journal, a few paragraphs max, grouped by day where dates allow).` }],
     };
     const { status, text: out } = await callClaude(body);
@@ -794,7 +1275,7 @@ app.post("/journal", requireAuth, async (req, res) => {
     const txt = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { spoken: "Here's your trip so far.", story: txt }; }
     res.json({ spoken: p.spoken || "Here's your trip so far.", story: p.story || "" });
-  } catch (e) { res.status(502).json({ error: "journal_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "journal: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- Arrival Autopilot: one command when Shaun lands — detect country, set up, brief him ---
@@ -817,15 +1298,39 @@ app.post("/arrival", requireAuth, async (req, res) => {
     const body = {
       model: "claude-sonnet-4-6",
       max_tokens: 600,
-      system: "You are Vision, Shaun's Aussie travel companion. He has JUST LANDED somewhere new. Give him the arrival essentials, warm and brief, spoken-style.",
+      system: "You are Vision, Shaun's Aussie travel companion. He has JUST LANDED somewhere new. Give him the arrival essentials, warm and brief, spoken-style." + SPOKEN_PLAIN +
+      NO_INVENT,
       messages: [{ role: "user", content: `Shaun just landed in ${city ? city + ", " : ""}${country}. Reply as compact JSON ONLY: "currency" (ISO code), "spoken" (warm 3-4 sentence arrival brief: emergency number, the #1 scam to dodge arriving here, tipping norm, rough AUD exchange rate), "emergency", "scam", "tipping", "rate" (each one short line).` }],
     };
     const { status, text: out } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "arrival_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "arrival_failed" });
     const txt = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { spoken: txt }; }
+    // Batch 126 audit (couples-trip simulation): /arrival worked out the
+    // country and spoke a brief, then recorded NOTHING. Arriving somewhere is
+    // the single most useful anchor a trip has — "when did we get to Hanoi",
+    // "what was the scam you warned me about", and every later day summary
+    // hangs off it. It also silently lost the currency it had just resolved.
+    {
+      const uid = uidOf(req);
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      const already = mem.some(m => /^arrived in /i.test(String(m.t)) &&
+        String(m.t).toLowerCase().includes(String(country).toLowerCase()) &&
+        (Date.now() - (m.at || 0)) < 12 * 3600000);   // don't re-log the same landing
+      if (!already) {
+        mem.push({ t: `arrived in ${city ? city + ", " : ""}${country}${p.currency ? ` (currency ${p.currency})` : ""}${p.scam ? ` — watch for: ${String(p.scam).slice(0, 90)}` : ""}`, at: Date.now() });
+        while (mem.length > 400) mem.shift();
+      }
+      // Remember where he is so the country-aware bits (Grab region, scam
+      // norms, etiquette) stop guessing.
+      const prof = STORE.profiles[uid] = STORE.profiles[uid] || {};
+      prof.country = country; if (city) prof.city = city;
+      if (p.currency) prof.localCurrency = p.currency;
+      saveStore();
+      dlog(uid, "memory", `arrived in ${city || country}`);
+    }
     res.json({ country, city, currency: p.currency || "", spoken: p.spoken || "", brief: { emergency: p.emergency || "", scam: p.scam || "", tipping: p.tipping || "", rate: p.rate || "" } });
-  } catch (e) { res.status(502).json({ error: "arrival_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "arrival: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- Phrasebook: translate a phrase into the local language + speakable lang code ---
@@ -841,21 +1346,32 @@ app.post("/phrase", requireAuth, async (req, res) => {
     const body = {
       model: "claude-haiku-4-5-20251001",
       max_tokens: 200,
+      // Batch 118 audit: this had NO system prompt — the whole instruction sat
+      // in the user message, so the model had no role and no standing rules.
+      // It matters here: Shaun shows these phrases to strangers, and the lang
+      // code drives which voice speaks it.
+      system:
+        "You give a traveller a short phrase to say or show to a local. " +
+        "Translate the way a person actually speaks it, not literally, and keep it short enough to say in one breath. " +
+        "The \"lang\" field must be a real BCP-47 code (th-TH, vi-VN, id-ID) — it selects the voice that will speak this aloud, " +
+        "so never guess it; if you're unsure of the country's main language, say so in the translation rather than inventing a code. " +
+        "The \"phonetic\" field is for someone who doesn't read the script — write how it SOUNDS in plain English letters." +
+        NO_INVENT + SPOKEN_PLAIN,
       messages: [{ role: "user", content: `Translate into the main local language of ${country || "the country the traveller is in"}: "${text}". Reply as compact JSON ONLY: "translation", "lang" (BCP-47 code like th-TH), "phonetic" (simple pronunciation).${_memNote}` }],
     };
     const { status, text: out } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "phrase_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "phrase_failed" });
     const txt = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { translation: txt, lang: "" }; }
     res.json({ translation: p.translation || "", lang: p.lang || "", phonetic: p.phonetic || "" });
-  } catch (e) { res.status(502).json({ error: "phrase_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "phrase: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // Fetch the latest "what I'm seeing" frame a partner shared (glasses-era; works now via photo).
 app.post("/frame", requireAuth, (req, res) => {
   const { code, from } = req.body || {};
-  const r = room(code);
-  if (!r) return res.status(400).json({ error: "code required" });
+  const r = room(code);   // read-only: a code nobody paired with returns nothing
+  if (!r) return res.status(404).json({ error: "no_such_room", spoken: "I can't find that room — check the code, or pair again." });
   const f = r.frames[(from || "").trim()];
   if (!f) return res.status(404).json({ error: "no_frame" });
   res.json({ frame: f.data, mediaType: f.mediaType, at: f.at });
@@ -865,12 +1381,18 @@ app.post("/frame", requireAuth, (req, res) => {
 // Pre-built brain for the glasses flow: "Vision, find me a steak sandwich" →
 // options read aloud with price+rating+ETA → you confirm → deep-link into Grab to pay.
 app.post("/findfood", requireAuth, async (req, res) => {
+  // Batch 111 audit: this gives personalised ADVICE but was running blind.
+  // Pull what he likes to eat, what he has enjoyed before, and anything he avoids.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if it genuinely helps; never list it back): ${_mem}` : "";
   const { craving, city, budget, currency } = req.body || {};
   if (!craving) return res.status(400).json({ error: "craving required" });
   const body = {
     model: "claude-sonnet-4-6",
     max_tokens: 700,
-    system: "You are Vision, Shaun's food concierge abroad. Given what he's craving and where he is, suggest realistic nearby options a delivery app like Grab would have, with plausible price, rating, and delivery ETA. Be realistic for the city; don't invent famous names — describe the kind of place. Rank best-value first.",
+    system: "You are Vision, Shaun's food concierge abroad. Given what he's craving and where he is, suggest realistic nearby options a delivery app like Grab would have, with plausible price, rating, and delivery ETA. Be realistic for the city; don't invent famous names — describe the kind of place. Rank best-value first." + NO_INVENT_STRICT +
+      _memNote,
     messages: [{
       role: "user",
       content:
@@ -921,7 +1443,8 @@ app.post("/itinerary", requireAuth, async (req, res) => {
     const body = {
       model: "claude-sonnet-4-6",
       max_tokens: 900,
-      system: "You are Vision, building Shaun a clean trip timeline from his booking-confirmation emails. Extract flights, hotels, trains, and reservations with dates/times/locations. Ignore marketing.",
+      system: "You are Vision, building Shaun a clean trip timeline from his booking-confirmation emails. Extract flights, hotels, trains, and reservations with dates/times/locations. Ignore marketing." + SPOKEN_PLAIN +
+      NO_INVENT_STRICT,
       messages: [{ role: "user", content:
         `Here are booking-related emails:\n${raw.map(r => `SUBJECT: ${r.subject}\n${r.body}`).join("\n---\n")}\n\n` +
         `Reply as compact JSON ONLY: "spoken" (one friendly line — the next upcoming item), ` +
@@ -933,34 +1456,22 @@ app.post("/itinerary", requireAuth, async (req, res) => {
     let p; try { p = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { p = { spoken: "Here's what I found.", items: [] }; }
     res.json({ spoken: p.spoken || "Here's your itinerary.", items: p.items || [] });
   } catch (e) {
-    res.status(502).json({ error: "itinerary_failed", detail: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "itinerary_failed" });
   }
 });
 
 // --- Router: classify a natural message → which Vision skill + extracted args ---
 // This is what makes the single chat box feel agentic: you just talk, Vision
 // figures out whether you want a price check, a day plan, a landmark, etc.
-app.post("/route", requireAuth, async (req, res) => {
-  const { message, history, brief } = req.body || {};
-  if (!message) return res.status(400).json({ error: "message required" });
-  const hist = Array.isArray(history) ? history.slice(-6) : [];
-  rememberBrief(uidOf(req), brief);
-  const _recall = recallBrief(uidOf(req), message || "");
-  const stateNote = (typeof brief === "string" && brief.trim())
-    ? `\n\nWhat Vision already knows about Shaun's situation (use it to FILL IN arguments he didn't say out loud — his country, currency, allergies, saved spots, tracked flight):\n${brief.slice(0, 900)}`
-    : "";
-  const _core = coreBrief(uidOf(req));
-  const recallNote = _recall
-    ? `${_core ? `\n\n${_core}` : ""}\n\nWhat Vision REMEMBERS about him that may be relevant (use it to fill in arguments he didn't say — a place he loved, a country he visited, a price he paid, something he photographed):\n${_recall}`
-    : "";
-  const contextNote = hist.length
-    ? "\n\nRecent conversation (use it to resolve follow-ups like 'that one', 'the closest', 'a bank instead', 'yes', 'do it' — infer what Shaun means from context):\n" +
-      hist.map(h => `${h.role === "user" ? "Shaun" : "Vision"}: ${h.content}`).join("\n")
-    : "";
-  const body = {
-    model: "claude-haiku-4-5-20251001", // routing must be fast
-    max_tokens: 300,
-    system:
+/* --- ROUTER PROMPT CACHING (batch 116 audit) -------------------------------
+ * The skill list is ~2,570 tokens and was sent, byte-identical, on EVERY
+ * utterance — the single largest repeated payload in the system. Hoisted to a
+ * module constant so it can be marked cacheable: the model reads it from cache
+ * instead of re-ingesting it, which cuts cost and, more importantly, time to
+ * first token. Routing latency is felt directly — nothing is spoken until it
+ * returns.
+ * ------------------------------------------------------------------------ */
+const ROUTER_SKILLS =
       "You are the intent router for Vision, a travel companion. Given what Shaun says, decide which ONE skill best answers it, and extract the arguments. " +
       "Skills: " +
       "\"chat\" (general talk/questions — the default), " +
@@ -969,12 +1480,16 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"planday\" (plan my day/itinerary; args: goal, city, budget, currency), " +
       "\"landmark\" (what is this place/building? args: place), " +
       "\"etiquette\" (local customs/politeness/tipping; args: question), " +
-      "\"converse\" (translate this / say this in X / what did they say; args: text, theirLang), " +
+      "\"converse\" (translate this / say this in X / what did they say — a SINGLE line; args: text, theirLang), " +
+      "\"talkto\" (start a back-and-forth conversation with someone — 'talk to this bloke', 'conversation mode', 'help me talk to him', 'I need to talk to the driver'; args: none), " +
+      "\"phrasebook\" (my phrases, my phrasebook, saved phrases, how do I say that one again; args: none), " +
+      "\"convohistory\" (what did we talk about, what did that bloke say, recall a conversation with someone; args: query), " +
       "\"weather\" (args: none), \"currency\" (convert money; args: from, to, amount), " +
       "\"unlost\" (get me back / walk me to my spot; args: none), " +
       "\"survival\" (emergency phrases/offline pack; args: country), " +
       "\"whereis\" (where is my wife/partner/husband, find them; args: none), " +
       "\"tellpartner\" (tell/message my wife/partner something; args: message), " +
+      "\"voicenote\" (send my partner a voice note / hold to talk / leave her a message by voice; args: none), " +
       "\"sharepin\" (send/share my location or a meet-here pin to my partner; args: label), " +
       "\"meetmiddle\" (find somewhere halfway between us / meet in the middle; args: what — kind of place), " +
       "\"onmyway\" (tell my partner I'm on my way / how far am I from her; args: none), " +
@@ -991,7 +1506,7 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"flight\" (track/check the status of a SPECIFIC flight he is already booked on or names by number — 'how's my flight', 'track BA292', 'is my flight delayed', 'what gate'. NOT for finding or pricing flights to buy; args: flightNumber optional), " +
       "\"allergy\" (what's in this dish / is this safe to eat / is this street food alright; args: dish), " +
       "\"logspend\" (log/record spending — spent 50 on lunch, log 12 for coffee; args: amount, note), " +
-      "\"readtexts\" (read my texts/messages; args: none), " +
+      "\"readtexts\" (read my texts/messages, any new messages, what did they say, check my SMS; args: none), " +
       "\"mailbrief\" (check/read my email/inbox; args: none), " +
       "\"debrief\" (wrap up my day / day summary / how did today go; args: none), " +
       "\"safety\" (safety heads-up / any scams here / is it safe around here; args: none), " +
@@ -1018,13 +1533,18 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"savechat\" (save/remember this conversation, save that as the hotel manager, log what we agreed; args: tag), " +
       "\"recallchat\" (what did the driver say, what did we agree with X, what did the hotel manager promise; args: query), " +
       "\"bookings\" (my bookings, what have I booked, my reservations, booking reference, add a booking; args: query), " +
-      "\"texts\" (read my texts, any messages, what did they say, check my SMS; args: none), " +
-      "\"sendtext\" (text someone, send a message to a number, reply to that text, tell them; args: to = number, message), " +
+
+      "\"sendtext\" (text/SMS/message someone, send a message to a number, reply to that text, tell them; args: to = number, message), " +
       "\"handover\" (email me that, send me the details, send that to my inbox, I'll deal with it later; args: context = what to write up), " +
       "\"expiry\" (passport expiry, when does my visa run out, are my documents still valid, document dates; args: none), " +
       "\"procedures\" (how do I do things, what habits have you noticed, how I work; args: none), " +
       "\"findstay\" (find somewhere to stay, book a hotel, airbnb, accommodation in X; args: where, from, to, people), " +
       "\"thingstobook\" (tours, attractions, tickets, what can we book in X, things to do; args: where, what), " +
+      "\"getthere\" (bus/train/ferry/overland travel between two places — 'how do I get from Hanoi to Sapa', 'bus to Chiang Mai', 'ferry to the island'; args: from, where), " +
+      "\"orderfood\" (order food TO me / delivery — 'order me some pho', 'get food delivered', 'grabfood'; args: what, where), " +
+      "\"eatout\" (find a restaurant to GO to / eat out / where should we eat — sit-down, not delivery; args: where, what), " +
+      "\"advise\" (anything I should know / what am I missing / anything worth flagging / heads up; args: none), " +
+      "\"alternative\" (what else could I do / is there another way / what haven't I thought of; args: intent = what he was doing, detail), " +
       "\"docs\" (my documents, insurance policy, embassy number, passport number, emergency details; args: none), " +
       "\"splitbill\" (split the bill, divide the cost, what does each person owe; args: none), " +
       "\"favourite\" (favourite that, save this place, that place was great; args: none), " +
@@ -1039,13 +1559,218 @@ app.post("/route", requireAuth, async (req, res) => {
       "\"seenrecall\" (recall what Vision has SEEN before — 'what was that plant/landmark/menu', 'what did I photograph', 'show me what you saw at X', 'what did that sign say'; args: query), " +
       "\"watcher\" (watch/keep an eye on/monitor/let me know if-or-when — recurring or threshold alerts: 'watch flights to Bali under 300', 'watch the weather in Da Nang', 'let me know if the dollar hits 17000 dong', 'keep an eye out for gigs this weekend'; args: request = the full request text), " +
       "\"call\" (call/phone/ring a number; args: number), " +
-      "\"text\" (text/message/SMS a number; args: number, message). " +
-      "Pick the single best skill. Judge INTENT, not just keywords — infer what Shaun actually wants to happen. Use the recent conversation to resolve short follow-ups and fill in args. If he's acting on something just discussed (take me there, the closest, book it, yes), pick the skill that continues that thread. Only use \"chat\" when nothing else genuinely fits. Set confidence honestly: 0.8+ when intent is clear, lower when guessing. " +
+
+      "\"myday\" (what's on today/this week, my calendar, what have I got on, am I busy — his OWN calendar and due reminders; args: days optional), " +
+      "\"showlist\" (what's on my groceries/shopping/bills/to-do list, read me a list; args: list = the list name), " +
+      "\"tickoff\" (mark list items done — 'banana done, milk done', 'tick off bread', 'got the milk'; args: list, utterance = what he said), " +
+      "\"addlist\" (add something to a list — 'add bread to groceries', 'put milk on the list'; args: list, item), " +
+      "\"addevent\" (put something in my calendar — 'book Thursday 2pm', 'put the job in for Friday'; args: title, start, calendar), " +
+      "\"amifree\" (am I free on X, when am I free, find me a gap, do I have anything at that time; args: start, end, minutes, days), " +
+      "\"jobreport\" (write up a Geeks2U job report/service description — 'job report for 1295115', 'write up that job'; args: job = job number, dictation = what he did), " +
+      "\"jobcapture\" (log/file this job from a screenshot of the CRM — 'log this job', 'save this job screen'; args: job optional), " +
+      "\"jobrecall\" (what did I do for job X / for a customer name / my recent jobs; args: query), " +
+      "\"scan\" (scan/record this room or scene, log what's here, photograph the setup before I touch it; args: place, note), " +
+      "\"whatschanged\" (what's different since last time, what's changed here, compare to my last visit; args: place), " +
+      "\"outofplace\" (anything out of place, does anything look wrong here, what doesn't fit; args: place), " +
+      "\"whatnext\" (what should I check next, where do I start, help me narrow this down; args: symptom, place), " +
+      "\"provemewrong\" (what would prove me wrong, am I sure about this, sanity check my conclusion; args: conclusion, symptom), " +
+      "\"seenbefore\" (have I seen this before, has this happened before, do I know this fault; args: symptom), " +
+      "\"timeline\" (log a step / how long have I been here / what did I do and when; args: entry, job), " +
+      "\"digest\" (what have you got for me / what have you been holding / catch me up / anything saved up; args: none), " +
+      "\"notnow\" (not now / not today / stop telling me that / leave it / I'm busy — he is brushing something off; args: subject, scope = once|today|trip), " +
+      "\"whyquiet\" (what are you sitting on / why are you quiet / are you holding anything; args: none). ";
+
+// Derived from ROUTER_SKILLS itself so the validator can never drift from
+// what the model was actually offered.
+const VALID_SKILLS = new Set([...ROUTER_SKILLS.matchAll(/"(\w+)" \(/g)].map(m => m[1]));
+
+/* --- HIERARCHICAL ROUTING (batch 116) ---------------------------------------
+ * Siri and Alexa don't put every intent in one flat list — they pick a DOMAIN
+ * first, then an intent inside it. That's how they stay accurate past a few
+ * dozen intents, and Vision is at 88.
+ *
+ * The honest problem with a flat list: 44 skill pairs share >=20% of their
+ * vocabulary. When "find somewhere to stay" can plausibly be `stay` OR
+ * `findstay`, the model splits its probability between two right-ish answers
+ * and confidence drops below the 0.55 dispatch gate — so a correctly-understood
+ * request falls through to generic chat.
+ *
+ * This is built as an OPTIONAL SECOND STAGE, not a rewrite:
+ *   - flat routing stays the default and is untouched
+ *   - hierarchical runs only when asked for (?mode=hier or ROUTER_MODE=hier)
+ *   - both paths return the identical shape, so nothing downstream changes
+ *   - /route/compare runs both on one message so the choice is made on
+ *     evidence rather than on my opinion
+ *
+ * Two stages costs a second call, so it is NOT automatically better — it wins
+ * only if flat routing is actually misrouting. Measure first.
+ * ------------------------------------------------------------------------ */
+
+const ROUTER_DOMAINS = {
+  work:     { blurb: "his paid Geeks2U IT jobs — job reports, logging a job from a screenshot, past job history",
+              skills: ["jobreport", "jobcapture", "jobrecall"] },
+  calendar: { blurb: "his own calendar and reminder lists — what's on, reading or ticking off a list, adding an event, whether he's free",
+              skills: ["myday", "showlist", "tickoff", "addlist", "addevent", "amifree"] },
+  language: { blurb: "translating and talking to someone who speaks another language",
+              skills: ["converse", "talkto", "phrasebook", "convohistory", "sayphrase"] },
+  money:    { blurb: "prices, whether something is a fair deal, spending, budgets, splitting bills, currency",
+              skills: ["scamcheck", "gooddeal", "logspend", "spend", "splitbill", "couplespend", "currency", "tripbudget"] },
+  place:    { blurb: "where things are and getting to them — nearby, directions, saved spots, sharing location, transport",
+              skills: ["nearby", "navigate", "unlost", "whereis", "rememberspot", "backto", "sharepin", "livelocation", "meetmiddle", "landmark", "transit", "ride"] },
+  comms:    { blurb: "reaching people — reading or sending texts, email, calls, telling his partner something",
+              skills: ["readtexts", "sendtext", "mailbrief", "whatsapp", "call", "tellpartner", "onmyway"] },
+  travel:   { blurb: "trips and being somewhere foreign — flights, accommodation, planning, packing, weather, local customs and safety",
+              skills: ["flight", "flightsearch", "stay", "findstay", "tripplan", "tripday", "packlist", "esim", "itinerary", "activities", "planday", "arrival", "survival", "etiquette", "safety", "weather"] },
+  food:     { blurb: "eating — finding food, reading a menu, allergies, booking a table, an order that's on its way",
+              skills: ["findfood", "menu", "allergy", "booktable", "orderupdate"] },
+  memory:   { blurb: "remembering and looking back — his journal, day log, saved things, documents, bookings, procedures, watchers",
+              skills: ["journal", "lifelog", "dayview", "debrief", "seenrecall", "sharedmoments", "savechat", "recallchat", "favourite", "capture", "livelook", "readpage", "docs", "bookings", "thingstobook", "expiry", "procedures", "handover", "plan", "watcher", "memoryhealth"] },
+  system:   { blurb: "Vision itself, music, or plain conversation with no task behind it",
+              skills: ["status", "logbug", "bugs", "music", "chat"] },
+};
+
+// Stage 1 is deliberately tiny — ~250 tokens against ~2,430 for the flat list.
+const DOMAIN_PROMPT =
+  "You pick which AREA OF LIFE a request belongs to, nothing more. " +
+  "Reply as compact JSON ONLY: \"domain\" (one name below) and \"confidence\" (0-1). " +
+  "If it could be two, pick the one the person would say it belongs to. " +
+  "If it's just talk with no task behind it, answer \"system\".\nAreas:\n" +
+  Object.entries(ROUTER_DOMAINS).map(([k, v]) => `"${k}" — ${v.blurb}`).join("\n");
+
+// Stage 2 gets ONLY that domain's skills, pulled verbatim from ROUTER_SKILLS so
+// the two paths can never describe the same skill differently.
+function skillLinesFor(domain) {
+  const want = new Set((ROUTER_DOMAINS[domain] || {}).skills || []);
+  const lines = [];
+  const re = /"(\w+)" \(([^)]*)\)/g;
+  let m;
+  while ((m = re.exec(ROUTER_SKILLS)) !== null) {
+    if (want.has(m[1])) lines.push(`"${m[1]}" (${m[2]})`);
+  }
+  return lines.join(", ");
+}
+
+async function routeHierarchical(uid, { message, hist, stateNote, recallNote, contextNote }) {
+  const t0 = Date.now();
+
+  // --- stage 1: domain ---
+  const d = await callClaude({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 60,
+    system: [{ type: "text", text: DOMAIN_PROMPT, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: `Shaun said: "${message}"${contextNote}` }],
+  });
+  if (d.status !== 200) return { skill: "chat", args: {}, then: [], confidence: 0, ms: Date.now() - t0, stage: "domain-failed" };
+
+  let dom = "system", domConf = 0;
+  try {
+    const raw = (JSON.parse(d.text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    if (ROUTER_DOMAINS[p.domain]) { dom = p.domain; domConf = typeof p.confidence === "number" ? p.confidence : 0.7; }
+  } catch { /* fall through as system */ }
+
+  // Plain conversation needs no second call — this is where the two-stage
+  // design pays for itself, because most chat never reaches stage 2 at all.
+  if (dom === "system" && domConf >= 0.6) {
+    return { skill: "chat", args: {}, then: [], confidence: 0, domain: dom, ms: Date.now() - t0, stage: "domain-only" };
+  }
+
+  // --- stage 2: skill within the domain ---
+  const s = await callClaude({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 300,
+    system:
+      `You pick the exact skill for a request already known to be about ${dom} (${ROUTER_DOMAINS[dom].blurb}). ` +
+      `Skills: ${skillLinesFor(dom)}. ` +
+      `Reply as compact JSON ONLY: "skill" (one of those names), "args" (only fields you could extract), "confidence" (0-1).`,
+    messages: [{ role: "user", content: `Shaun said: "${message}"${contextNote}${stateNote}${recallNote}` }],
+  });
+  if (s.status !== 200) return { skill: "chat", args: {}, then: [], confidence: 0, domain: dom, ms: Date.now() - t0, stage: "skill-failed" };
+
+  try {
+    const raw = (JSON.parse(s.text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const skill = VALID_SKILLS.has(p.skill) ? p.skill : "chat";
+    // Confidence is the product of both stages — being sure about the skill
+    // means little if the domain was a guess.
+    const conf = skill === "chat" ? 0 : Math.min(domConf, typeof p.confidence === "number" ? p.confidence : 0.7);
+    return { skill, args: p.args || {}, then: [], confidence: conf, domain: dom, ms: Date.now() - t0, stage: "ok" };
+  } catch {
+    return { skill: "chat", args: {}, then: [], confidence: 0, domain: dom, ms: Date.now() - t0, stage: "unparseable" };
+  }
+}
+
+// Run BOTH routers on one message so the choice between them is made on
+// evidence. Costs three calls, so it's a diagnostic, not a live path.
+app.post("/route/compare", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { message } = req.body || {};
+  if (!message) return res.status(400).json({ error: "message required" });
+
+  const t0 = Date.now();
+  const flat = await fetch(`http://127.0.0.1:${process.env.PORT || 8787}/route`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
+    body: JSON.stringify({ message, uid }),
+  }).then(r => r.json()).catch(e => ({ error: String(e.message || e) }));
+  const flatMs = Date.now() - t0;
+
+  const t1 = Date.now();
+  const hier = await routeHierarchical(uid, { message, hist: [], stateNote: "", recallNote: "", contextNote: "" });
+  const hierMs = Date.now() - t1;
+
+  res.json({
+    message,
+    flat: { skill: flat.skill, confidence: flat.confidence, ms: flatMs },
+    hier: { skill: hier.skill, domain: hier.domain, confidence: hier.confidence, ms: hierMs, stage: hier.stage },
+    agree: flat.skill === hier.skill,
+    verdict: flat.skill === hier.skill
+      ? (hier.confidence > (flat.confidence || 0) ? "same skill, hierarchical more confident" : "same skill, flat is fine")
+      : "DISAGREE — worth a look",
+  });
+});
+
+app.post("/route", requireAuth, async (req, res) => {
+  const { message, history, brief } = req.body || {};
+  if (!message) return res.status(400).json({ error: "message required" });
+  const hist = Array.isArray(history) ? history.slice(-6) : [];
+  rememberBrief(uidOf(req), brief);
+  const _recall = recallBrief(uidOf(req), message || "");
+  const stateNote = (typeof brief === "string" && brief.trim())
+    ? `\n\nWhat Vision already knows about Shaun's situation (use it to FILL IN arguments he didn't say out loud — his country, currency, allergies, saved spots, tracked flight):\n${brief.slice(0, 900)}`
+    : "";
+  const _core = coreBrief(uidOf(req));
+  const recallNote = _recall
+    ? `${_core ? `\n\n${_core}` : ""}\n\nWhat Vision REMEMBERS about him that may be relevant (use it to fill in arguments he didn't say — a place he loved, a country he visited, a price he paid, something he photographed):\n${_recall}`
+    : "";
+  const contextNote = hist.length
+    ? "\n\nRecent conversation (use it to resolve follow-ups like 'that one', 'the closest', 'a bank instead', 'yes', 'do it' — infer what Shaun means from context):\n" +
+      hist.map(h => `${h.role === "user" ? "Shaun" : "Vision"}: ${h.content}`).join("\n")
+    : "";
+  // Opt-in hierarchical path. Default stays flat — this only runs when asked,
+  // so it can be measured against the existing behaviour rather than replacing
+  // it on a hunch.
+  const wantHier = (req.body || {}).mode === "hier" || process.env.ROUTER_MODE === "hier";
+  if (wantHier) {
+    const h = await routeHierarchical(uidOf(req), { message, hist, stateNote, recallNote, contextNote });
+    dlog(uidOf(req), "routing", `[hier/${h.domain || "?"}] "${String(message).slice(0, 50)}" -> ${h.skill} (${h.confidence}) ${h.ms}ms`);
+    return res.json(h);
+  }
+
+  const body = {
+    model: "claude-haiku-4-5-20251001", // routing must be fast
+    max_tokens: 300,
+    // Two blocks: the constant skill list (cached) then the live instruction.
+    system: [
+      { type: "text", text: ROUTER_SKILLS, cache_control: { type: "ephemeral" } },
+      { type: "text", text:
+"Pick the single best skill. Judge INTENT, not just keywords — infer what Shaun actually wants to happen. Use the recent conversation to resolve short follow-ups and fill in args. If he's acting on something just discussed (take me there, the closest, book it, yes), pick the skill that continues that thread. Only use \"chat\" when nothing else genuinely fits. Set confidence honestly: 0.8+ when intent is clear, lower when guessing. " +
       "ROUTING RULES for cases that get confused: " +
       "(1) Wanting to GO somewhere unnamed ('take me to the cinema', 'I need a chemist', 'find me a bank and take me there') = \"nearby\" to find it, with \"then\" [{skill:navigate}] to go. Naming a specific place or address = \"navigate\" directly. " +
       "(2) Shopping for flights to BUY ('cheapest flights to Bali', 'flights Brisbane to Denpasar in September', 'when should I fly') = \"flightsearch\". Only use \"flight\" for tracking a flight he already has. " +
       "(3) Hotels/accommodation = \"stay\". Tours, sights, events, things to do = \"activities\". Multi-day planning for a destination = \"tripplan\"; asking what's on a day of an EXISTING plan = \"tripday\". " +
-      "(4) If nothing fits, \"chat\" is always correct — a wrong skill is worse than chat, because chat can search the web and answer anyway.",
+      "(4) If nothing fits, \"chat\" is always correct — a wrong skill is worse than chat, because chat can search the web and answer anyway.", },
+    ],
     messages: [{
       role: "user",
       content:
@@ -1062,12 +1787,63 @@ app.post("/route", requireAuth, async (req, res) => {
     const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
     catch { p = { skill: "chat", args: {}, confidence: 0 }; }
-    dlog(uidOf(req), "routing", `"${String(message).slice(0, 60)}" -> ${p.skill || "chat"} (${p.confidence ?? 0})`, p.args || null);
-    res.json({ skill: p.skill || "chat", args: p.args || {}, then: Array.isArray(p.then) ? p.then.slice(0, 5) : [], confidence: p.confidence ?? 0 });
+    // Batch 116 audit: p.skill was returned VERBATIM. A hallucinated name
+    // ("checkweather" for "weather") made dispatchSkill return falsy, so Shaun
+    // paid for BOTH round trips and then got a generic answer with no signal
+    // that anything had gone wrong. Validate against the real list instead.
+    let skill = VALID_SKILLS.has(p.skill) ? p.skill : "chat";
+    let confidence = typeof p.confidence === "number" ? p.confidence : 0;
+    if (p.skill && !VALID_SKILLS.has(p.skill)) {
+      try { dlog(uidOf(req), "routing", `router invented "${p.skill}" — not a real skill, falling back to chat`); } catch {}
+      confidence = 0;
+    }
+    // `then` steps ran completely unchecked — same validation, and capped at 3
+    // so a runaway plan can't chain the app into a long silent sequence.
+    const then = (Array.isArray(p.then) ? p.then : [])
+      .filter(s => s && VALID_SKILLS.has(s.skill) && s.skill !== "chat")
+      .slice(0, 3)
+      .map(s => ({ skill: s.skill, args: s.args || {} }));
+
+    dlog(uidOf(req), "routing", `"${String(message).slice(0, 60)}" -> ${skill} (${confidence})`, p.args || null);
+    res.json({ skill, args: p.args || {}, then, confidence });
   } catch (e) {
     res.status(200).json({ skill: "chat", args: {}, confidence: 0 });
   }
 });
+
+/* --- CONTEXT BUDGET (batch 111 audit) --------------------------------------
+ * Measured: a fully-populated brief runs ~3400 tokens of system prompt before
+ * a word of history. Most briefs cap their ITEM count but not their LENGTH, so
+ * a long procedure or a chatty verdict can quietly double the bill and slow
+ * every reply. This caps each slot and, if the total still runs hot, drops the
+ * least time-critical slots first — never the ones that carry consequence.
+ * ------------------------------------------------------------------------ */
+const CTX_CAPS = {
+  recall: 700, core: 600, patterns: 400, verdicts: 500, pressure: 250,
+  procedures: 700, expiry: 400, texts: 700, recentDays: 500,
+  upcoming: 350, pending: 500, calendar: 400, jobs: 350,
+  today: 250, thisday: 300, advice: 450,
+};
+// Dropped in this order when over budget. Texts, expiry, calendar and jobs are
+// never dropped — they're the ones with a deadline attached.
+const CTX_SHED = ["thisday", "today", "patterns", "recentDays", "core", "verdicts", "procedures", "pressure", "upcoming"];
+const CTX_BUDGET_CHARS = 6000; // ~1500 tokens of dynamic brief
+
+function budgetCtx(ctx) {
+  for (const [k, cap] of Object.entries(CTX_CAPS)) {
+    if (typeof ctx[k] === "string" && ctx[k].length > cap) {
+      ctx[k] = ctx[k].slice(0, cap) + "…";
+    }
+  }
+  const size = () => Object.entries(ctx)
+    .filter(([k]) => k in CTX_CAPS)
+    .reduce((n, [, v]) => n + (typeof v === "string" ? v.length : 0), 0);
+  for (const k of CTX_SHED) {
+    if (size() <= CTX_BUDGET_CHARS) break;
+    ctx[k] = "";
+  }
+  return ctx;
+}
 
 app.post("/chat", requireAuth, async (req, res) => {
   try {
@@ -1092,8 +1868,16 @@ app.post("/chat", requireAuth, async (req, res) => {
       recentDays: daySummaryBrief(uidOf(req), 2),
       upcoming: upcomingBrief(uidOf(req)),
       pending: pendingBrief(uidOf(req)),
-      pending: pendingBrief(uidOf(req)),
+      calendar: calendarBrief(uidOf(req)),
+      jobs: jobBrief(uidOf(req)),
+      // Batch 113 audit: both of these were built and then stranded — exposed
+      // on /state, never in the brief, and /onthisday is called by nothing.
+      // Resurfacing only works if it happens unprompted.
+      advice: attentionBrief(uidOf(req)),   // batch 143: gated, not raw
+      today: todayShape(uidOf(req)),
+      thisday: (() => { const o = onThisDay(uidOf(req)); return o ? `${o.label} today: ${o.text}. Raise it ONLY if it fits naturally — never as a greeting.` : ""; })(),
     };
+    budgetCtx(ctx);
     rememberBrief(uidOf(req), ctx.brief);
 
     // Build the message list: prior history (trimmed) + this turn.
@@ -1105,27 +1889,38 @@ app.post("/chat", requireAuth, async (req, res) => {
 
     const model = flagsOf(uidOf(req)).saver ? "claude-haiku-4-5-20251001" : pickModel(message || history.map(h=>h.content).join(" "), b.model);
 
-    const upstream = await fetch(ANTHROPIC_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: b.max_tokens || 600,
-        system: buddyPersona(ctx),
-        messages,
-        // CONNECTOR: Anthropic web search — lets the brain look up LIVE info
-        // (opening hours, events, current prices) when the question needs it.
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-        // NON-streaming: simpler + reliable. App just reads data.reply.
-      }),
+    // Batch 115 audit: /chat is the most-used endpoint in the system and it
+    // bypassed callClaude entirely — its own raw fetch with no timeout, no
+    // retry, and no handling for 429/529. A single overload blip surfaced to
+    // Shaun as "my brain hiccuped". It now goes through the gateway like the
+    // other 57 call sites.
+    //
+    // PROMPT CACHING: the persona is ~900 identical tokens on every turn.
+    // Splitting the system prompt into a cached constant half and a live half
+    // means the constant part is read from cache — cheaper, and materially
+    // faster to first token, which is what matters through glasses.
+    const _persona = buddyPersona(ctx);
+    const _splitAt = _persona.indexOf("\n\n", 400);
+    const _systemBlocks = _splitAt > 0
+      ? [
+          { type: "text", text: _persona.slice(0, _splitAt), cache_control: { type: "ephemeral" } },
+          { type: "text", text: _persona.slice(_splitAt) },
+        ]
+      : [{ type: "text", text: _persona }];
+
+    const upstream = await callClaude({
+      model,
+      max_tokens: b.max_tokens || 600,
+      system: _systemBlocks,
+      messages,
+      // CONNECTOR: Anthropic web search — lets the brain look up LIVE info
+      // (opening hours, events, current prices) when the question needs it.
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
+      // NON-streaming: simpler + reliable. App just reads data.reply.
     });
 
-    const raw = await upstream.text();
-    if (!upstream.ok) {
+    const raw = upstream.text;
+    if (upstream.status !== 200) {
       // Surface the real reason (bad model, no credit, bad key) so we can see it.
       let why = "";
       try { why = JSON.parse(raw)?.error?.message || ""; } catch {}
@@ -1137,7 +1932,7 @@ app.post("/chat", requireAuth, async (req, res) => {
     let reply = "";
     try {
       const j = JSON.parse(raw);
-      if (j && j.usage) recordUsage(model, j.usage);
+      // (usage is recorded inside callClaude — recording it again would double-count)
       reply = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
       // If reply is empty, surface WHY (stop_reason / error / raw) so we can see it.
       if (!reply) {
@@ -1204,7 +1999,7 @@ app.post("/directions", requireAuth, async (req, res) => {
       const g = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 120,
-        system: "You are Vision guiding Shaun through his glasses. One warm, natural spoken sentence — no lists.",
+        system: "You are Vision guiding Shaun through his glasses. One warm, natural spoken sentence — no lists." + NO_INVENT,
         messages: [{ role: "user", content:
           `Summarise this walk/drive for Shaun in ONE friendly spoken sentence (mention the time and roughly what to do first). ` +
           `${leg.duration?.text || ""}, ${leg.distance?.text || ""}. First moves: ${firstFew}` }],
@@ -1223,7 +2018,7 @@ app.post("/directions", requireAuth, async (req, res) => {
       steps,
     });
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: String(e && e.message || e).slice(0, 140) });
   }
 });
 
@@ -1326,7 +2121,7 @@ app.post("/places", requireAuth, async (req, res) => {
     const gr = await fetch(url);
     const data = await gr.json();
     if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
-      return res.status(502).json({ error: "places_failed", googleStatus: data.status });
+      return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "places_failed" });
     }
     const places = (data.results || []).slice(0, 8).map((p) => ({
       name: p.name,
@@ -1368,7 +2163,7 @@ app.post("/places", requireAuth, async (req, res) => {
       const rec = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 220,
-        system: "You are Vision, Shaun's warm companion in his glasses. Recommend places like a helpful local friend — never a raw list dump.",
+        system: "You are Vision, Shaun's warm companion in his glasses. Recommend places like a helpful local friend — never a raw list dump." + NO_INVENT_STRICT,
         messages: [{ role: "user", content: `${wants}\n\nNearby options:\n${top}` }],
       });
       let recommendation = "";
@@ -1384,7 +2179,7 @@ app.post("/places", requireAuth, async (req, res) => {
       return res.json({ places: ranked, recommendation: "" });
     }
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: String(e && e.message || e).slice(0, 140) });
   }
 });
 
@@ -1431,7 +2226,7 @@ app.post("/flight", requireAuth, async (req, res) => {
       (info.arrBaggage ? ` Baggage at ${info.arrBaggage}.` : "");
     res.json(info);
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: String(e && e.message || e).slice(0, 140) });
   }
 });
 
@@ -1444,6 +2239,11 @@ app.post("/flight", requireAuth, async (req, res) => {
 // HONEST LIMIT: live nightly rates need Google Hotels (paid scrapers only) —
 // so we shortlist + rate here, and deep-link out to book.
 app.post("/stay", requireAuth, async (req, res) => {
+  // Batch 111 audit: this gives personalised ADVICE but was running blind.
+  // Pull where he has stayed before and what he liked or disliked about it.
+  const _mem = recallFor(uidOf(req), JSON.stringify(req.body || {}).slice(0, 300), 4)
+    .map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const _memNote = _mem ? `\n\nWhat you remember about him that may matter here (use only if it genuinely helps; never list it back): ${_mem}` : "";
   if (!GMAPS_KEY) return res.status(501).json({ error: "google_places_disabled" });
   const { lat, lng, area, what } = req.body || {};
   const q = `${what || "hotels"} in ${area || "this area"}`;
@@ -1455,7 +2255,7 @@ app.post("/stay", requireAuth, async (req, res) => {
   try {
     const gr = await fetch(url); const data = await gr.json();
     if (data.status !== "OK" && data.status !== "ZERO_RESULTS")
-      return res.status(502).json({ error: "places_failed", googleStatus: data.status });
+      return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "places_failed" });
     const places = (data.results || [])
       .filter(p => p.rating).sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 6)
       .map(p => ({ name: p.name, address: p.formatted_address || p.vicinity || "",
@@ -1465,7 +2265,8 @@ app.post("/stay", requireAuth, async (req, res) => {
     if (places.length) {
       const body = {
         model: "claude-haiku-4-5-20251001", max_tokens: 200,
-        system: "You are Vision, a warm travel companion. Given hotel options, recommend ONE in 2 short spoken sentences (why it stands out), mention a runner-up by name. No lists, no markdown.",
+        system: "You are Vision, a warm travel companion. Given hotel options, recommend ONE in 2 short spoken sentences (why it stands out), mention a runner-up by name. No lists, no markdown." + NO_INVENT_STRICT +
+      _memNote,
         messages: [{ role: "user", content: JSON.stringify(places) }],
       };
       const { status, text } = await callClaude(body);
@@ -1474,7 +2275,7 @@ app.post("/stay", requireAuth, async (req, res) => {
     const where = area || (places[0] ? places[0].address.split(",").slice(-2).join(",").trim() : "");
     const bookLink = "https://www.booking.com/searchresults.html?ss=" + encodeURIComponent(where || "hotels");
     res.json({ spoken, places, bookLink });
-  } catch (e) { res.status(502).json({ error: "stay_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "stay: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- 🎟️ ACTIVITIES: things to do, live via web search ---
@@ -1490,16 +2291,16 @@ app.post("/activities", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, a warm travel companion speaking aloud. Suggest 4-5 genuinely good things to do — current, specific, not tourist-trap filler. Use web search if it helps (events, seasonal). Reply as JSON only: {\"spoken\": \"2-3 sentence pick of the best one or two\", \"items\": [\"short line each\"]}. No markdown.",
+    system: "You are Vision, a warm travel companion speaking aloud. Suggest 4-5 genuinely good things to do — current, specific, not tourist-trap filler. Use web search if it helps (events, seasonal). Reply as JSON only: {\"spoken\": \"2-3 sentence pick of the best one or two\", \"items\": [\"short line each\"]}. No markdown." + NO_INVENT_STRICT,
     messages: [{ role: "user", content: `Things to do in ${where}${interests ? " — he's into " + interests : ""}.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "activities_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "activities_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300), items: [] }; }
     res.json({ spoken: p.spoken || "", items: Array.isArray(p.items) ? p.items.slice(0, 6) : [] });
-  } catch (e) { res.status(502).json({ error: "activities_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "activities: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- 🗺️ TRIPPLAN: multi-day itinerary, returned structured so the app can SAVE it ---
@@ -1512,16 +2313,16 @@ app.post("/tripplan", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", max_tokens: 1500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, a sharp travel planner. Build a realistic day-by-day plan — geographically sensible (cluster nearby things), paced like a human (not 12 stops a day), with real place names. Web-search if current info helps. Reply as JSON ONLY: {\"spoken\": \"2-3 sentences selling the shape of the trip\", \"days\": [{\"day\": 1, \"title\": \"...\", \"items\": [{\"when\": \"morning|afternoon|evening\", \"what\": \"short line\"}]}]}. No markdown.",
+    system: "You are Vision, a sharp travel planner. Build a realistic day-by-day plan — geographically sensible (cluster nearby things), paced like a human (not 12 stops a day), with real place names. Web-search if current info helps. Reply as JSON ONLY: {\"spoken\": \"2-3 sentences selling the shape of the trip\", \"days\": [{\"day\": 1, \"title\": \"...\", \"items\": [{\"when\": \"morning|afternoon|evening\", \"what\": \"short line\"}]}]}. No markdown." + NO_INVENT_STRICT,
     messages: [{ role: "user", content: `${nDays}-day plan for ${destination}.${budget ? ` Budget ${budget} ${currency || ""}/day.` : ""}${interests ? ` Into: ${interests}.` : ""}` }],
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "tripplan_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "tripplan_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
-    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { return res.status(502).json({ error: "tripplan_parse" }); }
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "tripplan_parse" }); }
     res.json({ spoken: p.spoken || "", plan: { destination, days: Array.isArray(p.days) ? p.days.slice(0, nDays) : [] } });
-  } catch (e) { res.status(502).json({ error: "tripplan_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "tripplan: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- 🎒 PACKLIST ---  Body: { destination, days?, month? }  Returns { spoken, items }
@@ -1534,16 +2335,17 @@ app.post("/packlist", requireAuth, async (req, res) => {
   const { destination, days, month } = req.body || {};
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
-    system: "You are Vision. Build a tight packing list for the trip — climate-aware, no obvious filler (\"clothes\"), include the things people forget (adapters, meds, offline maps). JSON only: {\"spoken\": \"1-2 sentences with the non-obvious highlights\", \"items\": [\"item — why, only when not obvious\"]}. Max 15 items.",
+    system: "You are Vision. Build a tight packing list for the trip — climate-aware, no obvious filler (\"clothes\"), include the things people forget (adapters, meds, offline maps). JSON only: {\"spoken\": \"1-2 sentences with the non-obvious highlights\", \"items\": [\"item — why, only when not obvious\"]}. Max 15 items." + SPOKEN_PLAIN +
+      NO_INVENT_STRICT,
     messages: [{ role: "user", content: `Packing for ${destination || "a trip"}${days ? `, ${days} days` : ""}${month ? `, in ${month}` : ""}. He's travelling from Australia.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "packlist_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "packlist_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 200), items: [] }; }
     res.json({ spoken: p.spoken || "", items: Array.isArray(p.items) ? p.items.slice(0, 15) : [] });
-  } catch (e) { res.status(502).json({ error: "packlist_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "packlist: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- 💵 TRIPBUDGET: what will it cost, live-informed ---
@@ -1560,16 +2362,17 @@ app.post("/tripbudget", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 400,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, honest about money. Estimate a realistic daily budget for the trip in AUD (his home currency) — food, transport, activities, drinks; note what accommodation adds separately. Web-search current prices if useful. JSON only: {\"spoken\": \"2-3 plain sentences with the daily number and what swings it\", \"perDay\": <number AUD>, \"total\": <number AUD>, \"currency\": \"AUD\"}.",
+    system: "You are Vision, honest about money. Estimate a realistic daily budget for the trip in AUD (his home currency) — food, transport, activities, drinks; note what accommodation adds separately. Web-search current prices if useful. JSON only: {\"spoken\": \"2-3 plain sentences with the daily number and what swings it\", \"perDay\": <number AUD>, \"total\": <number AUD>, \"currency\": \"AUD\"}." + SPOKEN_PLAIN +
+      NO_INVENT_STRICT,
     messages: [{ role: "user", content: `${nDays} days in ${destination}, ${style || "mid-range"} style.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "tripbudget_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "tripbudget_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300) }; }
     res.json({ spoken: p.spoken || "", perDay: p.perDay ?? null, total: p.total ?? null, currency: p.currency || "AUD" });
-  } catch (e) { res.status(502).json({ error: "tripbudget_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "tripbudget: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- 📶 ESIM: data options for a country, live ---
@@ -1585,16 +2388,17 @@ app.post("/esim", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, practical about phone data abroad. For the country given: best eSIM options for an Australian traveller (e.g. Airalo/Holafly/local telco), rough current prices, and whether a local physical SIM at the airport beats them. Web-search for current pricing. JSON only: {\"spoken\": \"2-3 sentences with your actual pick\", \"options\": [\"short line each\"]}.",
+    system: "You are Vision, practical about phone data abroad. For the country given: best eSIM options for an Australian traveller (e.g. Airalo/Holafly/local telco), rough current prices, and whether a local physical SIM at the airport beats them. Web-search for current pricing. JSON only: {\"spoken\": \"2-3 sentences with your actual pick\", \"options\": [\"short line each\"]}." + SPOKEN_PLAIN +
+      NO_INVENT_STRICT,
     messages: [{ role: "user", content: `Data/eSIM for ${country}.${_memNote}` }],
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "esim_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "esim_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300), options: [] }; }
     res.json({ spoken: p.spoken || "", options: Array.isArray(p.options) ? p.options.slice(0, 5) : [] });
-  } catch (e) { res.status(502).json({ error: "esim_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "esim: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 app.get("/health", requireAuth, async (req, res) => {
@@ -1652,6 +2456,16 @@ app.get("/health", requireAuth, async (req, res) => {
   try { storage.storeKB = Math.round((require("fs").statSync(STORE_FILE).size || 0) / 1024 * 10) / 10; } catch { storage.storeKB = 0; }
   storage.saveFails = _saveFails;
   storage.lastSaveOk = _lastSaveOk || null;
+  // Batch 137 audit: a corrupt store used to look identical to a first run —
+  // he'd find Vision had forgotten him with no way to tell why. Say which
+  // happened, in words Status can put on screen.
+  storage.loadState = _loadState;
+  storage.loadNote =
+    _loadState === "recovered" ? "The main memory file was unreadable — recovered from the backup. Nothing lost that had been saved."
+    : _loadState === "corrupt" ? "Memory was unreadable and there was no backup, so Vision started fresh. The damaged file was kept."
+    : _loadState === "fresh" ? "No memory file yet — this is a fresh start."
+    : "";
+  try { storage.hasBackup = require("fs").existsSync(STORE_BAK); } catch { storage.hasBackup = false; }
   try { const sf = require("fs").statfsSync(DATA_DIR); storage.diskFreeMB = Math.round(sf.bavail * sf.bsize / 1048576); } catch {}
   res.json({ ok, checkedAt: new Date().toISOString(), checks, storage });
 });
@@ -1680,14 +2494,14 @@ app.post("/weather", requireAuth, async (req, res) => {
       const g = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 120,
-        system: "You are Vision in Shaun's glasses. Say the weather like a friend — one or two spoken sentences, plain temps, and ONE practical tip (jacket/umbrella/sunscreen/wind) when relevant. No numbers-soup, no markdown.",
+        system: "You are Vision in Shaun's glasses. Say the weather like a friend — one or two spoken sentences, plain temps, and ONE practical tip (jacket/umbrella/sunscreen/wind) when relevant. No numbers-soup, no markdown." + NO_INVENT,
         messages: [{ role: "user", content: `Give Shaun the weather from this data:\n${facts}` }],
       });
       if (g.status === 200) { const j = JSON.parse(g.text);
         spoken = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim(); }
     } catch {}
     res.json({ raw: data, spoken: spoken || `It's ${data.current?.temperature_2m}° right now.` });
-  } catch (e) { res.status(502).json({ error: String(e) }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — try me again in a moment.", detail: String(e && e.message || e).slice(0, 160) }); }
 });
 
 // --- Currency: convert using daily ECB rates (Frankfurter, no key) ---
@@ -1707,7 +2521,7 @@ app.post("/currency", requireAuth, async (req, res) => {
     const F = from.toUpperCase(), T = to.toUpperCase();
     const spoken = `${amt} ${F} is about ${Number(converted).toFixed(2)} ${T}.`;
     res.json({ from: F, to: T, amount: amt, converted, rateDate: j.date, spoken });
-  } catch (e) { res.status(502).json({ error: String(e) }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — try me again in a moment.", detail: String(e && e.message || e).slice(0, 160) }); }
 });
 
 // --- Summarize: "catch me up" on forwarded messages, or a daily debrief ---
@@ -1725,6 +2539,13 @@ app.post("/summarize", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 300,
+    // Batch 118 audit: no system prompt. This condenses things he'll act on —
+    // an unread inbox, a long page — so an invented "urgent" item sends him
+    // chasing something that was never there.
+    system:
+      "You condense something for a traveller who is busy and will act on what you say. " +
+      "Lead with anything urgent or time-bound. Summarise only what is actually in the text — " +
+      "if something looks important but is ambiguous, say it's unclear rather than deciding for him." + NO_INVENT + SPOKEN_PLAIN,
     messages: [{ role: "user", content: `${instruction}\n\n${joined}` }],
   };
   try {
@@ -1735,7 +2556,7 @@ app.post("/summarize", requireAuth, async (req, res) => {
       .map(b => b.text).join(" ").trim();
     res.json({ summary });
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: String(e && e.message || e).slice(0, 140) });
   }
 });
 
@@ -1802,7 +2623,7 @@ app.get("/mail/unread", requireAuth, async (req, res) => {
     });
     res.json({ count: messages.length, messages, briefing: await mailBriefing(messages) });
   } catch (e) {
-    res.status(502).json({ error: "imap_failed", detail: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "imap_failed" });
   }
 });
 
@@ -1815,7 +2636,7 @@ async function mailBriefing(messages) {
     const r = await callClaude({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 220,
-      system: "You are Vision, Shaun's warm companion in his glasses. Triage his unread email like a sharp assistant.",
+      system: "You are Vision, Shaun's warm companion in his glasses. Triage his unread email like a sharp assistant." + NO_INVENT,
       messages: [{ role: "user", content:
         `Give Shaun a SHORT spoken briefing of his unread email. Lead with anything that genuinely needs him ` +
         `(real people, bills, bookings, security), name who and why in a phrase, then note how many are just newsletters/promos. ` +
@@ -1857,7 +2678,7 @@ app.post("/mail/read", requireAuth, async (req, res) => {
     if (!result) return res.status(404).json({ error: "not_found" });
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: "imap_failed", detail: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "imap_failed" });
   }
 });
 
@@ -1896,7 +2717,7 @@ app.get("/sms/recent", requireAuth, async (req, res) => {
     });
     res.json({ count: out.length, messages: out });
   } catch (e) {
-    res.status(502).json({ error: "imap_failed", detail: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "imap_failed" });
   }
 });
 
@@ -1921,7 +2742,7 @@ app.post("/sms/send", requireAuth, async (req, res) => {
     await mailer().sendMail({ from: ICLOUD_USER, to, subject: "SMS", text: bodyText });
     res.json({ ok: true, to });
   } catch (e) {
-    res.status(502).json({ error: "smtp_failed", detail: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "smtp_failed" });
   }
 });
 
@@ -1936,7 +2757,7 @@ app.post("/mail/send", requireAuth, async (req, res) => {
       text: String(message), ...(html ? { html: String(html) } : {}) });
     res.json({ ok: true, to });
   } catch (e) {
-    res.status(502).json({ error: "smtp_failed", detail: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "smtp_failed" });
   }
 });
 
@@ -1982,6 +2803,14 @@ app.post("/local", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6",
     max_tokens: 500,
+    // Batch 118 audit: no system prompt. This one states events, transport
+    // disruptions and opening food places as FACT, so it's the highest
+    // invention risk of the lot — he plans a day around it.
+    system:
+      "You brief a traveller on what's happening around them right now. " +
+      "Only state something as fact if the search results actually support it — otherwise say what's typical and that it needs checking. " +
+      "Lead with anything time-sensitive; skip anything he can't act on today." +
+      NO_INVENT_STRICT + SPOKEN_PLAIN,
     messages: [{
       role: "user",
       content: `For someone in or near ${place}, give a brief spoken briefing covering: ${asks}. ${_memNote}` +
@@ -1998,7 +2827,7 @@ app.post("/local", requireAuth, async (req, res) => {
       .map(b => b.text).join(" ").trim();
     res.json({ place, briefing });
   } catch (e) {
-    res.status(502).json({ error: String(e) });
+    res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: String(e && e.message || e).slice(0, 140) });
   }
 });
 
@@ -2017,10 +2846,16 @@ app.post("/receipt", requireAuth, async (req, res) => {
       return res.status(status).type("application/json").send(text);
     }
     if (!b.image) return res.status(400).json({ error: "image required" });
+    // Batch 120 audit: no size check — an oversized photo reached Anthropic.
+    {
+      const _v = checkImage(b.image, b.mediaType);
+      if (!_v.ok) return res.status(200).json({ fallback: true, spoken: _v.spoken });
+      b.image = _v.data; b.mediaType = _v.mediaType;
+    }
     const r = await callClaude({
       model: "claude-sonnet-4-6",
       max_tokens: 400,
-      system: "You are Vision, logging Shaun's expenses. Read receipts precisely.",
+      system: "You are Vision, logging Shaun's expenses. Read receipts precisely." + NO_INVENT,
       messages: [{ role: "user", content: [
         { type: "image", source: { type: "base64", media_type: b.mediaType || "image/jpeg", data: b.image } },
         { type: "text", text:
@@ -2065,7 +2900,7 @@ app.post("/recall", requireAuth, async (req, res) => {
       const r = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 160,
-        system: "You are Vision recalling Shaun's own saved notes. Answer only from them, warmly and briefly.",
+        system: "You are Vision recalling Shaun's own saved notes. Answer only from them, warmly and briefly." + SPOKEN_PLAIN,
         messages: [{ role: "user", content:
           `Shaun asks: "${query || "what have I saved?"}". From his notes below, answer in one or two spoken sentences. ` +
           `If nothing matches, say so gently.\n\n${list}` }],
@@ -2298,7 +3133,7 @@ app.get("/v1/models", requireAuth, (req, res) => {
 // The server calls its OWN /v1/chat/completions (exactly as OpenVision will)
 // and reports what happened. Token via query because Safari can't set headers.
 app.get("/v1/selftest", async (req, res) => {
-  if ((req.query.tok || "") !== APP_TOKEN) return res.status(401).send("unauthorized — add ?tok=your token");
+  if (!safeEqual(req.query.tok || "", APP_TOKEN)) return res.status(401).send("unauthorized — add ?tok=your token");
   const t0 = Date.now();
   const out = { modelsProbe: null, chat: null, ms: 0 };
   try {
@@ -2333,7 +3168,7 @@ app.get("/v1/selftest", async (req, res) => {
 // bugs (Shaun's flight/cinema/bank catches) after every deploy, from a phone.
 // Open: /routecheck?tok=YOUR_TOKEN  (~24 haiku calls per run, cheap)
 app.get("/routecheck", async (req, res) => {
-  if ((req.query.tok || "") !== APP_TOKEN) return res.status(401).send("unauthorized — add ?tok=your token");
+  if (!safeEqual(req.query.tok || "", APP_TOKEN)) return res.status(401).send("unauthorized — add ?tok=your token");
   const cases = [
     ["cheapest flights Brisbane to Bali in September", ["flightsearch"]],
     ["how's my flight", ["flight"]],
@@ -2388,7 +3223,7 @@ app.get("/routecheck", async (req, res) => {
 // Each run makes ~4 tiny model calls (cents territory). Bars: green <500ms,
 // amber <1500ms, red beyond.
 app.get("/perf", async (req, res) => {
-  if ((req.query.tok || "") !== APP_TOKEN) return res.status(401).send("unauthorized — add ?tok=your token");
+  if (!safeEqual(req.query.tok || "", APP_TOKEN)) return res.status(401).send("unauthorized — add ?tok=your token");
   const t0 = Date.now();
   const lanes = [];
   const lane = async (name, fn) => {
@@ -2494,6 +3329,9 @@ app.get("/perf", async (req, res) => {
     <h3>OpenVision integration</h3>
     <p style="font-size:14px">Trip-state sync: ${briefOf(uidOf(req)) ? `fresh (${Math.round((Date.now() - briefOf(uidOf(req)).at) / 60000)} min old)` : "not primed yet — use the web app once"}<br>
     Memory store: ${DURABLE ? "💾 durable disk (/var/data)" : "⚠️ EPHEMERAL — add a Render Disk at /var/data to survive redeploys"}<br>
+    ${_loadState === "recovered" ? "⚠️ Last start: the main memory file was unreadable and Vision recovered from its backup.<br>"
+      : _loadState === "corrupt" ? "🛑 Last start: memory was unreadable with no backup — Vision started fresh. The damaged file was kept for inspection.<br>"
+      : ""}
     Modes: whisper ${pflags.whisper ? "ON" : "off"} · quiet ${pflags.quiet ? "ON" : "off"} · saver ${pflags.saver ? "ON" : "off"}</p>
   </body></html>`);
 });
@@ -2520,15 +3358,15 @@ app.post("/readpage", requireAuth, async (req, res) => {
     if (text.length < 200) return res.status(422).json({ error: "page_unreadable", title });
     const body = {
       model: "claude-haiku-4-5-20251001", max_tokens: 400,
-      system: "You are Vision, summarising a web page aloud for Shaun. JSON only: {\"spoken\": \"2-3 sentence summary of what actually matters\", \"points\": [\"up to 4 short key points\"]}. No markdown.",
+      system: "You are Vision, summarising a web page aloud for Shaun. JSON only: {\"spoken\": \"2-3 sentence summary of what actually matters\", \"points\": [\"up to 4 short key points\"]}. No markdown." + NO_INVENT,
       messages: [{ role: "user", content: `Page: ${title}\n\n${text}` }],
     };
     const { status, text: out } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "summarise_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "summarise_failed" });
     const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300), points: [] }; }
     res.json({ title, spoken: p.spoken || "", points: Array.isArray(p.points) ? p.points.slice(0, 4) : [] });
-  } catch (e) { res.status(502).json({ error: "fetch_failed" }); }
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "fetch: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- 🧠 RECALL ENGINE (batch 61) ---
@@ -2675,7 +3513,7 @@ app.post("/handover", requireAuth, async (req, res) => {
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "write_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "write_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
     const items = Array.isArray(p.items) ? p.items.slice(0, 6) : [];
@@ -2715,7 +3553,7 @@ app.post("/handover", requireAuth, async (req, res) => {
     res.json({ ok: sent, subject: p.subject, count: items.length, to: dest,
       spoken: sent ? `Sent to your inbox — ${items.length} thing${items.length === 1 ? "" : "s"} with links and anything you still need to do.`
                    : "I wrote it up but couldn't send it — check the email setup in Service keys." });
-  } catch { res.status(502).json({ error: "write_failed" }); }
+  } catch { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "write_failed" }); }
 });
 
 // --- ⏳ EXPIRY WATCH (batch 105) ---
@@ -2765,7 +3603,7 @@ async function learnProcedure(uid) {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 500,
     system:
-      "You extract HOW someone does things — their working habits — not what they like. " +
+      "You extract HOW someone does things — their working habits — not what they like. " + NO_INVENT +
       'JSON only: {"procedures":["short present-tense habits, under 14 words each"]}. ' +
       "Look for ORDER (what he does before what), CONDITIONS (what he always checks first), " +
       "and PREFERENCES OF METHOD (how he wants things delivered). " +
@@ -2825,10 +3663,23 @@ app.post("/recover", requireAuth, (req, res) => {
     const uid = uidOf(req);
     let existing = Object.entries(STORE.recovery).find(([, v]) => v === uid);
     if (existing) return res.json({ code: existing[0] });
-    const words = ["amber", "harbour", "compass", "lantern", "meridian", "cedar", "quarry", "tide",
-                   "ember", "atlas", "pike", "willow", "cove", "flint", "orchard", "beacon"];
+    // Batch 139 audit: 16 words squared plus a two-digit number is only 23,040
+    // combinations. Behind the 120/min rate limit that's 31% of the space in an
+    // hour and the whole thing inside a day — and a recovery code IS the entire
+    // profile: every memory, every job report, his wife's shared lists.
+    // A wider list, THREE words and a four-digit number takes it past 10^11,
+    // while staying something he can read down a phone line.
+    const words = [
+      "amber", "harbour", "compass", "lantern", "meridian", "cedar", "quarry", "tide",
+      "ember", "atlas", "pike", "willow", "cove", "flint", "orchard", "beacon",
+      "anchor", "brook", "canyon", "delta", "everest", "fathom", "granite", "hollow",
+      "island", "jetty", "kelp", "lagoon", "marsh", "north", "outpost", "prairie",
+      "quartz", "ridge", "summit", "thicket", "upland", "valley", "warren", "yonder",
+      "basalt", "cinder", "dune", "estuary", "fjord", "glacier", "heath", "inlet",
+    ];
+    const pick = () => words[crypto.randomInt(words.length)];   // not Math.random
     let c;
-    do { c = `${words[Math.floor(Math.random() * words.length)]}-${words[Math.floor(Math.random() * words.length)]}-${Math.floor(Math.random() * 90 + 10)}`; }
+    do { c = `${pick()}-${pick()}-${pick()}-${crypto.randomInt(1000, 10000)}`; }
     while (STORE.recovery[c]);
     STORE.recovery[c] = uid;
     saveStore();
@@ -2857,7 +3708,10 @@ app.post("/recover", requireAuth, (req, res) => {
     // Move every per-user collection across to the new device id.
     const buckets = ["profiles", "briefs", "flags", "mem", "watchers", "results", "seen",
                      "convos", "bookings", "docs", "pending", "bugs", "daySummaries",
-                     "budgets", "lastDistil", "spend", "smsHold", "smsSeen", "recovery"];
+                     "budgets", "lastDistil", "spend", "smsHold", "smsSeen", "recovery",
+                     "calPrefs", "calCache", "calSeen", "calHold", "calToday", "calPending", "jobs",
+                     "convoLive", "convoLangs", "phrases",
+                     "scenes", "timelines", "dismissed"];
     let moved = 0;
     for (const b of buckets) {
       if (STORE[b] && STORE[b][target] !== undefined) {
@@ -3052,6 +3906,17 @@ function patternScan(uid) {
     if (!doneToday) out.push({ kind: "habit", note: `Around this hour he usually does "${habit[0]}" (${habit[1]} times lately) and hasn't today.` });
   }
 
+  // Batch 113 audit: the scanner predates the calendar/job layer and was blind
+  // to it. A job closed without a report written is the single most actionable
+  // loose end he has — it's money owed and it expires from his own recall fast.
+  const jobLines = recent.filter(m => /^job \d{6,}/.test(String(m.t)));
+  const reported = new Set(jobLines.filter(m => /: - /.test(String(m.t))).map(m => (String(m.t).match(/^job (\d+)/) || [])[1]));
+  const captured = [...new Set(jobLines.map(m => (String(m.t).match(/^job (\d+)/) || [])[1]).filter(Boolean))];
+  const unwritten = captured.filter(j => !reported.has(j));
+  if (unwritten.length) {
+    out.push({ kind: "job", note: `Job${unwritten.length > 1 ? "s" : ""} ${unwritten.slice(0, 3).join(", ")} logged but no service description written up yet — that's what closes it.` });
+  }
+
   // 2. LOOSE ENDS — things he looked at and never acted on.
   const looked = recent.filter(m => /^(menu read|saw:|moment|nearby|log:.*—)/.test(String(m.t)) && now - m.at < 5 * day);
   for (const m of looked.slice(-6)) {
@@ -3127,19 +3992,38 @@ function survivalScore(m, all) {
   if (/^verdict: /.test(t)) s += 55;      // how he FELT outlives what he did
   if (/^(loved place|favourite|remember|note to self|reminder|booking|document)/.test(t)) s += 40;
   if (/^conversation with|agreed|commitment/.test(t)) s += 35;
+  // Batch 111 audit: 109/110 write lines survivalScore had no weight for.
+  // A job report is the hardest thing here to recreate — it's work he was paid
+  // for and can't be reconstructed from the VPN-gated CRM — so it ranks with
+  // process knowledge, not below life-log noise.
+  if (/^job \d{6,}/.test(t)) s += 58;
+  if (/^ticked off: /.test(t)) s += 12;   // follow-through signal, cheap to lose
+  if (/^calendar: /.test(t)) s += 18;
   if (/^day \d{4}-/.test(t)) s += 30;                       // distilled day summaries
   if (/^(completed|abandoned):/.test(t)) s += 20;            // follow-through signal
   if (/^(moment|saw:|read:|receipt:)/.test(t)) s += 15;
   if (/^log:/.test(t)) s += 2;                              // life-log breadcrumbs are cheap
-  // reinforcement: how often does this subject recur?
-  const words = t.split(/[^a-z0-9]+/).filter(w => w.length > 4).slice(0, 6);
+  // reinforcement: how often does this SUBJECT recur?
+  // Batch 114 audit: the prefix word ("verdict", "booking", "conversation")
+  // is itself long, so every verdict echoed every other verdict and the boost
+  // flattened across the whole category. Strip the prefix before matching so
+  // echoes measure the subject, not the kind.
+  const subject = t.replace(/^(core|howto|verdict|loved place|favourite|remember|note to self|reminder|booking|document|conversation with|day \d{4}-\d{2}-\d{2}|completed|abandoned|moment|saw|read|receipt|log|job \d+|ticked off|calendar)\b[:\s]*/i, "");
+  const words = subject.split(/[^a-z0-9]+/).filter(w => w.length > 4).slice(0, 6);
   let echoes = 0;
   for (const other of all) {
     if (other === m) continue;
     const ot = String(other.t || "").toLowerCase();
     if (words.some(w => ot.includes(w))) echoes++;
   }
-  s += Math.min(echoes, 10) * 4;
+  // Batch 114 audit: echoes added a flat +40 max, which is more than the base
+  // weight of everything except howto/job. Thirty near-identical "log: walked
+  // to the market" lines therefore outranked a unique job report — repetition
+  // was beating value. Reinforcement should AMPLIFY what a memory is already
+  // worth, not substitute for it, so it's now proportional and capped.
+  const echoBoost = Math.min(echoes, 10) / 10;          // 0..1
+  s += s * echoBoost * 0.5;                             // at most +50% of its OWN weight
+  if (/^log:/.test(t)) s = Math.min(s, 12);             // breadcrumbs stay breadcrumbs
   // age penalty, gentler on the valuable kinds
   s -= Math.min(memAge(m), 120) * (s > 30 ? 0.15 : 0.6);
   return s;
@@ -3159,8 +4043,8 @@ async function distil(uid) {
     const body = {
       model: "claude-haiku-4-5-20251001", max_tokens: 600,
       system:
-        "You distil an assistant's raw memory into durable facts about its user. " +
-        'JSON only: {"facts":["short present-tense facts worth keeping forever"]}. ' +
+        "You distil an assistant's raw memory into durable facts about its user. " + NO_INVENT +
+      'JSON only: {"facts":["short present-tense facts worth keeping forever"]}. ' +
         "A fact qualifies ONLY if the raw memory shows it repeatedly or he stated it deliberately: " +
         "preferences, people, places he returns to, restrictions, habits, how he likes things done. " +
         "NOT one-offs, NOT events, NOT anything he did once. Max 8 facts, each under 15 words. " +
@@ -3225,12 +4109,12 @@ app.post("/distil", requireAuth, async (req, res) => {
 });
 
 // Nightly sweep for everyone, plus a catch-up 5 min after boot.
-setInterval(() => {
+setInterval(() => once("distil", async () => {
   for (const uid of Object.keys(STORE.mem || {})) {
-    distil(uid).catch(() => {});
-    learnProcedure(uid).catch(() => {});
+    await distil(uid).catch(() => {});
+    await learnProcedure(uid).catch(() => {});
   }
-}, 86400000);
+}), 86400000);
 setTimeout(() => { for (const uid of Object.keys(STORE.mem || {})) distil(uid).catch(() => {}); }, 300000);
 
 // --- 🐞 BUG LOG (batch 92) ---
@@ -3355,7 +4239,7 @@ app.post("/plan", requireAuth, async (req, res) => {
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "plan_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "plan_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
     const steps = (Array.isArray(p.steps) ? p.steps : []).slice(0, 6);
@@ -3365,15 +4249,53 @@ app.post("/plan", requireAuth, async (req, res) => {
     while (mm.length > 400) mm.shift(); saveStore();
     dlog(uid, "routing", `plan: ${goal}`.slice(0, 60), steps.map(x => `${x.skill}:${x.mode}`));
     res.json({ spoken: p.spoken || "", steps });
-  } catch { res.status(502).json({ error: "plan_failed" }); }
+  } catch { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "plan_failed" }); }
 });
 
 
 // Pending work, phrased for the brief. Real anticipation: it remembers you were
 // mid-something and picks it back up.
+/* --- FLOW EXPIRY (batch 131 audit) ------------------------------------------
+ * A flow opened and never closed stayed "waiting" forever. The ONLY thing that
+ * removed it was the 20-item cap, so at a few flows a week Vision would still
+ * be asking about a train he took — or decided against — in another country,
+ * months later. Being nagged about something long settled is exactly how an
+ * assistant loses trust.
+ *
+ * Two windows, because two different things go stale at different speeds:
+ *   - a handoff he walked away from is dead within a day
+ *   - a booking might genuinely still be open the next morning
+ * Either way, lapsing is silent. It never announces that it gave up.
+ * ------------------------------------------------------------------------ */
+const FLOW_TTL_MS = {
+  ride: 6 * 3600000,        // a ride is over or abandoned within hours
+  order: 12 * 3600000,
+  booktable: 24 * 3600000,
+  booking: 48 * 3600000,    // he may genuinely finish this tomorrow
+  stay: 48 * 3600000,
+  default: 24 * 3600000,
+};
+
+function lapseFlows(uid) {
+  const list = (STORE.pending || {})[uid];
+  if (!list || !list.length) return 0;
+  const now = Date.now();
+  let n = 0;
+  for (const f of list) {
+    if (f.state !== "waiting") continue;
+    const ttl = FLOW_TTL_MS[f.kind] || FLOW_TTL_MS.default;
+    if (now - (f.at || 0) > ttl) {
+      f.state = "expired"; f.closedAt = now; n++;
+    }
+  }
+  if (n) { saveStore(); try { dlog(uid, "routing", `${n} pending flow(s) lapsed quietly`); } catch {} }
+  return n;
+}
+
 function pendingBrief(uid) {
   // Reads STORE.pending — the store the app actually writes to. An earlier
   // /flow system used STORE.flows and is no longer called by anything.
+  lapseFlows(uid);
   const list = ((STORE.pending || {})[uid] || []).filter(f => f.state === "waiting" && !f.ownedByPlan);
   if (!list.length) return "";
   const f = list.sort((a, b) => a.at - b.at)[0];
@@ -3414,6 +4336,7 @@ app.post("/pending", requireAuth, async (req, res) => {
     return res.json({ ok: true, pending: p });
   }
   if (action === "active") {
+    lapseFlows(uid);
     // Anything still waiting that ISN'T owned by a running plan — the plan asks
     // about its own steps, so we never double-prompt for one action.
     const waiting = list.filter(p => p.state === "waiting" && !p.ownedByPlan);
@@ -3422,7 +4345,27 @@ app.post("/pending", requireAuth, async (req, res) => {
   if (action === "close" && id) {
     const p = list.find(x => x.id === id);
     if (p) {
-      p.state = outcome === "done" ? "done" : outcome === "abandoned" ? "abandoned" : "done";
+      // Batch 131 audit: the app offers THREE answers — Done / Not yet /
+      // Didn't do it — but anything that wasn't "done" or "abandoned" fell
+      // through to "done". So tapping "Not yet" marked the flow COMPLETE,
+      // wrote "completed: booking the Sapa train" into memory as a fact the
+      // brain then used to judge what he follows through on, and never asked
+      // again — silently dropping the thing he'd just said he'd come back to.
+      if (outcome === "waiting" || outcome === "later") {
+        // Still open, but push the clock forward so it doesn't re-nag on the
+        // next screen. Nothing is written to memory: nothing has happened yet.
+        p.state = "waiting";
+        p.at = Date.now();
+        p.deferred = (p.deferred || 0) + 1;
+        // Three "not yet"s is him telling you something. Let it lapse rather
+        // than asking a fourth time.
+        if (p.deferred >= 3) { p.state = "expired"; p.closedAt = Date.now(); }
+        saveStore();
+        dlog(uid, "routing", `pending deferred (${p.deferred}x): ${p.kind} ${p.what || ""}`);
+        return res.json({ ok: true, pending: p, deferred: true });
+      }
+
+      p.state = outcome === "abandoned" ? "abandoned" : "done";
       p.closedAt = Date.now(); if (detail) p.detail = detail;
       // A completed flow is a fact worth keeping — it teaches the brain what he
       // actually follows through on.
@@ -3468,7 +4411,7 @@ app.post("/menu", requireAuth, async (req, res) => {
   const mem = recallFor(uid, "food eaten liked dish restaurant", 4).map(m => m.t).join(" | ");
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 900,
-    system: "You read menus for a traveller. JSON only: " +
+    system: "You read menus for a traveller. JSON only: " + NO_INVENT_STRICT +
       '{"spoken":"2-3 sentences aloud: what kind of menu, roughly what things cost, your top pick and why",' +
       '"safe":[{"name":"dish as written","english":"what it is","price":"as printed","why":"one line"}],' +
       '"avoid":[{"name":"dish","reason":"why to skip it"}],' +
@@ -3486,14 +4429,14 @@ app.post("/menu", requireAuth, async (req, res) => {
   };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "read_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "read_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
     const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
     const m2 = STORE.mem[uid] = STORE.mem[uid] || [];
     m2.push({ t: `menu read: ${p.spoken}`.slice(0, 240), at: Date.now() });
     while (m2.length > 400) m2.shift(); saveStore();
     res.json(p);
-  } catch { res.status(502).json({ error: "read_failed" }); }
+  } catch { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "read_failed" }); }
 });
 
 // --- 🗣️ TRANSLATE MEMORY (batch 86) ---
@@ -3522,7 +4465,7 @@ app.post("/convomemory", requireAuth, async (req, res) => {
     };
     try {
       const { status, text } = await callClaude(body);
-      if (status !== 200) return res.status(502).json({ error: "distil_failed" });
+      if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "distil_failed" });
       const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
       const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
       const rec = { tag: (tag || "conversation").toLowerCase().trim(), at: Date.now(), place: place || "", ...p };
@@ -3534,7 +4477,7 @@ app.post("/convomemory", requireAuth, async (req, res) => {
       while (mem.length > 400) mem.shift();
       saveStore();
       return res.json({ ok: true, ...rec });
-    } catch { return res.status(502).json({ error: "distil_failed" }); }
+    } catch { return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "distil_failed" }); }
   }
   if (action === "recall") {
     const q = String(query || "").toLowerCase();
@@ -3712,7 +4655,7 @@ app.post("/day", requireAuth, async (req, res) => {
     else {
       const list = items.map(m => `${new Date(m.at).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })} ${m.t}`).join("\n").slice(0, 4000);
       const body = { model: "claude-haiku-4-5-20251001", max_tokens: 300,
-        system: "You distil a day into one warm paragraph for Shaun's diary — where he went, what stood out, anything worth remembering later (prices, names, agreements, how it felt). 3-5 sentences, natural, no lists, no preamble.",
+        system: "You distil a day into one warm paragraph for Shaun's diary — where he went, what stood out, anything worth remembering later (prices, names, agreements, how it felt). 3-5 sentences, natural, no lists, no preamble." + NO_INVENT,
         messages: [{ role: "user", content: `${d.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}:\n${list}` }] };
       try {
         const { status, text } = await callClaude(body);
@@ -3736,7 +4679,8 @@ app.post("/day", requireAuth, async (req, res) => {
       } catch {}
     }
   }
-  res.json({ date: dayKey, count: items.length, grouped, summary: summary || (cached ? cached.text : "") });
+  res.json({
+      spoken: (summary || (cached ? cached.text : "")) || (items.length ? `${items.length} things logged that day.` : "Nothing logged that day."), date: dayKey, count: items.length, grouped, summary: summary || (cached ? cached.text : "") });
 });
 
 // Recent day summaries — the distilled layer briefings and advice draw on.
@@ -3805,6 +4749,13 @@ app.post("/lifelog", requireAuth, async (req, res) => {
   if (glance) {
     try {
       const body = { model: "claude-haiku-4-5-20251001", max_tokens: 120,
+        // Batch 118 audit: no system prompt. Every line here becomes a
+        // permanent life-log entry, so a confident guess about a place becomes
+        // a false memory he can't distinguish from a real one later.
+        system:
+          "You label a single camera frame for a life-log in one short line. " +
+          "Name only what you can actually see. Do not name a specific business, street or landmark unless it is legible in the frame — " +
+          "say the kind of place instead. Most frames are worth nothing; say so rather than reaching." + NO_INVENT,
         messages: [{ role: "user", content: [
           { type: "image", source: { type: "base64", media_type: "image/jpeg", data: glance } },
           { type: "text", text: "One short line: what is this place or scene? If it's a pocket, a wall, the ground or nothing of note, reply exactly: nothing." }] }] };
@@ -3884,12 +4835,31 @@ app.post("/moment", requireAuth, async (req, res) => {
     `Write a short WRITTEN RECORD of this moment for Shaun's diary. Reply JSON ONLY: ` +
     `{"headline":"6 words max","account":"2-3 sentences: what's happening, what changed across the frames, anything worth remembering — prices, names, signs, agreements","tags":["short","keywords"],"worth_keeping":true|false}. ` +
     `Set worth_keeping false if this is just a street, a wall, a pocket, or nothing of note.` });
-  const body = { model: "claude-haiku-4-5-20251001", max_tokens: 400, messages: [{ role: "user", content }] };
+  const body = {
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 400,
+    // Batch 118 audit: also had no system prompt. This writes into his diary
+    // and the entries are read back months later, so an invented detail
+    // becomes a false memory he can't tell from a real one.
+    system:
+      "You write short diary entries from a burst of camera frames. " +
+      "Record ONLY what is visibly in the frames — a price on a sign, a name on a shopfront, what changed between frames. " +
+      "Be strict about worth_keeping: most frames are a street, a wall or a pocket, and a diary full of those is worthless." +
+      NO_INVENT + SPOKEN_PLAIN,
+    messages: [{ role: "user", content }],
+  };
   try {
     const { status, text } = await callClaude(body);
-    if (status !== 200) return res.status(502).json({ error: "analyse_failed" });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "analyse_failed" });
     const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
-    const p = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    // Batch 118 audit: a bare parse here. The outer catch stopped a crash but
+    // silently DISCARDED the moment — a captured memory lost with no sign it
+    // ever existed. A prose reply is normal, not exotic; keep it as prose.
+    let p;
+    try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch {
+      p = { headline: "Moment", account: raw.slice(0, 400), tags: [], worth_keeping: raw.length > 40 };
+    }
     if (p.worth_keeping !== false) {
       const mem = STORE.mem[uid] = STORE.mem[uid] || [];
       mem.push({ t: `moment${place ? ` at ${place}` : ""}: ${p.headline} — ${p.account}${p.tags ? ` [${p.tags.join(", ")}]` : ""}`, at: Date.now() });
@@ -3897,7 +4867,7 @@ app.post("/moment", requireAuth, async (req, res) => {
       saveStore();
     }
     res.json({ ...p, saved: p.worth_keeping !== false });
-  } catch { res.status(502).json({ error: "analyse_failed" }); }
+  } catch { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "analyse_failed" }); }
 });
 
 // Should Vision spend a capture here? Cheap decision, no camera needed.
@@ -3933,7 +4903,7 @@ app.post("/nextmoves", requireAuth, async (req, res) => {
       "Match the skill: after finding a restaurant offer directions/call/menu/favourite it; after currency offer a nearby fee-free ATM or logging a spend; " +
       "after weather offer what to wear or an indoor alternative; after a scam check offer a fair counter-price or somewhere better; " +
       "after translate offer saving the phrase; after a landmark offer its history or nearby food. " +
-      "Only offer things a phone assistant can do: navigate, call, search, translate, remember, log spend, set a watcher/reminder/timer, plan. No booking.",
+      "Only offer things a phone assistant can do: navigate, call, search, translate, remember, log spend, set a watcher/reminder/timer, plan. No booking." + SPOKEN_PLAIN,
     messages: [{ role: "user", content:
       `Skill just used: ${skill || "unknown"}\nWhat it answered: ${String(result || "").slice(0, 600)}\n` +
       `Where he is: ${place || country || "unknown"}\n${mem ? `Relevant things he's told you: ${mem}` : ""}` }],
@@ -3955,7 +4925,8 @@ app.post("/seensummary", requireAuth, async (req, res) => {
   const list = items.slice(-12).map((i, n) => `${n + 1}. ${i.whenTxt || ""}${i.place ? ` in ${i.place}` : ""}: ${i.ans}`).join("\n");
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 320,
-    system: "You are Vision, recalling aloud what you previously saw through Shaun's camera. Speak naturally in 2-4 sentences — summarise and connect the observations, mention when and where if useful, and answer his actual question. Never read the list back mechanically. If he seems to be checking a detail (a price, a name, a sign), lead with that detail.",
+    system: "You are Vision, recalling aloud what you previously saw through Shaun's camera. Speak naturally in 2-4 sentences — summarise and connect the observations, mention when and where if useful, and answer his actual question. Never read the list back mechanically. If he seems to be checking a detail (a price, a name, a sign), lead with that detail." + SPOKEN_PLAIN +
+      NO_INVENT,
     messages: [{ role: "user", content: `He asks: "${query || "what have you seen lately?"}"\n\nWhat you saw:\n${list}` }],
   };
   try {
@@ -3983,10 +4954,22 @@ app.post("/watchers", requireAuth, async (req, res) => {
   }
   if (action === "remove" && id) { STORE.watchers[uid] = list.filter(w => w.id !== id); saveStore(); return res.json({ ok: true, count: STORE.watchers[uid].length }); }
   if (action === "latest") {
+    // Batch 132 audit: this marked EVERYTHING seen the instant it responded,
+    // while the app only renders three. A fourth overnight finding was gone
+    // forever with no trace — and if the network dropped between the response
+    // and the render, every finding was lost silently. Marking seen is now a
+    // separate call the app makes AFTER it has actually shown them.
     const seen = STORE.seen[uid] || 0;
     const fresh = (STORE.results[uid] || []).filter(r => r.at > seen && r.triggered);
-    STORE.seen[uid] = Date.now(); saveStore();
-    return res.json({ fresh });
+    return res.json({ fresh, more: Math.max(0, fresh.length - 3) });
+  }
+  if (action === "seen") {
+    // Acknowledge only up to the newest thing he was actually shown, so
+    // anything that arrived in between still gets its turn.
+    const upto = Number((req.body || {}).upto) || Date.now();
+    STORE.seen[uid] = Math.max(STORE.seen[uid] || 0, upto);
+    saveStore();
+    return res.json({ ok: true, seen: STORE.seen[uid] });
   }
   if (action === "add" && request) {
     if (list.length >= 8) return res.status(400).json({ error: "watcher_limit", spoken: "You've got eight watchers already — remove one first." });
@@ -3997,7 +4980,7 @@ app.post("/watchers", requireAuth, async (req, res) => {
     };
     try {
       const { status, text } = await callClaude(body);
-      if (status !== 200) return res.status(502).json({ error: "parse_failed" });
+      if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "parse_failed" });
       const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
       const w = JSON.parse(raw.replace(/```json|```/g, "").trim());
       w.id = "w" + Date.now(); w.createdAt = Date.now();
@@ -4010,7 +4993,7 @@ app.post("/watchers", requireAuth, async (req, res) => {
       // run it once right away so there's a result today, not tomorrow
       runWatcher(uid, w).catch(() => {});
       return res.json({ ok: true, watcher: w, spoken: `Watching: ${w.label}. I'll have news in your morning brief.` });
-    } catch { return res.status(502).json({ error: "parse_failed" }); }
+    } catch { return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "parse_failed" }); }
   }
   res.status(400).json({ error: "bad action" });
 });
@@ -4070,6 +5053,41 @@ app.post("/texts/check", requireAuth, async (req, res) => {
   res.json({ ...r, held: ((STORE.smsHold || {})[uid] || []) });
 });
 
+/* --- WATCHERS (batch 132 audit) ---------------------------------------------
+ * Two bugs, both only visible over time:
+ *
+ * 1. A TRIGGERED WATCHER NEVER STOPPED. "Tell me if the fare drops below $800"
+ *    fired the moment it did — correct — and then fired again every hour after
+ *    that, with the same sentence, burning a web-search model call each time to
+ *    re-discover something he'd already acted on. A watcher that repeats itself
+ *    gets muted, which costs the next one that mattered.
+ *
+ * 2. The currency and weather branches used a bare fetch() with no timeout.
+ *    Since batch 113 the hourly pass runs SEQUENTIALLY inside once(), so one
+ *    hung endpoint stalls all eight watchers rather than just itself.
+ * ------------------------------------------------------------------------ */
+const WATCH_TIMEOUT_MS = 10000;
+
+async function watchFetch(url) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), WATCH_TIMEOUT_MS);
+  try { return await (await fetch(url, { signal: ctl.signal })).json(); }
+  finally { clearTimeout(t); }
+}
+
+// Has this watcher already said this, recently enough that saying it again is
+// nagging rather than news? Compared on the SPOKEN LINE, so a fare that moves
+// still gets through while a fare that hasn't doesn't.
+function watchIsRepeat(uid, w, spoken) {
+  const results = (STORE.results || {})[uid] || [];
+  const last = results.filter(r => r.id === w.id && r.triggered).slice(-1)[0];
+  if (!last) return false;
+  const sameThing = String(last.spoken || "").trim() === String(spoken || "").trim();
+  const hoursSince = (Date.now() - (last.at || 0)) / 3600000;
+  // Identical wording within a day is a repeat. After that, a nudge is fair.
+  return sameThing && hoursSince < 24;
+}
+
 async function runWatcher(uid, w) {
   let spoken = "", triggered = false;
   try {
@@ -4094,17 +5112,17 @@ async function runWatcher(uid, w) {
       return;
     }
     if (w.type === "currency") {
-      const r = await (await fetch(`https://api.frankfurter.app/latest?from=${encodeURIComponent(w.args.from || "AUD")}&to=${encodeURIComponent(w.args.to || "USD")}`)).json();
+      const r = await watchFetch(`https://api.frankfurter.app/latest?from=${encodeURIComponent(w.args.from || "AUD")}&to=${encodeURIComponent(w.args.to || "USD")}`);
       const rate = Object.values(r.rates || {})[0];
       if (rate != null) {
         triggered = w.threshold ? rate >= w.threshold : true;
         spoken = `${w.args.from || "AUD"} is at ${rate} ${w.args.to || ""}${w.threshold ? (triggered ? ` — past your ${w.threshold} mark.` : ` (watching for ${w.threshold}).`) : "."}`;
       }
     } else if (w.type === "weather") {
-      const g = await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(w.args.place || "")}&count=1`)).json();
+      const g = await watchFetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(w.args.place || "")}&count=1`);
       const loc = (g.results || [])[0];
       if (loc) {
-        const f = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&daily=temperature_2m_max,precipitation_probability_max&forecast_days=${Math.min(w.args.days || 5, 7)}`)).json();
+        const f = await watchFetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&daily=temperature_2m_max,precipitation_probability_max&forecast_days=${Math.min(w.args.days || 5, 7)}`);
         const d = f.daily || {};
         const days = (d.time || []).map((t, i) => `${t.slice(5)}: ${Math.round(d.temperature_2m_max[i])}°, ${d.precipitation_probability_max[i]}% rain`).join("; ");
         spoken = `${w.args.place} next days — ${days}.`; triggered = true;
@@ -4114,7 +5132,15 @@ async function runWatcher(uid, w) {
       const q = w.type === "flightdeal"
         ? `Current cheapest one-way and return fares ${w.args.from || ""} to ${w.args.to || ""} ${w.args.when || ""}. Reply JSON only: {"price": <lowest typical AUD number>, "note": "one short sentence"}`
         : `Events on in ${w.args.area || ""} ${w.args.when || "this weekend"}. Reply JSON only: {"note": "one short spoken sentence naming the best 1-2, or say nothing found"}`;
-      const body = { model: "claude-haiku-4-5-20251001", max_tokens: 300, tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }], messages: [{ role: "user", content: q }] };
+      const body = { model: "claude-haiku-4-5-20251001", max_tokens: 300,
+        // Batch 118 audit: no system prompt. This runs unattended on a watcher
+        // and its output LEADS his brief, so an invented event is something he
+        // acts on without ever having asked a question.
+        system:
+          "You answer a standing watch with one short spoken sentence. " +
+          "Only report what the search results actually show. If they show nothing useful, say nothing found — " +
+          "an empty answer is correct and expected most of the time." + NO_INVENT_STRICT + SPOKEN_PLAIN,
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }], messages: [{ role: "user", content: q }] };
       const { status, text } = await callClaude(body);
       if (status === 200) {
         const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
@@ -4127,6 +5153,13 @@ async function runWatcher(uid, w) {
     }
   } catch { /* one failed run is fine; next hour tries again */ }
   if (spoken) {
+    // Batch 132 audit: a triggered watcher used to re-fire the SAME sentence
+    // every hour, forever. Recording it as untriggered keeps it in the log
+    // (so "what have my watchers found" still shows it) without pushing it at
+    // him again — the alert stays news rather than becoming noise.
+    if (triggered && watchIsRepeat(uid, w, spoken)) {
+      triggered = false;
+    }
     const results = STORE.results[uid] = STORE.results[uid] || [];
     results.push({ at: Date.now(), id: w.id, label: w.label, spoken, triggered });
     while (results.length > 30) results.shift();
@@ -4134,12 +5167,14 @@ async function runWatcher(uid, w) {
   }
 }
 // Hourly sweep + first run a minute after boot.
-setInterval(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 3600000);
+setInterval(() => once("watchers", async () => {
+  for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) await runWatcher(uid, w).catch(() => {});
+}), 3600000);
 // Texts are checked far more often than watchers — every 4 minutes — because a
 // text sitting unseen for an hour is useless. Cheap: one IMAP call, no model.
-setInterval(() => {
-  for (const uid of Object.keys(STORE.profiles || { "shaun-default": 1 })) checkTexts(uid).catch(() => {});
-}, 240000);
+setTimeout(() => setInterval(() => once("texts", async () => {
+  for (const uid of Object.keys(STORE.profiles || { "shaun-default": 1 })) await checkTexts(uid).catch(() => {});
+}), 240000), OFFSET.texts);
 setTimeout(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 60000);
 
 app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));
@@ -4152,6 +5187,2011 @@ if (SELF_URL) {
     fetch(`${SELF_URL}/ping`).catch(() => {}); // best-effort, ignore errors
   }, 10 * 60 * 1000);
 }
+
+/* --- SCHEDULER ORCHESTRATION (batch 112 audit) -----------------------------
+ * Audit found five independent setIntervals with no coordination:
+ *   distil+learnProcedure 24h | watchers 1h | checkTexts 4min
+ *   self-ping 10min | checkCalendar 15min
+ * Two real problems:
+ *   1. They all land on the same tick every hour — watchers (model calls) +
+ *      texts (IMAP) + calendar (CalDAV) + ping, simultaneously, on a 512MB dyno.
+ *   2. No re-entrancy guard, so a slow run and the next tick overlap and stack.
+ * This fixes both: a named guard that skips rather than queues, and a small
+ * offset per job so they no longer share a tick.
+ * ------------------------------------------------------------------------ */
+const _running = Object.create(null);
+async function once(name, fn) {
+  if (_running[name]) { dlog(null, "errors", `scheduler ${name} still running — skipped this tick`); return; }
+  _running[name] = Date.now();
+  try { await fn(); }
+  catch (e) { try { dlog(null, "errors", `scheduler ${name} failed: ${String(e.message || e).slice(0, 120)}`); } catch {} }
+  finally { delete _running[name]; }
+}
+// Stagger so the hourly marks don't coincide. Prime-ish offsets, not round.
+const OFFSET = { watchers: 0, texts: 37000, calendar: 71000, distil: 113000 };
+
+/* ===========================================================================
+ * BATCH 109 — CALENDAR + LISTS + GEEKS2U WORK LAYER
+ *
+ * Three things, all sharing the same CalDAV plumbing:
+ *   A. iCloud calendars + reminder lists (read, monitor, tick off, add)
+ *   B. Geeks2U job layer (ICS feed, dual timezone, dictated job reports)
+ *   C. Screenshot -> job record (sidesteps the VPN-gated CRM)
+ *
+ * Credentials reused from the existing mail setup: ICLOUD_USER / ICLOUD_APP_PW.
+ * New optional env: GEEKS2U_ICS_URL
+ * ======================================================================== */
+
+const CAL = require("./caldav");
+
+Object.defineProperty(globalThis, "GEEKS2U_ICS", { get: () => envKey("GEEKS2U_ICS_URL", process.env.GEEKS2U_ICS_URL) });
+
+// Shaun works AEST hours from Asia — every work time gets shown in both.
+const WORK_TZ = "Australia/Brisbane" + SPOKEN_PLAIN;
+
+function calReady() { return !!(ICLOUD_USER && ICLOUD_APP_PW); }
+
+function calPrefsOf(uid) {
+  STORE.calPrefs = STORE.calPrefs || {};
+  return STORE.calPrefs[uid] || {};
+}
+
+/* --- source discovery, cached ------------------------------------------ */
+// Discovery is several round-trips to Apple, so it's cached for an hour.
+// The picker forces a refresh so a list made a minute ago shows up.
+async function calSources(uid, { force = false } = {}) {
+  STORE.calCache = STORE.calCache || {};
+  const cached = STORE.calCache[uid];
+  if (!force && cached && (Date.now() - cached.at) < 3600000) {
+    return { ok: true, sources: CAL.mergePrefs(cached.sources, calPrefsOf(uid)), cached: true };
+  }
+  if (!calReady()) return { ok: false, error: "iCloud isn't set up yet — add ICLOUD_USER and ICLOUD_APP_PW.", sources: [] };
+
+  const r = await CAL.discover({ user: ICLOUD_USER, pw: ICLOUD_APP_PW });
+  if (!r.ok) return { ok: false, error: r.error, sources: [] };
+
+  STORE.calCache[uid] = { at: Date.now(), sources: r.sources };
+  // Batch 139 sweep: calPrefs kept a key per source forever, so a list he
+  // deleted in iCloud left its preference behind indefinitely. Discovery
+  // already knows exactly what exists — prune against it. Feed prefs are
+  // kept because they aren't CalDAV sources and won't appear here.
+  try {
+    const live = new Set(r.sources.map(s => s.id));
+    const prefs = (STORE.calPrefs || {})[uid];
+    if (prefs) {
+      for (const id of Object.keys(prefs)) {
+        if (!live.has(id) && !id.startsWith("ics:")) delete prefs[id];
+      }
+    }
+  } catch {}
+  saveStore();
+  return { ok: true, sources: CAL.mergePrefs(r.sources, calPrefsOf(uid)), cached: false };
+}
+
+function icsFeeds(uid) {
+  const prefs = calPrefsOf(uid);
+  const id = "ics:geeks2u";
+  if (!GEEKS2U_ICS) return [];
+  const p = prefs[id] || {};
+  return [{ id, url: GEEKS2U_ICS, name: "Geeks2U jobs", read: !!p.read, monitor: !!p.monitor }];
+}
+
+/* --- dual timezone ------------------------------------------------------ */
+// A Geeks2U job is booked in AEST but Shaun is 2-3h behind in Asia. Saying
+// only one of those is how a job gets missed, so work events carry both.
+function bothZones(d) {
+  if (!d) return "";
+  const au = d.toLocaleTimeString("en-AU", { timeZone: WORK_TZ, hour: "numeric", minute: "2-digit", hour12: true });
+  const here = d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true });
+  return au === here ? au : `${au} AEST (${here} your time)`;
+}
+
+function isWorkEvent(e) {
+  return /geeks2u|job\s*[:#]?\s*\d{6,}/i.test(`${e.title || ""} ${e.sourceName || ""}`);
+}
+
+function jobNumberOf(text) {
+  const m = /\b(\d{6,8})\b/.exec(String(text || ""));
+  return m ? m[1] : "";
+}
+
+/* --- gather everything the user has switched on ------------------------- */
+async function calGather(uid, { days = 14, force = false } = {}) {
+  const s = await calSources(uid, { force });
+  if (!s.ok) return { ok: false, error: s.error, events: [], todos: [] };
+
+  const on = s.sources.filter(x => x.read || x.monitor);
+  const feeds = icsFeeds(uid).filter(f => f.read || f.monitor);
+
+  const from = CAL.startOfDay();
+  const to = new Date(Date.now() + days * 864e5);
+
+  const g = await CAL.gather(on, {
+    user: ICLOUD_USER, pw: ICLOUD_APP_PW,
+    from, to,
+    icsFeeds: feeds.map(f => ({ url: f.url, name: f.name })),
+    todoLimit: 120,
+  });
+
+  return { ok: true, ...g, sources: s.sources };
+}
+
+/* --- endpoints: picker -------------------------------------------------- */
+
+app.post("/calendar/sources", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { refresh } = req.body || {};
+  const s = await calSources(uid, { force: !!refresh });
+  if (!s.ok) return res.status(200).json({ ok: false, error: s.error, sources: [], feeds: [] });
+  res.json({
+    ok: true,
+    cached: s.cached,
+    sources: s.sources.map(x => ({
+      id: x.id, name: x.name, kind: x.kind,
+      sharedByOther: x.sharedByOther, readOnly: x.readOnly,
+      read: x.read, monitor: x.monitor,
+    })),
+    feeds: icsFeeds(uid).map(f => ({ id: f.id, name: f.name, kind: "calendar", readOnly: true, read: f.read, monitor: f.monitor })),
+  });
+});
+
+// Two independent switches per source. Both off = Vision ignores it entirely.
+app.post("/calendar/prefs", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { id, read, monitor, all } = req.body || {};
+  STORE.calPrefs = STORE.calPrefs || {};
+  const prefs = STORE.calPrefs[uid] = STORE.calPrefs[uid] || {};
+
+  if (all && typeof all === "object") {
+    for (const [k, v] of Object.entries(all)) prefs[k] = { read: !!v.read, monitor: !!v.monitor };
+  } else if (id) {
+    prefs[id] = { read: !!read, monitor: !!monitor };
+  } else {
+    return res.status(400).json({ error: "id or all required" });
+  }
+  saveStore();
+  dlog(uid, "memory", `calendar prefs updated (${Object.keys(prefs).length} sources)`);
+  res.json({ ok: true, prefs });
+});
+
+/* --- endpoints: reading ------------------------------------------------- */
+
+app.post("/calendar/day", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const g = await calGather(uid, { days: Number((req.body || {}).days) || 7 });
+  if (!g.ok) return res.status(200).json({ ok: false, spoken: g.error, events: [], todos: [] });
+
+  const brief = CAL.buildDayBrief(g.events, g.todos);
+  // Work jobs get both timezones; personal events don't need it.
+  const spoken = brief.spoken + (() => {
+    const jobs = brief.events.filter(isWorkEvent);
+    if (!jobs.length) return "";
+    return " " + jobs.map(j => `${j.title} is ${bothZones(j.start)}`).join(", ") + ".";
+  })();
+
+  res.json({
+    ok: true,
+    spoken: spoken.trim() || "Nothing on today.",
+    counts: brief.counts,
+    events: brief.events.map(e => ({
+      title: e.title, start: e.start, allDay: e.allDay, location: e.location,
+      source: e.sourceName, shared: e.sharedByOther,
+      work: isWorkEvent(e), job: isWorkEvent(e) ? jobNumberOf(e.title) : "",
+      whenBoth: isWorkEvent(e) ? bothZones(e.start) : "",
+    })),
+    dueToday: brief.dueToday.map(t => ({ title: t.title, source: t.sourceName, due: t.due })),
+    overdue: brief.overdue.map(t => ({ title: t.title, source: t.sourceName, due: t.due })),
+    errors: g.errors,
+  });
+});
+
+app.post("/calendar/list", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+
+  const s = await calSources(uid);
+  if (!s.ok) return res.status(200).json({ ok: false, spoken: s.error });
+
+  const on = s.sources.filter(x => x.read || x.monitor);
+  const m = CAL.matchList(name, on, "reminders");
+
+  if (m.status === "none") {
+    return res.json({ ok: false, spoken: `I couldn't find a list called "${name}". Turn it on in the picker if it's new.` });
+  }
+  if (m.status === "ambiguous") {
+    // "to do" hits three of his lists — ask rather than pick the shortest.
+    return res.json({ ok: false, ambiguous: true, candidates: m.candidates.map(c => ({ id: c.id, name: c.name })),
+      spoken: `Which one — ${m.candidates.map(c => c.name).join(", ")}?` });
+  }
+
+  const r = await CAL.readTodos(m.source, { user: ICLOUD_USER, pw: ICLOUD_APP_PW, limit: 60 });
+  if (!r.ok) return res.status(200).json({ ok: false, spoken: `Couldn't read ${m.source.name} — ${r.error}` });
+
+  const names = r.todos.map(t => t.title);
+  res.json({
+    ok: true,
+    list: m.source.name,
+    shared: m.source.sharedByOther,
+    total: r.total,
+    truncated: r.truncated,
+    items: names,
+    spoken: names.length
+      ? `${m.source.name}: ${names.slice(0, 12).join(", ")}${r.total > 12 ? `, and ${r.total - 12} more` : ""}.`
+      : `${m.source.name} is empty.`,
+  });
+});
+
+/* --- endpoints: writing (always confirmed first) ------------------------ */
+
+// Step 1 of ticking off. Never writes — returns what it WOULD do plus the
+// sentence to speak. Four of his lists are his wife's, so a mis-parse is
+// someone else's problem, not just his.
+app.post("/calendar/tick/prepare", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { list, utterance } = req.body || {};
+  if (!utterance) return res.status(400).json({ error: "utterance required" });
+
+  const s = await calSources(uid);
+  if (!s.ok) return res.status(200).json({ ok: false, spoken: s.error });
+
+  const on = s.sources.filter(x => x.read || x.monitor);
+  const m = CAL.matchList(list || "", on, "reminders");
+  if (m.status !== "match") {
+    return res.json({ ok: false, ambiguous: m.status === "ambiguous",
+      candidates: (m.candidates || []).map(c => ({ id: c.id, name: c.name })),
+      spoken: m.status === "ambiguous" ? `Which list — ${m.candidates.map(c => c.name).join(", ")}?` : `Which list did you mean?` });
+  }
+
+  const p = await CAL.prepareTickOff(utterance, m.source, { user: ICLOUD_USER, pw: ICLOUD_APP_PW });
+  if (!p.ok) return res.json({ ok: false, spoken: p.error, missing: p.missing || [], ambiguous: p.ambiguous || [] });
+
+  STORE.calPending = STORE.calPending || {};
+  STORE.calPending[uid] = {
+    at: Date.now(),
+    sourceId: m.source.id,
+    items: p.items.map(x => ({ uid: x.todo.uid, title: x.todo.title, href: x.todo.href, etag: x.todo.etag, raw: x.todo.raw })),
+  };
+  saveStore();
+
+  res.json({
+    ok: true, needsConfirmation: true, spoken: p.confirm,
+    list: m.source.name, shared: m.source.sharedByOther,
+    items: p.items.map(x => x.todo.title),
+    missing: p.missing, ambiguous: p.ambiguous.map(a => ({ spoken: a.spoken, options: a.options.map(o => o.title) })),
+  });
+});
+
+// Step 2 — only after he says yes.
+app.post("/calendar/tick/confirm", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const pend = (STORE.calPending || {})[uid];
+  if (!pend || (Date.now() - pend.at) > 600000) {
+    return res.json({ ok: false, spoken: "That's expired — say what you want ticked off again." });
+  }
+
+  const done = [], failed = [];
+  for (const it of pend.items) {
+    const r = await CAL.completeTodo(it, { user: ICLOUD_USER, pw: ICLOUD_APP_PW });
+    if (r.ok) done.push(it.title); else failed.push({ title: it.title, error: r.error });
+  }
+
+  // Ticking something off says he actually does the thing — worth remembering.
+  const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+  for (const t of done) { mem.push({ t: `ticked off: ${t}`, at: Date.now() }); }
+  while (mem.length > 400) mem.shift();
+
+  STORE.calPending[uid] = null;
+  saveStore();
+  dlog(uid, "memory", `ticked ${done.length} item(s)`);
+
+  res.json({
+    ok: !!done.length, done, failed,
+    spoken: done.length
+      ? `Done — ${done.join(" and ")} ticked off.${failed.length ? ` ${failed.length} didn't go through.` : ""}`
+      : "None of those went through.",
+  });
+});
+
+app.post("/calendar/add", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { list, item, due } = req.body || {};
+  if (!item) return res.status(400).json({ error: "item required" });
+
+  const s = await calSources(uid);
+  if (!s.ok) return res.status(200).json({ ok: false, spoken: s.error });
+
+  const on = s.sources.filter(x => x.read || x.monitor);
+  const m = CAL.matchList(list || "", on, "reminders");
+  if (m.status !== "match") {
+    return res.json({ ok: false, ambiguous: m.status === "ambiguous",
+      candidates: (m.candidates || []).map(c => ({ id: c.id, name: c.name })),
+      spoken: `Which list — ${(m.candidates || []).map(c => c.name).join(", ") || "say the name"}?` });
+  }
+
+  const r = await CAL.addTodo(m.source, {
+    user: ICLOUD_USER, pw: ICLOUD_APP_PW,
+    title: item, due: due ? new Date(due) : null,
+  });
+  if (!r.ok) return res.status(200).json({ ok: false, spoken: `Couldn't add that — ${r.error}` });
+
+  res.json({ ok: true, spoken: `Added ${item} to ${m.source.name}.`, list: m.source.name, shared: m.source.sharedByOther });
+});
+
+app.post("/calendar/event", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { calendar, title, start, end, location, notes } = req.body || {};
+  if (!title || !start) return res.status(400).json({ error: "title and start required" });
+
+  const s = await calSources(uid);
+  if (!s.ok) return res.status(200).json({ ok: false, spoken: s.error });
+
+  const on = s.sources.filter(x => (x.read || x.monitor) && !x.readOnly && x.kind === "calendar");
+  const m = CAL.matchList(calendar || "", on, "calendar");
+  const target = m.status === "match" ? m.source : on[0];
+  if (!target) return res.json({ ok: false, spoken: "No writable calendar is switched on." });
+
+  const startD = new Date(start);
+  const r = await CAL.createEvent(target, {
+    user: ICLOUD_USER, pw: ICLOUD_APP_PW,
+    title, start: startD, end: end ? new Date(end) : null, location, notes,
+  });
+  if (!r.ok) return res.status(200).json({ ok: false, spoken: `Couldn't add that — ${r.error}` });
+
+  res.json({ ok: true, spoken: `Put "${title}" in ${target.name} for ${bothZones(startD)}.`, calendar: target.name });
+});
+
+/* --- free/busy for the planner ------------------------------------------ */
+// The planner used to propose into a void. Now it can check.
+app.post("/calendar/free", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { start, end, minutes, days } = req.body || {};
+  const g = await calGather(uid, { days: Number(days) || 7 });
+  if (!g.ok) return res.status(200).json({ ok: false, error: g.error });
+
+  if (start && end) {
+    const r = CAL.isFree(g.events, new Date(start), new Date(end));
+    return res.json({
+      ok: true, free: r.free,
+      clashes: r.clashes.map(c => ({ title: c.title, start: c.start, end: c.end, source: c.sourceName })),
+      spoken: r.free ? "You're free then." : `That clashes with ${r.clashes.map(c => c.title).join(" and ")}.`,
+    });
+  }
+
+  const slots = CAL.findSlots(g.events, {
+    from: new Date(), to: new Date(Date.now() + (Number(days) || 7) * 864e5),
+    minutes: Number(minutes) || 60,
+  });
+  res.json({ ok: true, slots: slots.map(s => ({ start: s.start, end: s.end, whenBoth: bothZones(s.start) })) });
+});
+
+/* --- B. GEEKS2U JOB REPORTS --------------------------------------------- */
+
+// His actual house format, taken from a closed invoice: dashed bullets,
+// past tense, one action per line, ending with the two standard closers.
+const JOB_REPORT_STYLE =
+  "Write it as a Geeks2U service description in EXACTLY this house style:\n" +
+  "- dashed bullet lines, one action per line, past tense, plain English\n" +
+  "- no preamble, no heading, no sign-off, no markdown\n" +
+  "- keep each line short and factual, the way a tech writes it up\n" +
+  "- ALWAYS finish with these two lines exactly:\n" +
+  "- All issues resolved\n" +
+  "- Provided general advice and support\n" +
+  "Example of the expected shape:\n" +
+  "- Resolved issue with Imap folders and PST files in Outlook profile\n" +
+  "- Advise on managing Imap emails folders and storage\n" +
+  "- All issues resolved\n" +
+  "- Provided general advice and support";
+
+// STORE.jobs is keyed by job number, so the usual array trims don't apply and
+// it would grow one key per job forever — every save rewrites the whole store,
+// so this bloats every write, not just job lookups. ~3 jobs/day is ~1000/year.
+// Keep the most recent 300 and drop the oldest; the reports still live in mem.
+function trimJobs(uid) {
+  const jobs = (STORE.jobs || {})[uid];
+  if (!jobs) return;
+  const keys = Object.keys(jobs);
+  if (keys.length <= 300) return;
+  keys.sort((a, b) => (jobs[a].at || 0) - (jobs[b].at || 0));
+  for (const k of keys.slice(0, keys.length - 300)) delete jobs[k];
+}
+
+app.post("/job/report", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { job, dictation, customer } = req.body || {};
+  const jobNo = jobNumberOf(job) || String(job || "").trim();
+  if (!dictation) return res.status(400).json({ error: "dictation required" });
+
+  const body = {
+    model: "claude-sonnet-4-6",
+    max_tokens: 500,
+    system:
+      "You turn a technician's spoken account of a remote IT support job into the service description that closes the job in the Geeks2U system. " +
+      "Write ONLY what he actually says he did — never invent steps, findings, parts or outcomes. " +
+      "If he was vague, stay vague rather than inventing detail. " +
+      JOB_REPORT_STYLE,
+    messages: [{ role: "user", content: `What I did on the job:\n${dictation}` }],
+  };
+
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't write that up — try again in a moment." });
+    const report = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+
+    STORE.jobs = STORE.jobs || {};
+    const jobs = STORE.jobs[uid] = STORE.jobs[uid] || {};
+    const rec = jobs[jobNo] = jobs[jobNo] || { job: jobNo, at: Date.now() };
+    rec.report = report;
+    rec.dictation = String(dictation).slice(0, 1200);
+    rec.reportedAt = Date.now();
+    if (customer) rec.customer = String(customer).slice(0, 120);
+    trimJobs(uid);
+
+    // Into the shared pool so recall works months later, by number or name.
+    const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+    mem.push({ t: `job ${jobNo}${rec.customer ? ` (${rec.customer})` : ""}: ${report.replace(/\n/g, " ").slice(0, 300)}`, at: Date.now() });
+    while (mem.length > 400) mem.shift();
+    saveStore();
+
+    dlog(uid, "memory", `job report written for ${jobNo}`);
+    res.json({ ok: true, job: jobNo, report, spoken: `Written up for ${jobNo}. Copy it across when you're ready.` });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Report hiccup — say it again and I'll write it up." });
+  }
+});
+
+// C. Screenshot -> job record. The CRM is behind a VPN with no API, so the
+// way in is showing Vision the screen rather than reaching the system.
+app.post("/job/capture", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { images, image, mediaType, job } = req.body || {};
+  const shots = Array.isArray(images) ? images.slice(0, 3) : (image ? [image] : []);
+  if (!shots.length) return res.status(400).json({ error: "image(s) required" });
+
+  const content = [
+    ...shots.map(d => ({ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: d } })),
+    { type: "text", text:
+      "These are screenshots of a Geeks2U job in the BMS (they may be different tabs of the SAME job — merge them). " +
+      "Extract what is actually visible. Reply as compact JSON ONLY (no markdown) with keys: " +
+      "\"job\" (job ID number), \"customerId\", \"customer\" (name), \"phone\", \"type\", \"pricing\", \"appointment\" (as shown), " +
+      "\"problem\" (the problem/description text), \"devices\", \"os\". " +
+      "Use \"\" for anything not visible — NEVER guess a phone number or a job ID." },
+  ];
+
+  try {
+    const { status, text: out } = await callClaude({
+      model: "claude-sonnet-4-6", max_tokens: 600,
+      system: "You read IT job-management screenshots and extract the fields exactly as shown. Accuracy matters more than completeness — an empty field is always better than a guessed one.",
+      messages: [{ role: "user", content }],
+    });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't read that screen — try a clearer shot." });
+
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = {}; }
+
+    const jobNo = jobNumberOf(job) || jobNumberOf(p.job) || "";
+    if (!jobNo) return res.json({ ok: false, spoken: "I couldn't see a job number on that — say it and I'll file it." , parsed: p });
+
+    STORE.jobs = STORE.jobs || {};
+    const jobs = STORE.jobs[uid] = STORE.jobs[uid] || {};
+    const rec = jobs[jobNo] = jobs[jobNo] || { job: jobNo, at: Date.now() };
+    for (const k of ["customerId", "customer", "phone", "type", "pricing", "appointment", "problem", "devices", "os"]) {
+      if (p[k]) rec[k] = String(p[k]).slice(0, 400);
+    }
+    rec.capturedAt = Date.now();
+    trimJobs(uid);
+
+    const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+    mem.push({ t: `job ${jobNo}${rec.customer ? ` — ${rec.customer}` : ""}${rec.phone ? ` (${rec.phone})` : ""}: ${(rec.problem || "").slice(0, 200)}`, at: Date.now() });
+    while (mem.length > 400) mem.shift();
+    saveStore();
+
+    dlog(uid, "memory", `job ${jobNo} captured from screenshot`);
+    // Read back rather than assert — OCR gets phone numbers wrong.
+    res.json({
+      ok: true, job: jobNo, record: rec,
+      spoken: `Filed job ${jobNo}${rec.customer ? ` for ${rec.customer}` : ""}${rec.phone ? `, ${rec.phone}` : ""}. Check that's right.`,
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Couldn't read that screen — try again." });
+  }
+});
+
+app.post("/job/recall", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { query } = req.body || {};
+  const jobs = (STORE.jobs || {})[uid] || {};
+  const all = Object.values(jobs);
+  if (!all.length) return res.json({ ok: false, spoken: "No jobs filed yet — capture one or dictate a report and I'll keep it." });
+
+  const q = String(query || "").trim();
+  if (!q) {
+    const recent = all.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 5);
+    return res.json({ ok: true, jobs: recent, spoken: `Last few: ${recent.map(j => `${j.job}${j.customer ? ` (${j.customer})` : ""}`).join(", ")}.` });
+  }
+
+  const byNumber = jobNumberOf(q);
+  let hits = byNumber ? all.filter(j => j.job === byNumber) : [];
+  if (!hits.length) {
+    // fall back to fuzzy on the customer name — "the Brecht job"
+    hits = all
+      .map(j => ({ j, score: Math.max(CAL.similarity(q, j.customer || ""), CAL.similarity(q, j.problem || "") * 0.6) }))
+      .filter(x => x.score > 0.4)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(x => x.j);
+  }
+  if (!hits.length) return res.json({ ok: false, spoken: `Nothing filed matching "${q}".` });
+
+  const top = hits[0];
+  res.json({
+    ok: true, jobs: hits, job: top,
+    spoken: `Job ${top.job}${top.customer ? ` — ${top.customer}` : ""}. ${top.report ? top.report.replace(/\n/g, ". ") : (top.problem || "No report written up.")}`,
+  });
+});
+
+/* --- briefs into the brain ---------------------------------------------- */
+
+function calendarBrief(uid) {
+  const held = (STORE.calHold || {})[uid];
+  if (!held || !held.spoken) return "";
+  return `CALENDAR — worth raising: ${held.spoken}`;
+}
+
+function jobBrief(uid) {
+  const today = (STORE.calToday || {})[uid];
+  if (!today || !today.jobs || !today.jobs.length) return "";
+  // Batch 113 audit: this said "get the VPN up" all day regardless of when the
+  // job was — a standing instruction, not anticipation. Timing is the whole
+  // difference: the nudge is only useful in the window before it starts, and
+  // afterwards what matters is the report that closes it.
+  const now = Date.now();
+  const withTime = today.jobs.map(j => ({ ...j, ms: j.startMs || 0 }));
+  const next = withTime.filter(j => j.ms && j.ms > now).sort((a, b) => a.ms - b.ms)[0];
+  const done = withTime.filter(j => j.ms && j.ms < now);
+
+  const lines = [`WORK TODAY (Geeks2U — AEST and his local time): ` +
+    withTime.map(j => `${j.title} at ${j.whenBoth}`).join(" | ")];
+
+  if (next) {
+    const mins = Math.round((next.ms - now) / 60000);
+    if (mins <= 20) lines.push(`${next.title} starts in ${mins} min — VPN up and the jobs tab open NOW if it isn't already. Say this first.`);
+    else if (mins <= 60) lines.push(`${next.title} is in ${mins} min. Worth a quiet word about the VPN if the conversation lulls.`);
+  }
+  if (done.length) {
+    lines.push(`${done.length} job${done.length > 1 ? "s" : ""} already past today — if he hasn't dictated the service description, that's what closes it and gets him paid.`);
+  }
+  return lines.join(" ");
+}
+
+/* --- watcher ------------------------------------------------------------ */
+// 15 minutes: calendars don't move like texts do, but a job added this
+// morning shouldn't wait an hour. Holds changes so they lead next open.
+async function checkCalendar(uid) {
+  if (!calReady()) return { ok: false, error: "no icloud" };
+  const g = await calGather(uid, { days: 14 });
+  if (!g.ok) return { ok: false, error: g.error };
+
+  const s = await calSources(uid);
+  const monitored = new Set([
+    ...s.sources.filter(x => x.monitor).map(x => x.name),
+    ...icsFeeds(uid).filter(f => f.monitor).map(f => f.name),
+  ]);
+  const watched = g.events.filter(e => monitored.has(e.sourceName));
+
+  STORE.calSeen = STORE.calSeen || {};
+  const changes = CAL.detectChanges(watched, STORE.calSeen[uid] || {});
+  STORE.calSeen[uid] = changes.nextSeen;
+
+  // Today's work jobs, cached for the brief so /chat doesn't wait on Apple.
+  STORE.calToday = STORE.calToday || {};
+  const todayEnd = CAL.endOfDay();
+  STORE.calToday[uid] = {
+    at: Date.now(),
+    jobs: g.events.filter(e => isWorkEvent(e) && e.start <= todayEnd && e.start >= CAL.startOfDay())
+      .map(e => ({ title: e.title, job: jobNumberOf(e.title), whenBoth: bothZones(e.start), startMs: e.start ? e.start.getTime() : 0 })),
+  };
+
+  if (changes.any) {
+    STORE.calHold = STORE.calHold || {};
+    STORE.calHold[uid] = { at: Date.now(), spoken: CAL.changesToSpoken(changes) };
+    dlog(uid, "memory", `calendar: ${changes.added.length} new, ${changes.moved.length} moved, ${changes.removed.length} gone`);
+  }
+  saveStore();
+  return { ok: true, changed: changes.any, added: changes.added.length, moved: changes.moved.length, removed: changes.removed.length };
+}
+
+app.post("/calendar/check", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const r = await checkCalendar(uid);
+  if ((req.body || {}).action === "clear") {
+    STORE.calHold = STORE.calHold || {}; STORE.calHold[uid] = null; saveStore();
+  }
+  res.json({ ...r, held: ((STORE.calHold || {})[uid] || null), today: ((STORE.calToday || {})[uid] || null) });
+});
+
+setTimeout(() => setInterval(() => once("calendar", async () => {
+  if (!calReady()) return;
+  for (const uid of Object.keys(STORE.calPrefs || {})) await checkCalendar(uid).catch(() => {});
+}), 900000), OFFSET.calendar);
+
+
+/* ===========================================================================
+ * BATCH 110 — CONVERSATION MODE (translation, rebuilt)
+ *
+ * Audit of what was there found four overlapping paths and one real problem:
+ * /converse was a good backend behind a prompt()-per-line UI, and it REQUIRED
+ * being told the other language up front. This replaces the "which language?"
+ * step with genuine detection, and adds the things the big three do well:
+ *
+ *   from Meta    — full-screen two-sided conversation, speak-aloud by default
+ *   from Google  — romanisation (so he can attempt the sounds), big readable
+ *                  "hold this up" text, tap-to-replay
+ *   from Apple   — a phrasebook of the lines he actually reuses
+ *   from none    — it all lands in Vision's memory, tied to where and who
+ *
+ * The honest limits, told to him plainly: no offline packs on the web (that's
+ * native + Apple's Translation framework), and a round trip has a floor of
+ * roughly a second or two.
+ * ======================================================================== */
+
+// Languages worth naming so detection has a prior. Vietnamese and Thai first
+// because that's the trip; the rest cover the region he'll pass through.
+const CONVO_LANGS = [
+  "Vietnamese", "Thai", "English", "Indonesian", "Malay", "Khmer", "Lao",
+  "Mandarin Chinese", "Cantonese", "Japanese", "Korean", "Tagalog",
+  "Burmese", "Hindi", "Nepali", "Spanish", "French", "German", "Italian",
+  "Portuguese", "Dutch", "Russian", "Arabic", "Turkish", "Greek",
+];
+
+function convoProfile(uid) {
+  const p = profileOf(uid) || {};
+  return {
+    mine: p.myLang || "English",
+    // Learned, not asked: whatever he's actually been hearing lately.
+    likely: ((STORE.convoLangs || {})[uid] || []).slice(0, 3),
+  };
+}
+
+function noteConvoLang(uid, lang) {
+  if (!lang || /english/i.test(lang)) return;
+  STORE.convoLangs = STORE.convoLangs || {};
+  const list = STORE.convoLangs[uid] = STORE.convoLangs[uid] || [];
+  const i = list.indexOf(lang);
+  if (i > -1) list.splice(i, 1);
+  list.unshift(lang);
+  while (list.length > 5) list.pop();
+}
+
+/* --- the turn ----------------------------------------------------------- */
+// One line in, translated line out, direction worked out rather than declared.
+app.post("/converse/turn", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { text, theirLang, history } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+
+  const { mine, likely } = convoProfile(uid);
+  const country = (profileOf(uid) || {}).country || "";
+
+  // Prior context makes detection far better on short lines — "cảm ơn" alone
+  // is ambiguous, but not after three Vietnamese turns.
+  const prior = Array.isArray(history) ? history.slice(-4)
+    .map(h => `${h.who === "me" ? "Shaun" : "Them"} (${h.lang || "?"}): ${h.text}`).join("\n") : "";
+
+  const hint = theirLang ? `The other person has been speaking ${theirLang}. `
+    : likely.length ? `Recently he's been hearing ${likely.join(" or ")} — but detect from the line itself. `
+    : "";
+
+  const body = {
+    model: "claude-haiku-4-5-20251001", // conversation needs speed above all
+    max_tokens: 420,
+    system:
+      "You power a live two-way conversation translator for Shaun, an Australian traveller. " +
+      "You are given ONE spoken line. Work out what language it is, then translate it the RIGHT WAY: " +
+      "if it's Shaun's own language it goes to the other person's; otherwise it comes back to Shaun's. " +
+      "Translate how a person actually speaks — colloquial, not literal, and keep it short. " +
+      `Languages you'll usually see: ${CONVO_LANGS.join(", ")}.`,
+    messages: [{
+      role: "user",
+      content:
+        `Shaun speaks ${mine}.${country ? ` He's in ${country}.` : ""} ${hint}` +
+        (prior ? `\n\nThe conversation so far:\n${prior}\n` : "") +
+        `\nThe new line:\n"${text}"\n\n` +
+        `Reply as compact JSON ONLY (no markdown) with keys: ` +
+        `"detected" (language name of the line), ` +
+        `"direction" ("to-them" if Shaun said it, "to-me" if they did), ` +
+        `"translation" (natural spoken translation), ` +
+        `"roman" (the translation written in Latin letters as it SOUNDS, for a non-native to attempt — "" if the translation is already Latin script), ` +
+        `"tone" (one or two words: friendly, annoyed, urgent, hurried, warm, neutral), ` +
+        `"note" (SHORT, only if a cultural nuance or a likely misunderstanding matters, else ""), ` +
+        `"confidence" (0 to 1 — how sure you are about the language).`,
+    }],
+  };
+
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, translation: "Didn't catch that — say it again?" });
+    const raw = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { translation: raw }; }
+
+    const detected = p.detected || "";
+    const direction = p.direction || (detected && detected.toLowerCase() !== mine.toLowerCase() ? "to-me" : "to-them");
+    if (direction === "to-me") noteConvoLang(uid, detected);
+
+    // Every turn goes into the live session so it can be saved whole.
+    STORE.convoLive = STORE.convoLive || {};
+    const live = STORE.convoLive[uid] = STORE.convoLive[uid] || { at: Date.now(), turns: [] };
+    live.at = Date.now();
+    live.turns.push({
+      who: direction === "to-me" ? "them" : "me",
+      lang: detected, text,
+      translation: p.translation || raw,
+      roman: p.roman || "", tone: p.tone || "", at: Date.now(),
+    });
+    while (live.turns.length > 60) live.turns.shift();
+    saveStore();
+
+    res.json({
+      detected, direction,
+      translation: p.translation || raw,
+      roman: p.roman || "",
+      tone: p.tone || "",
+      note: p.note || "",
+      confidence: typeof p.confidence === "number" ? p.confidence : 0.7,
+      turns: live.turns.length,
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, translation: "Translation hiccup — try again." });
+  }
+});
+
+/* --- saving a conversation into real memory ----------------------------- */
+// Meta and Google both keep a flat history list. This is the actual
+// difference: a conversation lands in the same pool everything else recalls
+// from, so "what did the guesthouse bloke promise" works months later.
+app.post("/converse/save", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { tag, discard } = req.body || {};
+  STORE.convoLive = STORE.convoLive || {};
+  const live = STORE.convoLive[uid];
+
+  if (discard) { STORE.convoLive[uid] = null; saveStore(); return res.json({ ok: true, discarded: true }); }
+  if (!live || !live.turns.length) return res.json({ ok: false, spoken: "No conversation to save yet." });
+
+  const transcript = live.turns.map(t =>
+    `${t.who === "me" ? "Shaun" : "Them"} (${t.lang || "?"}): ${t.text}${t.who === "them" ? ` [${t.translation}]` : ""}`
+  ).join("\n");
+
+  let summary = "";
+  try {
+    const { status, text: out } = await callClaude({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 260,
+      system: "You summarise a translated conversation into what Shaun would actually want to recall later. Lead with anything agreed, promised, priced or arranged. Two or three sentences. Never invent detail." + SPOKEN_PLAIN,
+      messages: [{ role: "user", content: `${tag ? `This was with: ${tag}\n\n` : ""}${transcript}` }],
+    });
+    if (status === 200) summary = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+  } catch {}
+
+  STORE.convos = STORE.convos || {};
+  const saved = STORE.convos[uid] = STORE.convos[uid] || [];
+  const rec = {
+    id: `c${Date.now().toString(36)}`,
+    tag: tag || "", at: Date.now(),
+    langs: [...new Set(live.turns.map(t => t.lang).filter(Boolean))],
+    turns: live.turns, summary,
+  };
+  saved.push(rec);
+  while (saved.length > 60) saved.shift();
+
+  // Into the shared pool so every other skill can recall it too.
+  const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+  mem.push({ t: `conversation${tag ? ` with ${tag}` : ""}: ${summary || transcript.slice(0, 240)}`, at: Date.now() });
+  while (mem.length > 400) mem.shift();
+
+  STORE.convoLive[uid] = null;
+  saveStore();
+  dlog(uid, "memory", `conversation saved${tag ? ` (${tag})` : ""} — ${rec.turns.length} turns`);
+
+  res.json({ ok: true, id: rec.id, summary, spoken: summary ? `Saved. ${summary}` : "Saved that conversation." });
+});
+
+/* --- phrasebook: the lines he actually reuses ---------------------------- */
+// Apple's Translate keeps favourites; this earns its place by noticing which
+// lines he repeats rather than making him star them.
+app.post("/converse/phrases", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { action, text, translation, lang, id } = req.body || {};
+  STORE.phrases = STORE.phrases || {};
+  const list = STORE.phrases[uid] = STORE.phrases[uid] || [];
+
+  if (action === "add" && text && translation) {
+    const existing = list.find(p => p.text.toLowerCase() === String(text).toLowerCase() && p.lang === lang);
+    if (existing) { existing.uses = (existing.uses || 1) + 1; existing.at = Date.now(); }
+    else list.push({ id: `p${Date.now().toString(36)}`, text, translation, lang: lang || "", uses: 1, at: Date.now() });
+    while (list.length > 80) list.shift();
+    saveStore();
+    return res.json({ ok: true, count: list.length });
+  }
+  if (action === "remove" && id) {
+    STORE.phrases[uid] = list.filter(p => p.id !== id);
+    saveStore();
+    return res.json({ ok: true });
+  }
+  // Most-used first — that's what a phrasebook is for.
+  const sorted = [...list].sort((a, b) => (b.uses || 0) - (a.uses || 0) || (b.at || 0) - (a.at || 0));
+  res.json({ ok: true, phrases: sorted.slice(0, 40), langs: ((STORE.convoLangs || {})[uid] || []) });
+});
+
+/* --- recall past conversations ------------------------------------------ */
+app.post("/converse/history", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { query } = req.body || {};
+  const saved = (STORE.convos || {})[uid] || [];
+  if (!saved.length) return res.json({ ok: false, spoken: "No saved conversations yet." });
+
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) {
+    return res.json({
+      ok: true,
+      conversations: saved.slice(-8).reverse().map(c => ({ id: c.id, tag: c.tag, at: c.at, langs: c.langs, summary: c.summary, turns: c.turns.length })),
+      spoken: `${saved.length} saved. Most recent${saved[saved.length - 1].tag ? ` was with ${saved[saved.length - 1].tag}` : ""}.`,
+    });
+  }
+
+  const hits = saved.filter(c =>
+    (c.tag || "").toLowerCase().includes(q) ||
+    (c.summary || "").toLowerCase().includes(q) ||
+    c.turns.some(t => `${t.text} ${t.translation}`.toLowerCase().includes(q))
+  ).slice(-5).reverse();
+
+  if (!hits.length) return res.json({ ok: false, spoken: `Nothing in your conversations about "${query}".` });
+  const top = hits[0];
+  res.json({
+    ok: true,
+    conversations: hits.map(c => ({ id: c.id, tag: c.tag, at: c.at, langs: c.langs, summary: c.summary, turns: c.turns.length })),
+    conversation: top,
+    spoken: top.summary || `Found a conversation${top.tag ? ` with ${top.tag}` : ""} — ${top.turns.length} lines.`,
+  });
+});
+
+
+/* ===========================================================================
+ * ADVISORY LAYER (batch 129)
+ *
+ * Everything before this answers the question asked. Nothing looked across the
+ * WHOLE picture and asked "what's about to go wrong, and what would he not
+ * have thought of?"
+ *
+ * The pieces were all there — calendar, jobs, spend, weather, bookings,
+ * memory, patterns — but each skill only ever saw its own slice. A 4:30pm AEST
+ * job and a market trip that runs till 2pm his time is a collision neither the
+ * calendar skill nor the day planner can see, because each is only looking at
+ * one of them.
+ *
+ * TWO HARD RULES, both deliberate:
+ *
+ *   1. IT NEVER ACTS. It returns words. Every suggestion is something he can
+ *      say yes to, never something already done. Booking, texting his wife,
+ *      ticking her shared list — those need a human, and an assistant that
+ *      guesses is worse than one that asks.
+ *
+ *   2. IT STAYS QUIET WHEN IT HAS NOTHING. An advisor that always finds
+ *      something to say gets ignored inside a week. Silence is the default and
+ *      the correct answer most of the time.
+ * ======================================================================== */
+
+// Timezone collisions are the single most likely thing to bite him: he works
+// AEST hours from a country 2-4 hours behind, so "4:30" means two things.
+function tzGap(uid) {
+  const p = profileOf(uid) || {};
+  if (!p.country || /australia/i.test(p.country)) return 0;
+  try {
+    const now = new Date();
+    const au = new Date(now.toLocaleString("en-US", { timeZone: WORK_TZ }));
+    const here = new Date(now.toLocaleString("en-US"));
+    return Math.round((au - here) / 3600000);
+  } catch { return 0; }
+}
+
+/* --- the checks ---------------------------------------------------------
+ * Each returns a note or null. Ordered by consequence: money and missed work
+ * first, nice-to-know last. Each says WHY, so he can judge it rather than
+ * being told.
+ * --------------------------------------------------------------------- */
+const ADVISORS = [
+
+  // A work job in a country that isn't Australia. The number on the calendar
+  // is AEST; the number on his wrist isn't.
+  function timezoneCollision(uid, ctx) {
+    if (!ctx.jobsToday.length) return null;
+    const gap = tzGap(uid);
+    if (!gap) return null;
+    const next = ctx.jobsToday.find(j => j.startMs > ctx.now);
+    if (!next) return null;
+    const mins = Math.round((next.startMs - ctx.now) / 60000);
+    if (mins > 240) return null;
+    return {
+      kind: "timezone", weight: 95,
+      note: `${next.title} is ${next.whenBoth}. You're ${Math.abs(gap)} hours ${gap > 0 ? "behind" : "ahead of"} Brisbane — worth saying the local time out loud so you don't book something over it.`,
+    };
+  },
+
+  // Two things booked close together in a city he doesn't know.
+  function tightGap(uid, ctx) {
+    const ev = ctx.events.filter(e => e.startMs > ctx.now).sort((a, b) => a.startMs - b.startMs);
+    for (let i = 0; i < ev.length - 1; i++) {
+      const gapMin = Math.round((ev[i + 1].startMs - (ev[i].endMs || ev[i].startMs + 3600000)) / 60000);
+      if (gapMin >= 0 && gapMin < 45) {
+        return {
+          kind: "tight", weight: 80,
+          note: `Only ${gapMin} minutes between ${ev[i].title} and ${ev[i + 1].title}. In a city you don't know, that's tighter than it looks — worth moving one.`,
+        };
+      }
+    }
+    return null;
+  },
+
+  // A job that happened and was never written up. That's unpaid work.
+  function unwrittenJob(uid, ctx) {
+    const jobs = Object.values((STORE.jobs || {})[uid] || {});
+    const open = jobs.filter(j => !j.report && (ctx.now - (j.at || 0)) < 7 * 864e5);
+    if (!open.length) return null;
+    const oldest = open.sort((a, b) => (a.at || 0) - (b.at || 0))[0];
+    const days = Math.floor((ctx.now - (oldest.at || 0)) / 864e5);
+    return {
+      kind: "job", weight: 90,
+      note: `Job ${oldest.job}${oldest.customer ? ` for ${oldest.customer}` : ""} has no service description yet${days >= 1 ? `, ${days} day${days > 1 ? "s" : ""} on` : ""}. That's what closes it and gets you paid — want to talk it through now while you still remember it?`,
+    };
+  },
+
+  // Spending well ahead of pace, early enough in the trip to matter.
+  function spendPace(uid, ctx) {
+    const led = (STORE.spend || {})[uid] || {};
+    const todayKey = new Date().toISOString().slice(0, 10);
+    // Batch 129 stress test caught this: today was included in its own
+    // baseline, so a genuine spike dragged the average up and hid itself. A
+    // 70% overspend read as normal. Compare today against the days BEFORE it.
+    const prior = Object.keys(led).filter(d => d < todayKey).sort().slice(-7);
+    if (prior.length < 3) return null;
+    const totals = prior.map(d => Number(led[d]?.total || led[d] || 0)).filter(n => n > 0);
+    if (totals.length < 3) return null;
+    const avg = totals.reduce((a, b) => a + b, 0) / totals.length;
+    const today = Number(led[todayKey]?.total || 0);
+    if (!today || today < avg * 1.6) return null;
+    return {
+      kind: "spend", weight: 60,
+      note: `Today's running about ${Math.round((today / avg - 1) * 100)}% above your usual day. Not a problem on its own — just worth knowing before tonight rather than after.`,
+    };
+  },
+
+  // Something booked, weather against it, and he hasn't looked.
+  function weatherAgainstPlan(uid, ctx) {
+    const outdoor = ctx.events.find(e =>
+      e.startMs > ctx.now && e.startMs - ctx.now < 12 * 3600000 &&
+      /beach|hike|walk|tour|market|bay|trek|boat|cruise|island/i.test(e.title || ""));
+    if (!outdoor) return null;
+    return {
+      kind: "weather", weight: 55,
+      note: `${outdoor.title} is outdoors and it's coming up. Worth me checking the forecast before you head off — say "weather" and I'll look.`,
+    };
+  },
+
+  // He's in a country whose norms he hasn't asked about yet.
+  function newCountryUnbriefed(uid, ctx) {
+    const p = profileOf(uid) || {};
+    if (!p.country || /australia/i.test(p.country)) return null;
+    const mem = STORE.mem[uid] || [];
+    const arrived = mem.filter(m => /^arrived in /i.test(String(m.t)))
+      .sort((a, b) => (b.at || 0) - (a.at || 0))[0];
+    if (!arrived) return null;
+    const hoursSince = (ctx.now - (arrived.at || 0)) / 3600000;
+    if (hoursSince > 48 || hoursSince < 1) return null;
+    const asked = mem.some(m => (m.at || 0) > (arrived.at || 0) &&
+      /etiquette|scam|tipping|safe/i.test(String(m.t)));
+    if (asked) return null;
+    return {
+      kind: "arrival", weight: 50,
+      note: `You've been in ${p.country} less than two days. If you want, I can run you through the tipping norm and the one scam that catches people here — takes ten seconds.`,
+    };
+  },
+
+  // A booking coming up that he hasn't mentioned since making it.
+  function forgottenBooking(uid, ctx) {
+    const list = (STORE.bookings || {})[uid] || [];
+    const soon = list.filter(b => b.whenISO && Date.parse(b.whenISO) > ctx.now &&
+      Date.parse(b.whenISO) - ctx.now < 36 * 3600000);
+    if (!soon.length) return null;
+    const b = soon[0];
+    return {
+      kind: "booking", weight: 70,
+      note: `${b.type || "Booking"} ${b.what || ""} is inside 36 hours${b.ref ? ` (ref ${b.ref})` : ""}. Worth having the reference handy before you're standing at a counter.`,
+    };
+  },
+
+  // A pending flow he started and never finished.
+  function stalledFlow(uid, ctx) {
+    const flows = (STORE.pending || {})[uid] || [];
+    // Batch 131 audit: this checked state === "open", which NOTHING ever sets.
+    // The real store uses "waiting" (and "expired" once it lapses), so this
+    // advisor could never fire — it looked correct and did nothing.
+    const stale = flows.filter(f => f.state === "waiting" && !f.ownedByPlan && (ctx.now - (f.at || 0)) > 3 * 3600000);
+    if (!stale.length) return null;
+    const f = stale[0];
+    return {
+      kind: "pending", weight: 65,
+      note: `You started ${f.kind} ${f.what || ""} a few hours back and it's still open. Did that come off, or should I drop it?`,
+    };
+  },
+];
+
+/* --- alternatives -------------------------------------------------------
+ * Different from a warning: this is the travel-agent instinct. When he asks
+ * for one thing, name the option he didn't ask about, with the trade-off
+ * stated plainly so he can decide. Never a recommendation — a comparison.
+ * --------------------------------------------------------------------- */
+const ALTERNATIVE_PROMPT =
+  "You are the part of Vision that says the thing a good travel agent would say unprompted. " +
+  "He has just asked for ONE option. Your job is to name the alternative he did NOT ask about — " +
+  "a different mode, a different time, a different order of doing things — and state the trade-off plainly. " +
+  "Rules: exactly ONE alternative, never more. Say what it costs him as well as what it gains. " +
+  "If the obvious choice is genuinely the right one, say so in one line and offer nothing — " +
+  "that is a correct and useful answer. Never invent a price, a schedule or a service that may not exist; " +
+  "describe the KIND of option and say it needs checking." + SPOKEN_PLAIN;
+
+async function suggestAlternative(uid, { intent, detail, country }) {
+  const mem = recallFor(uid, `${intent} ${detail}`, 3).map(m => m.t).join(" | ");
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 200,
+      system: ALTERNATIVE_PROMPT,
+      messages: [{
+        role: "user",
+        content: `He's in ${country || "somewhere"} and just asked about: ${intent}${detail ? ` — ${detail}` : ""}.` +
+          (mem ? `\n\nWhat you know about how he travels: ${mem}` : "") +
+          `\n\nReply as compact JSON ONLY: "alternative" (one short spoken sentence naming the other option and its trade-off, or "" if the obvious choice is right), "worth_saying" (true|false).`,
+      }],
+    });
+    if (status !== 200) return null;
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { return null; }
+    if (!p.alternative || p.worth_saying === false) return null;
+    return String(p.alternative).slice(0, 300);
+  } catch { return null; }
+}
+
+/* --- assembly ----------------------------------------------------------- */
+function adviseContext(uid) {
+  const today = (STORE.calToday || {})[uid] || {};
+  const jobsToday = (today.jobs || []).filter(j => j.startMs);
+  // Calendar events come from the cached day so this never waits on Apple.
+  const events = (today.events || jobsToday).map(e => ({
+    title: e.title, startMs: e.startMs || 0, endMs: e.endMs || 0,
+  })).filter(e => e.startMs);
+  return { now: Date.now(), jobsToday, events };
+}
+
+function advise(uid, { max = 2 } = {}) {
+  const ctx = adviseContext(uid);
+  const out = [];
+  for (const fn of ADVISORS) {
+    try { const r = fn(uid, ctx); if (r) out.push(r); }
+    catch (e) { /* one bad advisor must never silence the rest */ }
+  }
+  out.sort((a, b) => b.weight - a.weight);
+
+  // Deliberately capped. Three warnings at once is noise, and noise gets
+  // ignored — which costs the one that mattered.
+  return out.slice(0, max);
+}
+
+// Into the brief, so it colours every reply rather than needing to be asked.
+function adviceBrief(uid) {
+  const a = advise(uid, { max: 2 });
+  if (!a.length) return "";
+  return "WORTH RAISING (say at most ONE of these, only where it fits what he's actually asking — " +
+    "never lead with it if he asked a direct question, and never repeat one he's already brushed off): " +
+    a.map(x => x.note).join(" | ");
+}
+
+/* --- endpoints ---------------------------------------------------------- */
+
+// Ask outright: "anything I should know?"
+app.post("/advise", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const a = advise(uid, { max: Number((req.body || {}).max) || 3 });
+  if (!a.length) {
+    return res.json({ ok: true, notes: [], spoken: "Nothing worth flagging — you're on top of it." });
+  }
+  res.json({
+    ok: true,
+    notes: a.map(x => ({ kind: x.kind, note: x.note })),
+    spoken: a.map(x => x.note).join(" "),
+  });
+});
+
+// "What haven't I thought of?" — the alternative to what he just asked for.
+app.post("/alternative", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { intent, detail } = req.body || {};
+  if (!intent) return res.status(400).json({ error: "intent required" });
+  const country = (profileOf(uid) || {}).country || "";
+  const alt = await suggestAlternative(uid, { intent, detail, country });
+  if (!alt) return res.json({ ok: true, alternative: "", spoken: "" });
+  res.json({ ok: true, alternative: alt, spoken: alt });
+});
+
+
+/* ===========================================================================
+ * NATIVE HANDSHAKE (batch 140)
+ *
+ * A native app that hardcodes what the brain can do goes stale the moment a
+ * skill is added — and every fix means another Mac rental. So the app asks
+ * instead. One call on launch returns everything Swift needs to behave
+ * correctly without knowing anything in advance:
+ *
+ *   - which skills exist, and which need a camera before they can run
+ *   - which capabilities are actually configured on THIS server
+ *   - what the client should do that the brain can't do for it
+ *   - whether the token works at all
+ *
+ * The last one matters more than it sounds: the single most likely thing to go
+ * wrong on a rented Mac is a wrong token or URL, and without this it surfaces
+ * as a mystery 401 in the middle of a capture flow.
+ * ======================================================================== */
+
+// Skills that cannot run without a photo. A native client must know BEFORE it
+// routes, so it can open the camera first rather than failing after.
+const SKILLS_NEEDING_IMAGE = new Set([
+  "vision", "landmark", "menu", "allergy", "capture", "jobcapture", "receipt", "readpage",
+]);
+
+// Skills that only make sense with a location fix.
+const SKILLS_NEEDING_LOCATION = new Set([
+  "nearby", "navigate", "unlost", "backto", "rememberspot", "whereis",
+  "meetmiddle", "sharepin", "livelocation", "onmyway", "transit", "ride", "landmark",
+]);
+
+// Skills that write to something shared with his wife. A native client should
+// confirm before sending, exactly as the web app does.
+const SKILLS_NEEDING_CONFIRM = new Set([
+  "tickoff", "addlist", "addevent", "sendtext", "tellpartner", "sharepin", "onmyway",
+]);
+
+app.post("/native/hello", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const prof = profileOf(uid) || {};
+
+  // Parsed from the same constant the router uses, so this can never drift
+  // from what the model is actually offered.
+  const skills = [...ROUTER_SKILLS.matchAll(/"(\w+)" \(([^)]*)\)/g)].map(m => {
+    const name = m[1];
+    const desc = m[2].split(";")[0].trim();
+    return {
+      name,
+      what: desc.slice(0, 120),
+      needsImage: SKILLS_NEEDING_IMAGE.has(name),
+      needsLocation: SKILLS_NEEDING_LOCATION.has(name),
+      confirmFirst: SKILLS_NEEDING_CONFIRM.has(name),
+    };
+  });
+
+  // What's actually configured HERE — not what the code supports. A native app
+  // should hide a tile rather than offer something that will 501.
+  const have = {
+    maps: !!GMAPS_KEY,
+    flights: !!FLIGHT_KEY,
+    mail: !!(ICLOUD_USER && ICLOUD_APP_PW),
+    calendar: !!(ICLOUD_USER && ICLOUD_APP_PW),
+    geeks2u: !!GEEKS2U_ICS,
+    durableMemory: DURABLE,
+  };
+
+  res.json({
+    ok: true,
+    // Bump when the client contract changes in a way Swift must handle.
+    contract: 1,
+    brain: {
+      version: "139",
+      // Every model-backed endpoint returns `spoken`. This is the promise the
+      // whole thin-connector design rests on, stated explicitly so a client
+      // can rely on it rather than inferring it.
+      alwaysSpeaks: true,
+      routeEndpoint: "/route",
+      chatEndpoint: "/chat",
+      // A native client should let the brain decide, not pattern-match locally.
+      routeFirst: true,
+    },
+    you: {
+      name: prof.name || "Shaun",
+      country: prof.country || "",
+      city: prof.city || "",
+      homeCurrency: prof.homeCurrency || "AUD",
+      // The native app needs this to show work times correctly, and getting
+      // it wrong is how a job gets missed.
+      workTimezone: WORK_TZ,
+    },
+    skills,
+    have,
+    // Things the brain genuinely cannot do for the client — named so a native
+    // build doesn't waste Mac time discovering them one at a time.
+    clientMustHandle: [
+      { what: "wake word / continuous listening", why: "no server can hold the mic" },
+      { what: "speech to text", why: "send the transcript, not the audio" },
+      { what: "speaking the reply", why: "every response carries a `spoken` field — say that" },
+      { what: "camera capture", why: "send base64 JPEG in `image`, max ~5MB decoded" },
+      { what: "push notifications", why: "poll /watchers on foreground, then POST action:'seen'" },
+      { what: "location", why: "send lat/lng with any skill flagged needsLocation" },
+      { what: "confirmation before a shared write", why: "skills flagged confirmFirst touch his wife's lists" },
+    ],
+    // A capture that arrives too large is rejected by Anthropic AFTER the
+    // upload, which on hotel wifi is a long wait for nothing.
+    limits: {
+      imageMaxBase64Bytes: IMG_MAX_B64,
+      imageMinEdgePx: 200,
+      imageRecommendedMaxEdgePx: 1400,
+      callsPerMinute: CALL_MAX,
+      requestTimeoutMs: CLAUDE_TIMEOUT_MS,
+    },
+  });
+});
+
+// A deliberately trivial call for the Mac burst: does the URL work, is the
+// token right, is the brain awake? Answers in one line so it can be curl'd
+// before a single line of Swift is written.
+app.post("/native/ping", requireAuth, (req, res) => {
+  res.json({
+    ok: true,
+    spoken: "Brain's awake and the token's good.",
+    contract: 1,
+    durable: DURABLE,
+    at: Date.now(),
+  });
+});
+
+
+/* ===========================================================================
+ * THE INVESTIGATOR (batch 141)
+ *
+ * Not a detective. A detective decides who did it; this notices what changed.
+ * The distinction matters because a model shown a photo will produce a
+ * confident explanation whether or not it has grounds for one — and in his
+ * trade that means being told a board is fried when it isn't.
+ *
+ * So everything here is built on comparison against something real:
+ *
+ *   SCENE      capture a place as it actually is — equipment, wiring, labels,
+ *              what's flashing, where things sit relative to each other
+ *   DIFF       this visit against the last one at the same address. Not a
+ *              guess — an actual difference between two records
+ *   ANOMALY    inconsistencies WITHIN one scene: a port skipped, a cable that
+ *              doesn't go where the rest of the install would suggest
+ *   NEXT       ordered candidates to check, each with what would rule it out.
+ *              Never a verdict
+ *   FALSIFY    the aviation question — what evidence would prove him wrong.
+ *              This is the one that catches the wrong call before he drives off
+ *
+ * The one thing it will not do is name a cause. It narrows, and it says when
+ * it cannot narrow further.
+ * ======================================================================== */
+
+const SCENE_KEEP_SITES = 400;
+const SCENE_KEEP_MS = 2 * 365 * 86400000;   // two years
+
+function trimScenes(uid) {
+  const all = (STORE.scenes || {})[uid];
+  if (!all) return;
+  const now = Date.now();
+  // Age first: a site he hasn't visited in two years is almost certainly gone.
+  for (const [k, list] of Object.entries(all)) {
+    if (!list || !list.length || (now - (list[0].at || 0)) > SCENE_KEEP_MS) delete all[k];
+  }
+  // Then a hard ceiling, oldest-touched first, in case he's busier than that.
+  const keys = Object.keys(all);
+  if (keys.length > SCENE_KEEP_SITES) {
+    keys.sort((a, b) => (all[a][0]?.at || 0) - (all[b][0]?.at || 0));
+    for (const k of keys.slice(0, keys.length - SCENE_KEEP_SITES)) delete all[k];
+  }
+}
+
+async function withWeatherTimeout(url, ms = 4000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    return r.ok ? await r.json() : null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
+
+const SCENE_MAX_PER_PLACE = 12;     // enough history to diff against
+const SCENE_MAX_FRAMES = 4;
+
+function placeKey(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+}
+
+/* Batch 142: matching scenes by typed name alone is fragile — "Chermside" and
+ * "chermside job" become two places and the diff silently compares nothing.
+ * Coordinates fix that. ~40m tolerance: tight enough to distinguish two
+ * addresses, loose enough that a phone's GPS drift inside a building doesn't
+ * split one site into three. */
+const SAME_SITE_METRES = 40;
+
+function metresBetween(a, b) {
+  if (!a || !b || a.lat == null || b.lat == null) return null;
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(h)));
+}
+
+/* Find the place he means — by coordinates first, falling back to the name.
+ * Returns the existing key when he's standing somewhere he's been before, even
+ * if he calls it something different this time. */
+function resolvePlace(uid, place, coords) {
+  STORE.scenes = STORE.scenes || {};
+  const all = STORE.scenes[uid] = STORE.scenes[uid] || {};
+  const named = placeKey(place);
+
+  if (coords && coords.lat != null) {
+    for (const [k, list] of Object.entries(all)) {
+      const withFix = (list || []).find(s => s.coords && s.coords.lat != null);
+      if (!withFix) continue;
+      const d = metresBetween(coords, withFix.coords);
+      if (d != null && d <= SAME_SITE_METRES) {
+        return { key: k, matchedBy: k === named ? "name and location" : "location", metres: d, knownAs: withFix.place };
+      }
+    }
+  }
+  return { key: named, matchedBy: "name", metres: null, knownAs: null };
+}
+
+function scenesFor(uid, place, coords) {
+  STORE.scenes = STORE.scenes || {};
+  const all = STORE.scenes[uid] = STORE.scenes[uid] || {};
+  // Trim where the store is actually touched, not from one caller — any future
+  // caller then inherits the bound for free.
+  trimScenes(uid);
+  const r = resolvePlace(uid, place, coords);
+  return { all, k: r.key, list: (all[r.key] = all[r.key] || []), resolved: r };
+}
+
+/* --- capture -------------------------------------------------------------
+ * A walkthrough, not a photo. Up to four frames of the same place, described
+ * as a structured record so a later visit has something to compare against.
+ * ---------------------------------------------------------------------- */
+app.post("/scene/capture", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { place, images, image, mediaType, note, job, lat, lng } = req.body || {};
+  if (!place) return res.status(400).json({ error: "place required", spoken: "Tell me where this is and I'll record it." });
+  const coords = (lat != null && lng != null) ? { lat: Number(lat), lng: Number(lng) } : null;
+
+  const shots = (Array.isArray(images) ? images : (image ? [image] : [])).slice(0, SCENE_MAX_FRAMES);
+  if (!shots.length) return res.status(400).json({ error: "image required", spoken: "Show me the scene and I'll record it." });
+
+  for (const s of shots) {
+    const v = checkImage(s, mediaType);
+    if (!v.ok) return res.status(200).json({ fallback: true, spoken: v.spoken });
+  }
+
+  const content = [
+    ...shots.map(d => ({ type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: d.startsWith("data:") ? d.split(",")[1] : d } })),
+    { type: "text", text:
+      `Record this scene at ${place}.${note ? ` He says: ${note}` : ""} ` +
+      "Reply as compact JSON ONLY with: " +
+      '"summary" (one spoken sentence of what this place is), ' +
+      '"equipment" (array of {what, model, labels, state} — model and labels ONLY if legible in the frame), ' +
+      '"connections" (array of short strings describing what is plugged into what, only where visible), ' +
+      '"indicators" (array of short strings: lights, displays, error codes, exactly as shown), ' +
+      '"notable" (array of short strings — anything that stands out as unusual, incomplete or inconsistent), ' +
+      '"unclear" (array of short strings — what you genuinely could not make out).' },
+  ];
+
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-sonnet-4-6",
+      max_tokens: 900,
+      system:
+        "You record equipment scenes the way a technician photographs a job before touching anything. " +
+        "Record ONLY what is visibly there. Never state a model number, a label or an error code unless it is legible in the frame — " +
+        "put it in \"unclear\" instead. Do not explain what is wrong; that is not your job here. " +
+        "Describing something absent as present is the worst thing you can do, because a later visit will be compared against this." +
+        NO_INVENT + SPOKEN_PLAIN,
+      messages: [{ role: "user", content }],
+    });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't read that scene — try again in a moment." });
+
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { summary: raw.slice(0, 300), equipment: [], connections: [], indicators: [], notable: [], unclear: [] }; }
+
+    const { all, k, list, resolved } = scenesFor(uid, place, coords);
+    const scene = {
+      id: `s${Date.now().toString(36)}`,
+      place, placeKey: k, at: Date.now(),
+      // Batch 142: coordinates, so a later visit matches this site even if he
+      // calls it something different. Not tracking — reliable matching.
+      coords,
+      job: jobNumberOf(job) || "",
+      note: String(note || "").slice(0, 300),
+      summary: p.summary || "",
+      equipment: (p.equipment || []).slice(0, 20),
+      connections: (p.connections || []).slice(0, 20),
+      indicators: (p.indicators || []).slice(0, 20),
+      notable: (p.notable || []).slice(0, 12),
+      unclear: (p.unclear || []).slice(0, 12),
+      frames: shots.length,
+    };
+    list.unshift(scene);
+    if (list.length > SCENE_MAX_PER_PLACE) list.length = SCENE_MAX_PER_PLACE;
+    all[k] = list;
+    // Batch 142 sweep caught this: SCENE_MAX_PER_PLACE caps visits to ONE site,
+    // but nothing capped how many SITES exist. At three jobs a day that's ~750
+    // a year, kept forever, in a store rewritten on every save.
+    //
+    // (trimScenes runs inside scenesFor, where the store is touched.)
+
+    // Into the shared pool so recall by symptom works months later.
+    const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+    mem.push({ t: `scene at ${place}: ${scene.summary}${scene.indicators.length ? ` — showing ${scene.indicators.slice(0, 3).join(", ")}` : ""}`, at: Date.now() });
+    while (mem.length > 400) mem.shift();
+    saveStore();
+    dlog(uid, "memory", `scene recorded at ${place}`);
+
+    // Weather is captured only when the scene suggests it could matter — an
+    // outdoor install, damp, anything exposed. Recording it in a server
+    // cupboard is a field nobody ever reads.
+    const outdoorish = /outdoor|outside|roof|wall|pit|pole|garden|exposed|weather|damp|wet|corros|rust|water/i
+      .test(`${scene.summary} ${scene.notable.join(" ")} ${scene.equipment.map(e => e.what || "").join(" ")}`);
+    if (outdoorish && coords) {
+      try {
+        const u = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code`;
+        const wr = await withWeatherTimeout(u);
+        if (wr && wr.current) {
+          scene.weather = {
+            tempC: wr.current.temperature_2m,
+            humidity: wr.current.relative_humidity_2m,
+            rainMm: wr.current.precipitation,
+          };
+        }
+      } catch { /* weather is a nice-to-have — never fail a capture over it */ }
+    }
+
+    const prior = list.length - 1;
+    res.json({
+      ok: true, scene,
+      priorVisits: prior,
+      matchedBy: resolved.matchedBy,
+      knownAs: resolved.knownAs,
+      spoken: `Recorded. ${scene.summary}` +
+        (scene.unclear.length ? ` I couldn't make out ${scene.unclear.slice(0, 2).join(" or ")}.` : "") +
+        (prior ? ` You've been here ${prior} time${prior > 1 ? "s" : ""} before` +
+          (resolved.matchedBy === "location" && resolved.knownAs ? ` — you had it down as "${resolved.knownAs}"` : "") +
+          `. Say "what's different" and I'll compare.` : ""),
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Couldn't record that scene — give it another go." });
+  }
+});
+
+/* --- diff ----------------------------------------------------------------
+ * The genuinely useful one, and the only part that can be certain: two records
+ * of the same place, and what is different between them. Absence is the hardest
+ * thing for a person to notice and the easiest thing to check against a record.
+ * ---------------------------------------------------------------------- */
+app.post("/scene/diff", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { place, lat, lng } = req.body || {};
+  const coords = (lat != null && lng != null) ? { lat: Number(lat), lng: Number(lng) } : null;
+  const { list } = scenesFor(uid, place, coords);
+  if (list.length < 2) {
+    return res.json({ ok: false, spoken: list.length
+      ? `I've only got one record of ${place}. Capture it again next visit and I'll tell you what moved.`
+      : `Nothing recorded at ${place} yet.` });
+  }
+
+  const now = list[0], then = list[1];
+  const days = Math.max(1, Math.round((now.at - then.at) / 86400000));
+
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-sonnet-4-6",
+      max_tokens: 600,
+      system:
+        "You compare two records of the same place, taken on different visits, and report ONLY what actually differs. " +
+        "State plainly what is present now that was not before, what is gone, and what has changed state. " +
+        "If something appears in one record's \"unclear\" list, say the difference is uncertain rather than asserting it — " +
+        "a difference that is really just a clearer photo is worse than no answer." +
+        NO_INVENT + SPOKEN_PLAIN,
+      messages: [{ role: "user", content:
+        `Earlier visit (${days} days ago):\n${JSON.stringify(then, null, 1)}\n\n` +
+        `This visit:\n${JSON.stringify(now, null, 1)}\n\n` +
+        `Reply as compact JSON ONLY: "spoken" (one or two sentences he can hear), ` +
+        `"appeared" (array), "gone" (array), "changed" (array), "uncertain" (array of differences you are not confident about).` }],
+    });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't compare those just now." });
+
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300) }; }
+
+    res.json({
+      ok: true, daysBetween: days,
+      appeared: p.appeared || [], gone: p.gone || [], changed: p.changed || [], uncertain: p.uncertain || [],
+      spoken: p.spoken || "Nothing obvious has changed.",
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Couldn't compare those just now." });
+  }
+});
+
+/* --- anomaly -------------------------------------------------------------
+ * Inconsistency within a single scene, with no prior visit to lean on. Weaker
+ * than a diff and honest about it.
+ * ---------------------------------------------------------------------- */
+app.post("/scene/anomaly", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { place, sceneId, lat, lng } = req.body || {};
+  const coords = (lat != null && lng != null) ? { lat: Number(lat), lng: Number(lng) } : null;
+  const { list } = scenesFor(uid, place, coords);
+  const scene = sceneId ? list.find(s => s.id === sceneId) : list[0];
+  if (!scene) return res.json({ ok: false, spoken: `Nothing recorded at ${place} yet — scan it first.` });
+
+  const _mem = recallFor(uid, `${place} ${scene.summary}`, 4).map(m => m.t).join(" | ");
+
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-sonnet-4-6",
+      max_tokens: 600,
+      system:
+        "You look at one recorded scene and point out what is internally inconsistent — a port skipped in an otherwise sequential patch, " +
+        "a cable that does not follow the pattern the rest of the install uses, an indicator that contradicts another. " +
+        "Rank by how confident you are, and say plainly when something is merely unusual rather than wrong. " +
+        "Do NOT diagnose a cause. Pointing at what does not fit is useful; guessing why is not." +
+        NO_INVENT + SPOKEN_PLAIN,
+      messages: [{ role: "user", content:
+        `Scene:\n${JSON.stringify(scene, null, 1)}` +
+        (_mem ? `\n\nWhat you remember about his past jobs that may be relevant: ${_mem}` : "") +
+        `\n\nReply as compact JSON ONLY: "spoken" (one or two sentences), ` +
+        `"findings" (array of {what, confidence: "high"|"medium"|"low", why}), ` +
+        `"nothingOdd" (true if it all looks consistent — that is a real and useful answer).` }],
+    });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't look it over just now." });
+
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300), findings: [] }; }
+
+    res.json({
+      ok: true,
+      findings: (p.findings || []).slice(0, 6),
+      nothingOdd: !!p.nothingOdd,
+      spoken: p.spoken || (p.nothingOdd ? "Nothing looks out of place." : "Had a look — nothing jumps out."),
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Couldn't look it over just now." });
+  }
+});
+
+/* --- next checks ---------------------------------------------------------
+ * Candidates, ordered, each with what would rule it out. This is the shape
+ * aviation and automotive diagnostics use, and it is deliberately NOT a verdict.
+ * ---------------------------------------------------------------------- */
+app.post("/scene/next", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { symptom, place, sceneId, lat, lng } = req.body || {};
+  const coords = (lat != null && lng != null) ? { lat: Number(lat), lng: Number(lng) } : null;
+  if (!symptom) return res.status(400).json({ error: "symptom required", spoken: "Tell me what it's doing and I'll work out what to check." });
+
+  const { list } = scenesFor(uid, place, coords);
+  const scene = sceneId ? list.find(s => s.id === sceneId) : list[0];
+
+  // His own history is the strongest signal here — five years of jobs is a
+  // better prior than anything a model knows about equipment in general.
+  const past = recallFor(uid, symptom, 6).map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-sonnet-4-6",
+      max_tokens: 700,
+      system:
+        "You give a technician the next things to CHECK, in order — never a diagnosis. " +
+        "Each candidate must come with the single test that would rule it in or out, and that test must be something he can do " +
+        "on site in a couple of minutes. Order by what eliminates the most possibilities fastest, not by what is most likely. " +
+        "If his own past jobs point somewhere, say so and say which job. " +
+        "If you cannot narrow it below three or four candidates, say that plainly — a short honest list beats a confident wrong one." +
+        NO_INVENT + SPOKEN_PLAIN,
+      messages: [{ role: "user", content:
+        `Symptom: ${symptom}` +
+        (scene ? `\n\nWhat's there:\n${JSON.stringify({ summary: scene.summary, equipment: scene.equipment, indicators: scene.indicators, notable: scene.notable }, null, 1)}` : "") +
+        (past ? `\n\nHis own past jobs that mention something similar: ${past}` : "") +
+        `\n\nReply as compact JSON ONLY: "spoken" (one or two sentences naming the FIRST thing to check and why), ` +
+        `"checks" (array of {check, rulesOut, minutes}), ` +
+        `"seenBefore" (short string if his own history points somewhere, else ""), ` +
+        `"cannotNarrow" (true if you genuinely can't get below four candidates).` }],
+    });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't work that through just now." });
+
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300), checks: [] }; }
+
+    res.json({
+      ok: true,
+      checks: (p.checks || []).slice(0, 6),
+      seenBefore: p.seenBefore || "",
+      cannotNarrow: !!p.cannotNarrow,
+      spoken: p.spoken || "Start with the simplest thing you can rule out.",
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Couldn't work that through just now." });
+  }
+});
+
+/* --- falsify -------------------------------------------------------------
+ * The aviation question, and the most valuable thing in this whole module:
+ * once he's decided, what evidence would prove him wrong? Asked before he
+ * packs up, it catches the wrong call while he can still test it.
+ * ---------------------------------------------------------------------- */
+app.post("/scene/falsify", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { conclusion, symptom } = req.body || {};
+  if (!conclusion) return res.status(400).json({ error: "conclusion required", spoken: "Tell me what you reckon it is, and I'll tell you what would prove you wrong." });
+
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-sonnet-4-6",
+      max_tokens: 400,
+      system:
+        "A technician has decided what the fault is. Your job is the question a good colleague asks before he packs up: " +
+        "what would prove him wrong? Name the single most likely way this conclusion is mistaken, and the one test that would " +
+        "expose it — something he can still do before leaving. " +
+        "If the conclusion is well supported, say so in one line rather than manufacturing a doubt. " +
+        "Never be contrarian for its own sake; that trains him to ignore you." +
+        NO_INVENT + SPOKEN_PLAIN,
+      messages: [{ role: "user", content:
+        `He's concluded: ${conclusion}${symptom ? `\nThe symptom was: ${symptom}` : ""}\n\n` +
+        `Reply as compact JSON ONLY: "spoken" (one or two sentences), ` +
+        `"ifWrong" (the most likely way he's mistaken, or ""), ` +
+        `"test" (the one test that would expose it, or ""), ` +
+        `"solid" (true if the conclusion looks well supported and there's nothing worth chasing).` }],
+    });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't think that through just now." });
+
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300) }; }
+
+    res.json({
+      ok: true,
+      ifWrong: p.ifWrong || "", test: p.test || "", solid: !!p.solid,
+      spoken: p.spoken || "Sounds right to me.",
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Couldn't think that through just now." });
+  }
+});
+
+/* --- recall by symptom ---------------------------------------------------
+ * "Have I seen this before" — the first-time-fix idea from field service
+ * software, except the history is his own rather than a vendor's database.
+ * ---------------------------------------------------------------------- */
+app.post("/scene/seen", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { symptom } = req.body || {};
+  if (!symptom) return res.status(400).json({ error: "symptom required" });
+
+  const hits = recallFor(uid, symptom, 6);
+  const jobs = Object.values((STORE.jobs || {})[uid] || {})
+    .filter(j => j.report && CAL.similarity(symptom, `${j.problem || ""} ${j.report || ""}`) > 0.35)
+    .sort((a, b) => (b.at || 0) - (a.at || 0))
+    .slice(0, 4);
+
+  if (!hits.length && !jobs.length) {
+    return res.json({ ok: false, spoken: "Nothing in your history matching that — first time, by the looks of it." });
+  }
+
+  const lines = [
+    ...jobs.map(j => `Job ${j.job}${j.customer ? ` (${j.customer})` : ""}: ${String(j.report).replace(/\n/g, " ").slice(0, 140)}`),
+    ...hits.filter(h => !/^job \d/.test(String(h.t))).slice(0, 3).map(h => `${when(h.at)}: ${h.t}`),
+  ].slice(0, 5);
+
+  res.json({
+    ok: true, jobs, memories: hits.length,
+    spoken: jobs.length
+      ? `You've had this before. ${jobs[0].customer ? jobs[0].customer + ", " : ""}job ${jobs[0].job} — ${String(jobs[0].report).replace(/\n/g, ". ").slice(0, 160)}`
+      : `Something similar came up: ${lines[0]}`,
+    lines,
+  });
+});
+
+/* --- the timeline --------------------------------------------------------
+ * From incident response: a timestamped record that writes itself if he is
+ * narrating anyway. Settles "how long were you there" without him thinking
+ * about it during the job.
+ * ---------------------------------------------------------------------- */
+app.post("/scene/timeline", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { action, job, entry } = req.body || {};
+  STORE.timelines = STORE.timelines || {};
+  const byJob = STORE.timelines[uid] = STORE.timelines[uid] || {};
+  const key = jobNumberOf(job) || "current";
+
+  if (action === "add" && entry) {
+    const t = byJob[key] = byJob[key] || [];
+    t.push({ at: Date.now(), what: String(entry).slice(0, 200) });
+    if (t.length > 60) t.shift();
+    saveStore();
+    return res.json({ ok: true, count: t.length, spoken: "Noted." });
+  }
+
+  const t = byJob[key] || [];
+  if (!t.length) return res.json({ ok: false, spoken: "Nothing logged for that job yet." });
+  const mins = Math.round((t[t.length - 1].at - t[0].at) / 60000);
+  res.json({
+    ok: true,
+    entries: t.map(x => ({ at: x.at, what: x.what, clock: new Date(x.at).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" }) })),
+    minutes: mins,
+    spoken: `${t.length} steps over ${mins} minutes, starting ${new Date(t[0].at).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}.`,
+  });
+});
+
+
+/* ===========================================================================
+ * THE ATTENTION LAYER (batch 143)
+ *
+ * 101 skills, eight advisors, watchers, a calendar and a weather feed. Every
+ * one of them has something it could say. Without judgement about WHEN, more
+ * capability makes Vision worse, not better — an assistant that speaks every
+ * time gets muted, and then the one thing that mattered goes past unheard.
+ *
+ * Google Assistant tried proactive cards and killed them. Siri and Alexa
+ * volunteer almost nothing, deliberately. The ones that survive — Screen Time,
+ * Whoop's morning readout — pick ONE moment and put everything in it.
+ *
+ * So: three tiers, situational awareness, and a memory of what he brushed off.
+ *
+ *   NOW    interrupts without asking. Has a deadline; asking wastes the window.
+ *          The bar is deliberately high, because every interruption spends
+ *          credibility the next one needs.
+ *   OFFER  one short line he can ignore. Never a question that waits for an
+ *          answer — a question he's obliged to answer IS an interruption.
+ *   LATER  waits for the digest, or for him to ask.
+ *
+ * And the rule that matters most: if he brushes something off, it stays off.
+ * ======================================================================== */
+
+/* His local hour has to come from where HE is, not where the server is.
+ * Render runs UTC; the countries he travels are UTC+7 to UTC+10. Getting this
+ * wrong means silent all morning and chatty at midnight. */
+const COUNTRY_TZ = {
+  australia: "Australia/Brisbane", vietnam: "Asia/Ho_Chi_Minh", thailand: "Asia/Bangkok",
+  indonesia: "Asia/Jakarta", malaysia: "Asia/Kuala_Lumpur", singapore: "Asia/Singapore",
+  philippines: "Asia/Manila", cambodia: "Asia/Phnom_Penh", laos: "Asia/Vientiane",
+  myanmar: "Asia/Yangon", japan: "Asia/Tokyo", "new zealand": "Pacific/Auckland",
+};
+
+const ATTENTION = {
+  NOW: "now",       // storm, job starting, emergency
+  OFFER: "offer",   // a landmark nearby — worth a line, never an announcement
+  LATER: "later",   // spending patterns, seasonal advice
+};
+
+/* What is he doing right now? Read from what he's already told Vision — no new
+ * sensors, no guessing. Each of these is a reason to stay quiet. */
+function situation(uid) {
+  const now = Date.now();
+  const prof = profileOf(uid) || {};
+  const s = { busy: false, why: "", quietUntil: 0 };
+
+  // Mid-conversation with someone. The worst possible moment to interrupt —
+  // he's talking to a human and Vision is in his ear.
+  const live = (STORE.convoLive || {})[uid];
+  if (live && live.turns && live.turns.length && (now - (live.at || 0)) < 5 * 60000) {
+    return { busy: true, why: "he's mid-conversation with someone", quietUntil: (live.at || now) + 5 * 60000 };
+  }
+
+  // A work job running now, or about to. AEST hours from Asia, so this uses
+  // the same both-zones logic the brief does.
+  const today = (STORE.calToday || {})[uid] || {};
+  for (const j of (today.jobs || [])) {
+    if (!j.startMs) continue;
+    const from = j.startMs - 10 * 60000, to = j.startMs + 90 * 60000;
+    if (now >= from && now <= to) {
+      return { busy: true, why: `he's on ${j.title}`, quietUntil: to };
+    }
+  }
+
+  // Just captured a scene — he's elbows-deep in something.
+  const scenes = (STORE.scenes || {})[uid] || {};
+  for (const list of Object.values(scenes)) {
+    if (list && list[0] && (now - list[0].at) < 20 * 60000) {
+      return { busy: true, why: "he's working a job", quietUntil: list[0].at + 20 * 60000 };
+    }
+  }
+
+  // Local night — HIS local, not the server's. Render runs UTC, so using the
+  // server clock would have gone quiet from 11pm UTC, which is 6am in Hanoi:
+  // silent all morning and chatty at midnight. Exactly backwards.
+  try {
+    const tz = COUNTRY_TZ[String(prof.country || "").toLowerCase()] || null;
+    const hour = tz
+      ? Number(new Intl.DateTimeFormat("en-AU", { timeZone: tz, hour: "numeric", hour12: false }).format(new Date()))
+      : null;
+    // With no country set there is no honest way to know his local time, so
+    // don't guess — a wrong quiet window is worse than none.
+    if (hour !== null && (hour >= 23 || hour < 7)) {
+      return { busy: true, why: "it's the middle of the night for him", quietUntil: 0 };
+    }
+  } catch {}
+
+  return s;
+}
+
+/* --- dismissal memory ----------------------------------------------------
+ * The single most annoying failure an assistant has: he says "not now", and
+ * the same thing comes back an hour later. Brushing something off has to mean
+ * something, or he learns that talking to it changes nothing.
+ * ---------------------------------------------------------------------- */
+const DISMISS_MS = {
+  once: 4 * 3600000,        // "not now" — a few hours
+  today: 20 * 3600000,      // "not today"
+  trip: 30 * 86400000,      // "stop telling me this"
+};
+
+function dismissKey(kind, subject) {
+  return `${kind}:${String(subject || "").toLowerCase().slice(0, 60)}`;
+}
+
+function isDismissed(uid, kind, subject) {
+  const d = (STORE.dismissed || {})[uid] || {};
+  const rec = d[dismissKey(kind, subject)];
+  return !!(rec && rec.until > Date.now());
+}
+
+function dismiss(uid, kind, subject, scope) {
+  STORE.dismissed = STORE.dismissed || {};
+  const d = STORE.dismissed[uid] = STORE.dismissed[uid] || {};
+  const ms = DISMISS_MS[scope] || DISMISS_MS.once;
+  d[dismissKey(kind, subject)] = { until: Date.now() + ms, scope: scope || "once", at: Date.now() };
+  // Expired dismissals are dead weight; clear them whenever we touch this.
+  for (const [k, v] of Object.entries(d)) if (v.until < Date.now()) delete d[k];
+  saveStore();
+}
+
+/* --- how urgent is this, really? -----------------------------------------
+ * Deliberately conservative. Only a real deadline earns NOW, because the
+ * value of an interruption comes entirely from how rarely they happen.
+ * ---------------------------------------------------------------------- */
+function tierOf(item) {
+  const kind = item.kind || "";
+  const text = String(item.note || item.spoken || "").toLowerCase();
+
+  // A deadline he can still act on.
+  if (kind === "timezone" || kind === "storm" || kind === "emergency") return ATTENTION.NOW;
+  if (kind === "booking" && /inside (an hour|\d+ min)/.test(text)) return ATTENTION.NOW;
+  if (/\b(now|right now|in \d+ min|about to|starting)\b/.test(text) && item.weight >= 80) return ATTENTION.NOW;
+
+  // Worth offering while it's still relevant, but not worth interrupting for.
+  if (kind === "weather" || kind === "landmark" || kind === "arrival" || kind === "tight") return ATTENTION.OFFER;
+
+  // Everything else can wait for the digest.
+  return ATTENTION.LATER;
+}
+
+/* --- the gate ------------------------------------------------------------
+ * Everything that wants to speak comes through here. Returns what may be said
+ * NOW, what may be offered, and what is being held — with the reason, so the
+ * brief can be honest rather than mysteriously quiet.
+ * ---------------------------------------------------------------------- */
+function attention(uid, items, { asked = false } = {}) {
+  const sit = situation(uid);
+  const now = [], offer = [], held = [];
+
+  for (const item of (items || [])) {
+    if (isDismissed(uid, item.kind, item.note || item.spoken)) { held.push({ ...item, why: "he brushed this off" }); continue; }
+
+    const tier = tierOf(item);
+
+    // If he asked, he gets everything — the gate is about UNPROMPTED speech.
+    if (asked) { now.push({ ...item, tier }); continue; }
+
+    if (tier === ATTENTION.NOW) { now.push({ ...item, tier }); continue; }
+
+    if (sit.busy) { held.push({ ...item, tier, why: sit.why }); continue; }
+
+    if (tier === ATTENTION.OFFER) { offer.push({ ...item, tier }); continue; }
+    held.push({ ...item, tier, why: "not urgent — saved for your brief" });
+  }
+
+  // One offer at a time — two offers is a list, and a list is an interruption.
+  // But the surplus must be HELD, not dropped: a thing worth offering is worth
+  // offering later, and silently discarding it means he never hears it at all.
+  const offered = offer.slice(0, 1);
+  for (const x of offer.slice(1)) held.push({ ...x, why: "one offer at a time — saved for your brief" });
+
+  // Same for urgent items beyond the cap. Three warnings at once is noise, but
+  // the third is not thereby unimportant.
+  const spoken = now.slice(0, 2);
+  for (const x of now.slice(2)) held.push({ ...x, why: "two at once is the limit — saved for your brief" });
+
+  return { now: spoken, offer: offered, held, situation: sit };
+}
+
+/* --- into the brief ------------------------------------------------------
+ * Replaces the raw advisor feed. The model is told not just WHAT could be
+ * said but whether it has permission to say it — which is the whole point.
+ * ---------------------------------------------------------------------- */
+function attentionBrief(uid) {
+  const raw = advise(uid, { max: 4 });
+  if (!raw.length) return "";
+  const a = attention(uid, raw);
+
+  const parts = [];
+  if (a.now.length) {
+    parts.push(`SAY THIS FIRST, he needs it now: ${a.now.map(x => x.note).join(" | ")}`);
+  }
+  if (a.offer.length) {
+    parts.push(`WORTH OFFERING, but only as one short line he can ignore — never announce it, ` +
+      `and drop it entirely if he's asking about something else: ${a.offer[0].note}`);
+  }
+  if (a.held.length && !a.now.length && !a.offer.length) {
+    // Say nothing, and say WHY nothing — so the model doesn't fill the silence.
+    parts.push(`There are ${a.held.length} things worth raising later but NOT now (${a.held[0].why}). ` +
+      `Do not mention them. He'll get them in his brief.`);
+  }
+  return parts.join(" ");
+}
+
+/* --- endpoints ------------------------------------------------------------ */
+
+// "What have you been holding back?" — the digest. One moment, everything in it.
+app.post("/attention/digest", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const raw = advise(uid, { max: 6 });
+  const a = attention(uid, raw, { asked: true });
+  if (!a.now.length) {
+    return res.json({ ok: true, items: [], spoken: "Nothing I've been sitting on — you're on top of it." });
+  }
+  res.json({
+    ok: true,
+    items: a.now.map(x => ({ kind: x.kind, note: x.note, tier: x.tier })),
+    spoken: a.now.map(x => x.note).join(" "),
+  });
+});
+
+// "Not now" / "not today" / "stop telling me that" — and it sticks.
+app.post("/attention/dismiss", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const { kind, subject, scope } = req.body || {};
+  if (!kind && !subject) return res.status(400).json({ error: "kind or subject required" });
+  dismiss(uid, kind || "any", subject || "", scope || "once");
+  const howLong = scope === "trip" ? "for the rest of the trip"
+    : scope === "today" ? "for today" : "for a few hours";
+  dlog(uid, "memory", `dismissed ${kind || "item"} ${howLong}`);
+  res.json({ ok: true, spoken: `Righto — I'll leave that ${howLong}.` });
+});
+
+// What is it holding, and why is it quiet? Being able to ask is what makes
+// silence trustworthy rather than suspicious.
+app.post("/attention/status", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const raw = advise(uid, { max: 6 });
+  const a = attention(uid, raw);
+  const d = Object.keys((STORE.dismissed || {})[uid] || {}).length;
+  res.json({
+    ok: true,
+    holding: a.held.length,
+    dismissed: d,
+    busy: a.situation.busy,
+    spoken: a.situation.busy
+      ? `Staying quiet because ${a.situation.why}.` +
+        (a.held.length ? ` I've got ${a.held.length} thing${a.held.length > 1 ? "s" : ""} for when you're free.` : "")
+      : a.held.length
+        ? `${a.held.length} thing${a.held.length > 1 ? "s" : ""} saved for your brief. Say "what have you got" and I'll run through them.`
+        : "Nothing waiting.",
+  });
+});
+
 
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => console.log(`glasses proxy listening on :${PORT}`));

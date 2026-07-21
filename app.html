@@ -397,38 +397,38 @@
 
   /* ===== THEMED BACKGROUNDS ===== */
   /* Themed backgrounds are richer than the default aurora — give them presence. */
-  html[data-theme]::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;opacity:.30}
-  html[data-theme="digital"]::before{
+  html[data-bg]::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;opacity:.30}
+  html[data-bg="digital"]::before{
     background:linear-gradient(rgba(80,200,255,.10) 1px, transparent 1px) 0 0/100% 34px,
                linear-gradient(90deg, rgba(80,200,255,.10) 1px, transparent 1px) 0 0/34px 100%,
                radial-gradient(60% 50% at 50% 20%, rgba(60,160,255,.18), transparent 70%);
     opacity:.5;filter:none;animation:gridDrift 24s linear infinite}
   @keyframes gridDrift{to{background-position:0 34px, 34px 0, 0 0}}
 
-  html[data-theme="matrix"]::before{
+  html[data-bg="matrix"]::before{
     background:repeating-linear-gradient(180deg, rgba(60,255,130,.16) 0 2px, transparent 2px 5px),
                radial-gradient(70% 60% at 50% 0%, rgba(20,140,60,.28), transparent 75%);
     opacity:.45;filter:none;animation:rain 2.2s linear infinite}
   @keyframes rain{to{background-position:0 5px, 0 0}}
 
-  html[data-theme="alien"]::before{
+  html[data-bg="alien"]::before{
     background:radial-gradient(45% 40% at 25% 30%, #7B2CBF, transparent 70%),
                radial-gradient(40% 35% at 75% 25%, #00F5D4, transparent 70%),
                radial-gradient(50% 45% at 55% 80%, #F72585, transparent 70%);
     opacity:.16;filter:blur(45px);animation:ambient 20s ease-in-out infinite alternate}
 
-  html[data-theme="machine"]::before{
+  html[data-bg="machine"]::before{
     background:repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 12px),
                radial-gradient(60% 50% at 50% 30%, rgba(255,170,50,.14), transparent 70%);
     opacity:.5;filter:none;animation:none}
 
-  html[data-theme="nature"]::before{
+  html[data-bg="nature"]::before{
     background:radial-gradient(40% 35% at 15% 20%, #4E8B2B, transparent 70%),
                radial-gradient(45% 40% at 85% 35%, #86efac, transparent 70%),
                radial-gradient(55% 50% at 50% 90%, #14532d, transparent 70%);
     opacity:.22;filter:blur(40px);animation:ambient 30s ease-in-out infinite alternate}
 
-  html[data-theme="jarvis"]::before{
+  html[data-bg="jarvis"]::before{
     background:radial-gradient(circle at 50% 45%, transparent 28%, rgba(90,200,255,.09) 29%, transparent 30%),
                radial-gradient(circle at 50% 45%, transparent 40%, rgba(90,200,255,.07) 41%, transparent 42%),
                radial-gradient(circle at 50% 45%, transparent 54%, rgba(90,200,255,.05) 55%, transparent 56%),
@@ -463,7 +463,7 @@
     filter:blur(3px);inset:-30px;animation:orbSpin 26s linear infinite reverse}
   @keyframes heavenRise{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-8px) scale(1.03)}}
 
-  html[data-theme="heaven"]::before{
+  html[data-bg="heaven"]::before{
     background:
       conic-gradient(from 200deg at 50% -10%, transparent 0deg, rgba(255,240,200,.22) 8deg, transparent 16deg,
         transparent 30deg, rgba(255,240,200,.16) 38deg, transparent 46deg,
@@ -488,7 +488,7 @@
   @keyframes hellBreathe{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.05);filter:brightness(1.25)}}
   @keyframes hellFlare{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.14)}}
 
-  html[data-theme="hell"]::before{
+  html[data-bg="hell"]::before{
     background:
       radial-gradient(2px 2px at 18% 88%, rgba(255,140,40,.9), transparent 60%),
       radial-gradient(1px 1px at 42% 78%, rgba(255,90,20,.8), transparent 60%),
@@ -520,7 +520,7 @@
   @keyframes leoPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
   @keyframes leoMane{0%,100%{transform:scale(1) rotate(0deg);opacity:.7}50%{transform:scale(1.10) rotate(6deg);opacity:1}}
 
-  html[data-theme="leo"]::before{
+  html[data-bg="leo"]::before{
     background:
       radial-gradient(1px 1px at 12% 22%, rgba(255,240,200,.9), transparent 60%),
       radial-gradient(1px 1px at 28% 62%, rgba(255,240,200,.7), transparent 60%),
@@ -547,7 +547,7 @@
     filter:blur(9px);inset:-26px;animation:wispPulse 5s ease-in-out infinite}
   @keyframes sagDrift{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-7px) rotate(-3deg)}}
 
-  html[data-theme="sagittarius"]::before{
+  html[data-bg="sagittarius"]::before{
     background:
       radial-gradient(1px 1px at 18% 28%, rgba(230,220,255,.9), transparent 60%),
       radial-gradient(2px 2px at 36% 14%, rgba(255,255,255,1), transparent 60%),
@@ -563,7 +563,7 @@
   /* ===== BATCH 74: SIX MORE WORLDS ===== */
 
   /* --- NEON NOIR (Blade Runner): rain-streaked dark, magenta/cyan bleed --- */
-  html[data-theme="noir"]::before{
+  html[data-bg="noir"]::before{
     background:repeating-linear-gradient(96deg, rgba(255,255,255,.05) 0 1px, transparent 1px 26px),
                radial-gradient(45% 40% at 22% 18%, #FF2E88, transparent 68%),
                radial-gradient(42% 38% at 78% 30%, #00E5FF, transparent 68%),
@@ -578,7 +578,7 @@
     inset:-11px;animation:orbSpin 5s linear infinite}
 
   /* --- DESERT TECH (Dune): warm sand + brass, readable in bright sun --- */
-  html[data-theme="desert"]::before{
+  html[data-bg="desert"]::before{
     background:radial-gradient(50% 45% at 30% 20%, #E8B95F, transparent 70%),
                radial-gradient(45% 40% at 75% 40%, #C97B3C, transparent 70%),
                radial-gradient(60% 50% at 50% 95%, #4a2c12, transparent 75%);
@@ -591,7 +591,7 @@
     filter:blur(10px);inset:-9px;animation:orbSpin 18s linear infinite}
 
   /* --- CRT TERMINAL: amber phosphor, scanlines, screen curve --- */
-  html[data-theme="crt"]::before{
+  html[data-bg="crt"]::before{
     background:repeating-linear-gradient(180deg, rgba(255,176,0,.14) 0 1px, transparent 1px 4px),
                radial-gradient(75% 65% at 50% 45%, rgba(255,176,0,.14), transparent 78%),
                radial-gradient(120% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.6) 100%);
@@ -606,7 +606,7 @@
   body[data-orb="crt"] #orb::after{display:none}
 
   /* --- DEEP SEA: near-black with drifting bioluminescence --- */
-  html[data-theme="deepsea"]::before{
+  html[data-bg="deepsea"]::before{
     background:radial-gradient(35% 30% at 20% 30%, #0FF4C6, transparent 70%),
                radial-gradient(30% 28% at 80% 55%, #3A86FF, transparent 70%),
                radial-gradient(70% 60% at 50% 100%, #001220, transparent 70%);
@@ -621,7 +621,7 @@
   body[data-orb="deepsea"] #orb::after{display:none}
 
   /* --- PAPER: the anti-sci-fi. Cream, ink, calm. --- */
-  html[data-theme="paper"]::before{
+  html[data-bg="paper"]::before{
     background:repeating-linear-gradient(0deg, rgba(120,90,50,.05) 0 1px, transparent 1px 28px),
                radial-gradient(80% 70% at 50% 30%, rgba(230,214,184,.5), transparent 75%);
     opacity:.5;filter:none;animation:none}
@@ -635,7 +635,7 @@
   body[data-orb="paper"] #orb::after{display:none}
 
   /* --- SOLAR: molten heat-map, high visibility outdoors --- */
-  html[data-theme="solar"]::before{
+  html[data-bg="solar"]::before{
     background:radial-gradient(45% 40% at 30% 25%, #FF9E00, transparent 70%),
                radial-gradient(40% 35% at 75% 35%, #FF206E, transparent 70%),
                radial-gradient(60% 55% at 50% 95%, #2b0a00, transparent 72%);
@@ -715,6 +715,17 @@
     <div class="tile" onclick="seenRecall()" data-tip="seen"><span class="badge live">live</span><div class="ic">🖼️</div><h3>What I've seen</h3><p>Recall photos & scenes</p></div>
     <div class="tile" onclick="timerList()" data-tip="timers"><span class="badge live">live</span><div class="ic">⏱️</div><h3>Timers</h3><p>Multiple, while open</p></div>
     <div class="tile" onclick="dayView(0)" data-tip="lifelog"><span class="badge live">live</span><div class="ic">📓</div><h3>My day</h3><p>Timeline, auto-logged</p></div>
+    <div class="tile" onclick="myDay(1)"><span class="badge live">live</span><div class="ic">🗓️</div><h3>What's on</h3><p>Calendar &amp; what's due</p></div>
+    <div class="tile" onclick="showList('')"><span class="badge live">live</span><div class="ic">📋</div><h3>My lists</h3><p>Groceries, bills, to-dos</p></div>
+    <div class="tile" onclick="tickOff('','')"><span class="badge live">live</span><div class="ic">✅</div><h3>Tick off</h3><p>Say what's done</p></div>
+    <div class="tile" onclick="jobReport('','')"><span class="badge live">live</span><div class="ic">📝</div><h3>Job report</h3><p>Talk it → written up</p></div>
+    <div class="tile" onclick="jobCapture('')"><span class="badge live">live</span><div class="ic">📸</div><h3>Log a job</h3><p>Screenshot → filed</p></div>
+    <div class="tile" onclick="jobRecall(undefined)"><span class="badge live">live</span><div class="ic">🔍</div><h3>Past jobs</h3><p>By number or name</p></div>
+    <div class="tile" onclick="sceneScan('','')"><span class="badge live">live</span><div class="ic">🔎</div><h3>Scan the scene</h3><p>Record it before you touch it</p></div>
+    <div class="tile" onclick="sceneDiff('')"><span class="badge live">live</span><div class="ic">🔀</div><h3>What's changed</h3><p>Since your last visit</p></div>
+    <div class="tile" onclick="sceneNext('','')"><span class="badge live">live</span><div class="ic">➡️</div><h3>What to check</h3><p>Ordered, with what it rules out</p></div>
+    <div class="tile" onclick="sceneSeen('')"><span class="badge live">live</span><div class="ic">📂</div><h3>Seen this before?</h3><p>Your own five years of jobs</p></div>
+    <div class="tile" onclick="calendarPicker(false)"><span class="badge live">live</span><div class="ic">⚙️</div><h3>Calendars &amp; lists</h3><p>Pick what Vision sees</p></div>
     <div class="tile" onclick="spendCheck()" data-tip="spend"><span class="badge live">live</span><div class="ic">💰</div><h3>What it costs</h3><p>Live spend counter</p></div>
     <div class="tile" onclick="sharedMoments()" data-tip="shared"><span class="badge live">live</span><div class="ic">💞</div><h3>Our moments</h3><p>Shared when together</p></div>
     <div class="tile" onclick="captureMoment(30,'')" data-tip="capture"><span class="badge live">live</span><div class="ic">🎬</div><h3>Capture moment</h3><p>30s → written record</p></div>
@@ -722,6 +733,8 @@
     <div class="tile" onclick="transitHandoff('')" data-tip="transit"><span class="badge live">live</span><div class="ic">🚆</div><h3>Transit times</h3><p>Bus, train, airport</p></div>
     <div class="tile" onclick="logReceipt()"><span class="badge live">live</span><div class="ic">🧾</div><h3>Log receipt</h3><p>Snap → expense</p></div>
     <div class="tile" onclick="liveTranslate()"><span class="badge live">live</span><div class="ic">💬</div><h3>Translate</h3><p>Say it in any language</p></div>
+    <div class="tile" onclick="convoOpen()"><span class="badge live">live</span><div class="ic">🗣️</div><h3>Conversation</h3><p>Two-way, auto-detect</p></div>
+    <div class="tile" onclick="convoPhrasebook()"><span class="badge live">live</span><div class="ic">📖</div><h3>Phrasebook</h3><p>Lines you keep using</p></div>
     <div class="tile" onclick="offlineTranslate()"><span class="badge live">live</span><div class="ic">📴</div><h3>No-signal backup</h3><p>Opens Google Translate packs</p></div>
   </div>
 
@@ -821,8 +834,14 @@
     <div class="tile" onclick="openSettings()"><span class="badge live">live</span><div class="ic">🔌</div><h3>Connection</h3><p>Server, token & colours</p></div>
     <div class="tile" onclick="chooseLooks()"><span class="badge live">live</span><div class="ic">🎨</div><h3>Looks</h3><p>Orb & background</p></div>
     <div class="tile" onclick="sendHandover('')"><span class="badge live">live</span><div class="ic">📧</div><h3>Email me that</h3><p>Links, numbers, what's left</p></div>
-    <div class="tile" onclick="vendorHandoff('stay',{})"><span class="badge live">live</span><div class="ic">🏨</div><h3>Find a stay</h3><p>Booking · Airbnb · Agoda</p></div>
+    <div class="tile" onclick="vendorHandoff('stay',{})"><span class="badge live">live</span><div class="ic">🏨</div><h3>Find a stay</h3><p>Booking · Agoda · Traveloka</p></div>
     <div class="tile" onclick="vendorHandoff('doing',{})"><span class="badge live">live</span><div class="ic">🎟️</div><h3>Things to book</h3><p>TripAdvisor · Klook</p></div>
+    <div class="tile" onclick="vendorHandoff('getthere',{})"><span class="badge live">live</span><div class="ic">🚌</div><h3>Getting there</h3><p>12Go · Rome2Rio</p></div>
+    <div class="tile" onclick="vendorHandoff('order',{})"><span class="badge live">live</span><div class="ic">🛵</div><h3>Order food</h3><p>Grab · Foodpanda</p></div>
+    <div class="tile" onclick="vendorHandoff('eat',{})"><span class="badge live">live</span><div class="ic">🍽️</div><h3>Eat out</h3><p>TripAdvisor · Maps</p></div>
+    <div class="tile" onclick="askAdvice()"><span class="badge live">live</span><div class="ic">💡</div><h3>Anything I should know?</h3><p>What's about to bite</p></div>
+    <div class="tile" onclick="attentionDigest()"><span class="badge live">live</span><div class="ic">📋</div><h3>What have you got?</h3><p>Everything it's been holding</p></div>
+    <div class="tile" id="pttTile" onclick="pttHint()"><span class="badge live">live</span><div class="ic">🎙️</div><h3>Hold to talk</h3><p>Voice note to your partner</p></div>
     <div class="tile" onclick="readMenu()"><span class="badge live">live</span><div class="ic">🍽️</div><h3>Read a menu</h3><p>Safe picks & prices</p></div>
     
     <div class="tile" onclick="keysView()"><span class="badge live">live</span><div class="ic">🔑</div><h3>Service keys</h3><p>Set & test from here</p></div>
@@ -871,6 +890,10 @@
     var _c=localStorage.getItem('buddy_theme')||'midnight', _m=localStorage.getItem('buddy_mode')||'dark';
     var _a=(_c==='midnight'&&_m==='dark')?'':(_m==='light'?_c+'-light':_c);
     if(_a) document.documentElement.setAttribute('data-theme',_a);
+    // Batch 119: paint the background before first paint too. It used to wait
+    // for applyLooks() late in boot, so every load flashed the plain backdrop.
+    var _bg=localStorage.getItem('buddy_bg')||'aurora';
+    if(_bg && _bg!=='aurora' && _bg!=='auto') document.documentElement.setAttribute('data-bg',_bg);
   }catch(e){}
   // ---- Theme system: 5 colours × dark/light, saved per-device ----
   const THEMES=[
@@ -952,8 +975,9 @@
     const file=e.target.files&&e.target.files[0];
     if(!file) return;
     // Downscale before upload to keep it fast + cheap (big phone photos are huge).
-    const dataUrl=await shrinkImage(file, 1024);
-    const base64=dataUrl.split(',')[1];
+    const _img=await imageForUpload(file, 1024);
+    if(!_img.ok){ openChat(); addMsg('buddy',_img.reason); say(_img.reason); return; }
+    const dataUrl=_img.dataUrl, base64=_img.base64;
     openChat();
     // Receipt mode routes to /receipt for structured expense extraction.
     if(visionMode==='__receipt__'){
@@ -1182,8 +1206,22 @@
   // Fresh watcher news lands in the opening brief.
   async function watcherNews(){
     try{ const {data}=await api('/watchers',{action:'latest'});
-      (data.fresh||[]).slice(0,3).forEach(r=>{ const el=addMsg('buddy','🔭 '+r.spoken); el.classList.add('flash'); });
-      if(data.fresh&&data.fresh.length){ chimeNews(); say(data.fresh[0].spoken); coach('watcherfired'); }
+      const fresh=data.fresh||[];
+      if(!fresh.length) return;
+      // Batch 132 audit: the server used to mark everything seen the moment it
+      // replied, while this only rendered three — so a fourth overnight
+      // finding vanished with no trace. Only acknowledge what actually made it
+      // onto the screen, and say plainly if there are more waiting.
+      const shown=fresh.slice(0,3);
+      shown.forEach(r=>{ const el=addMsg('buddy','🔭 '+r.spoken); el.classList.add('flash'); });
+      if(fresh.length>shown.length){
+        const el=addMsg('buddy',`…and ${fresh.length-shown.length} more — say "my watchers" to see them.`);
+        el.style.opacity='.8';
+      }
+      chimeNews(); say(shown[0].spoken); coach('watcherfired');
+      // Acknowledge AFTER rendering, and only up to the newest one shown.
+      const upto=Math.max(...shown.map(r=>r.at||0));
+      api('/watchers',{action:'seen',upto}).catch(()=>{});
     }catch(e){}
   }
 
@@ -1286,10 +1324,27 @@
     stay:[
       {id:'booking',  name:'Booking.com', icon:'🏨',
        url:(q)=>`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(q.where)}${q.from?`&checkin=${q.from}`:''}${q.to?`&checkout=${q.to}`:''}${q.people?`&group_adults=${q.people}`:''}`},
+      // Batch 121: the '?' used to be attached to checkin, so a search with a
+      // checkout or guest count but NO check-in produced "…/homes&checkout=…".
+      // Airbnb silently drops malformed params, so he'd get an unfiltered list
+      // and never know why.
       {id:'airbnb',   name:'Airbnb', icon:'🏠',
-       url:(q)=>`https://www.airbnb.com/s/${encodeURIComponent(q.where)}/homes${q.from?`?checkin=${q.from}`:''}${q.to?`&checkout=${q.to}`:''}${q.people?`&adults=${q.people}`:''}`},
+       url:(q)=>{
+         const p=[];
+         if(q.from) p.push('checkin='+encodeURIComponent(q.from));
+         if(q.to) p.push('checkout='+encodeURIComponent(q.to));
+         if(q.people) p.push('adults='+encodeURIComponent(q.people));
+         return `https://www.airbnb.com/s/${encodeURIComponent(q.where)}/homes`+(p.length?'?'+p.join('&'):'');
+       }},
       {id:'agoda',    name:'Agoda', icon:'🛏️',
        url:(q)=>`https://www.agoda.com/search?city=${encodeURIComponent(q.where)}${q.from?`&checkIn=${q.from}`:''}${q.to?`&checkOut=${q.to}`:''}`},
+      // Batch 122: Traveloka is the dominant booking app across SE Asia and
+      // Trip.com routinely undercuts the western three there. Real gap for
+      // Vietnam and Thailand.
+      {id:'traveloka', name:'Traveloka', icon:'🧳',
+       url:(q)=>`https://www.traveloka.com/en-en/hotel/search?q=${encodeURIComponent(q.where)}`},
+      {id:'tripcom',   name:'Trip.com', icon:'🛫',
+       url:(q)=>`https://www.trip.com/hotels/list?city=&searchword=${encodeURIComponent(q.where)}${q.from?`&checkin=${encodeURIComponent(q.from)}`:''}${q.to?`&checkout=${encodeURIComponent(q.to)}`:''}`},
     ],
     doing:[
       {id:'tripadvisor', name:'TripAdvisor', icon:'🦉',
@@ -1305,6 +1360,41 @@
       {id:'gmaps',       name:'Google Maps', icon:'📍',
        url:(q)=>`https://www.google.com/maps/search/${encodeURIComponent('restaurants '+q.where)}`},
     ],
+    // Batch 122: flights had ONE hardcoded provider inside findFlights().
+    // Moving them here means they get the same "float what he actually uses to
+    // the top" behaviour as everything else, for free.
+    fly:[
+      {id:'googleflights', name:'Google Flights', icon:'🔎',
+       url:(q)=>`https://www.google.com/travel/flights?q=${encodeURIComponent(`Flights to ${q.where} from ${q.from||''}${q.when?' in '+q.when:''}`)}`},
+      {id:'skyscanner',    name:'Skyscanner', icon:'✈️',
+       url:(q)=>`https://www.skyscanner.net/transport/flights/${encodeURIComponent(String(q.fromCode||q.from||'').slice(0,20))}/${encodeURIComponent(String(q.toCode||q.where||'').slice(0,20))}/${q.from8||''}`},
+      {id:'tripcom',       name:'Trip.com', icon:'🛫',
+       url:(q)=>`https://www.trip.com/flights/${encodeURIComponent(String(q.from||'').toLowerCase().replace(/\s+/g,'-'))}-to-${encodeURIComponent(String(q.where||'').toLowerCase().replace(/\s+/g,'-'))}/`},
+    ],
+    // Overland travel across SE Asia. 12Go is the only real option for buses,
+    // trains and ferries there, and nothing in Vision covered it.
+    getthere:[
+      {id:'twelvego',   name:'12Go Asia', icon:'🚌',
+       url:(q)=>{
+         const p=[];
+         if(q.from) p.push('departureName='+encodeURIComponent(q.from));
+         if(q.where) p.push('arrivalName='+encodeURIComponent(q.where));
+         if(q.from8) p.push('date='+encodeURIComponent(q.from8));
+         return 'https://12go.asia/en/travel'+(p.length?'?'+p.join('&'):'');
+       }},
+      {id:'rome2rio',   name:'Rome2Rio', icon:'🗺️',
+       url:(q)=>`https://www.rome2rio.com/s/${encodeURIComponent(q.from||'')}/${encodeURIComponent(q.where||'')}`},
+    ],
+    // Food delivery — /findfood recommends but had no way to actually order.
+    // These are the three that matter in Vietnam and Thailand.
+    order:[
+      {id:'grabfood',   name:'GrabFood', icon:'🛵',
+       url:(q)=>`https://food.grab.com/${grabRegion()}/en/restaurants?search=${encodeURIComponent(q.what||q.where||'')}`},
+      {id:'foodpanda',  name:'Foodpanda', icon:'🐼',
+       url:(q)=>`https://www.foodpanda.com/?q=${encodeURIComponent(q.what||q.where||'')}`},
+      {id:'shopeefood', name:'ShopeeFood', icon:'🍜',
+       url:(q)=>`https://shopeefood.vn/`},
+    ],
   };
   // Whichever he actually taps gets remembered and floated to the top next time.
   function vendorScore(id){ try{ return (JSON.parse(localStorage.buddy_vendors||'{}'))[id]||0; }catch(e){ return 0; } }
@@ -1314,26 +1404,61 @@
       api('/memory',{action:'add',text:`books through ${id} (used ${v[id]}x)`}).catch(()=>{});
     }catch(e){}
   }
-  async function vendorHandoff(kind, q){
-    q=q||{};
-    if(!q.where){
-      q.where=await pickPlace(kind==='stay'?'Stay where?':kind==='doing'?'Things to do where?':'Eat where?');
-      if(!q.where) return;
-    }
-    if(kind==='stay'&&!q.people){ q.people=await pick('How many of you?', PICKS.people); }
+  // The button list, split out of vendorHandoff so callers that have already
+  // gathered their own details (findFlights, findFood) can render the same
+  // vendor buttons without re-asking or re-speaking.
+  function vendorList(kind, q, label){
     const list=[...(VENDORS[kind]||[])].sort((a,b)=>vendorScore(b.id)-vendorScore(a.id));
-    openChat();
-    addMsg('me',`${kind==='stay'?'🏨 Stays':kind==='doing'?'🎟️ Things to do':'🍽️ Eating'} in ${q.where}`);
-    const card=addMsg('buddy',`Pick where to look — I've pre-filled ${q.where}${q.from?` from ${q.from}`:''}${q.people?` for ${q.people}`:''}.`);
+    if(!list.length) return null;
+    const card=addMsg('buddy',`${label||'Open'} — pick where to look:`);
     list.forEach(v=>{
       const used=vendorScore(v.id);
       const b=document.createElement('div');
       b.style.cssText='margin-top:8px;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.08);'+
         'border:1px solid rgba(255,255,255,.1);cursor:pointer;font-weight:600';
-      b.textContent=`${v.icon} ${v.name}${used?`  · you usually use this`:''}`;
-      b.onclick=()=>{ vendorUsed(v.id); window.location.href=v.url(q); };
+      b.textContent=`${v.icon} ${v.name}${used?'  · you usually use this':''}`;
+      b.onclick=()=>{
+        vendorUsed(v.id);
+        // Batch 122: every builder interpolates q.where and friends directly,
+        // so a missing field became the literal word "undefined" in a real
+        // search. Blanking them here covers ALL builders and any future
+        // caller, rather than guarding one entry point.
+        const safe={};
+        for(const k of ['where','from','to','when','what','people','from8','fromCode','toCode']){
+          safe[k] = (q && q[k]!=null && String(q[k]).trim()) ? q[k] : '';
+        }
+        let u=''; try{ u=v.url(safe); }catch(e){ u=''; }
+        if(!u || u.includes('undefined')){ addMsg('buddy',"Couldn't build that link — tell me where and I'll try again."); return; }
+        window.location.href=u;
+      };
       card.appendChild(b);
     });
+    return card;
+  }
+
+  async function vendorHandoff(kind, q){
+    q=q||{};
+    // Batch 121: every URL builder interpolates q.where directly, so a blank
+    // destination produced a real search for the word "undefined" — a dead
+    // end that looks like the vendor's fault rather than ours.
+    if(q.where!=null && !String(q.where).trim()) q.where='';
+    if(!q.where){
+      const ask = kind==='stay' ? 'Stay where?' : kind==='doing' ? 'Things to do where?'
+        : kind==='fly' ? 'Fly to where?' : kind==='getthere' ? 'Travelling to where?'
+        : kind==='order' ? 'Delivering to where?' : 'Eat where?';
+      q.where=await pickPlace(ask);
+      if(!q.where) return;
+    }
+    if(kind==='stay'&&!q.people){ q.people=await pick('How many of you?', PICKS.people); }
+    const list=VENDORS[kind]||[];
+    openChat();
+    const heading = kind==='stay' ? '🏨 Stays' : kind==='doing' ? '🎟️ Things to do'
+      : kind==='eat' ? '🍽️ Eating' : kind==='fly' ? '✈️ Flights'
+      : kind==='getthere' ? '🚌 Getting there' : kind==='order' ? '🛵 Delivery' : '🔎 Options';
+    addMsg('me',`${heading} in ${q.where}`);
+    // Batch 122: this loop was a second copy of the one in vendorList(), so a
+    // fix to either would silently miss the other. One path now.
+    vendorList(kind, q, `Pick where to look — I've pre-filled ${q.where}${q.from?` from ${q.from}`:''}${q.people?` for ${q.people}`:''}`);
     say(`${list.length} places to look for ${kind==='stay'?'stays':kind==='doing'?'things to do':'food'} in ${q.where}.`);
     // Booking somewhere is a flow that leaves our hands — keep the thread open.
     handoffWithWait(kind==='stay'?'accommodation':'booking', `${kind} in ${q.where}`,
@@ -1827,7 +1952,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='108';
+  const BUILD_VERSION='144';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -2092,7 +2217,16 @@
   }
   async function closePending(id, outcome, rowEl){
     if(!id) return;
-    if(outcome==='waiting'){ if(rowEl) rowEl.textContent='🕓 No rush — I\'ll ask again later.'; return; }
+    if(outcome==='waiting'){
+      if(rowEl) rowEl.textContent='🕓 No rush — I\'ll ask again later.';
+      // Batch 131 audit: this used to return WITHOUT telling the server. The
+      // flow stayed open, which is right, but its clock still ran from when it
+      // was first opened — so tapping "Not yet" on a 47h-old booking made it
+      // lapse an hour later and never be asked about again. Saying "not yet"
+      // made it MORE likely to vanish, which is the opposite of what he meant.
+      try{ await api('/pending',{action:'close',id,outcome:'waiting'}); }catch(e){}
+      return;
+    }
     let detail='';
     if(outcome==='done'){
       const ref=prompt('Any reference or confirmation number? (leave blank to skip)','');
@@ -2143,8 +2277,9 @@
     openChat(); addMsg('me','🍽️ Read this menu');
     const t=addMsg('buddy','Reading the menu…','think');
     try{
-      const b64=await shrinkImage(f,1400);
-      const {ok,data}=await api('/menu',{image:b64.split(',')[1],mediaType:'image/jpeg',
+      const _m=await imageForUpload(f,1400);
+      if(!_m.ok){ addMsg('buddy',_m.reason); say(_m.reason); return; }
+      const {ok,data}=await api('/menu',{image:_m.base64,mediaType:'image/jpeg',
         avoid, country:localStorage.getItem('buddy_country')||'', budget:''});
       if(!ok||!data.spoken){ settle(t,"Couldn't read that menu — try a clearer photo?"); return; }
       settle(t,data.spoken); say(data.spoken);
@@ -2726,9 +2861,12 @@
     let th=localStorage.buddy_bg||'aurora';
     if(th==='auto') th=contextTheme();
     if(orb==='aurora') document.body.removeAttribute('data-orb'); else document.body.setAttribute('data-orb',orb);
-    // data-theme lives on <html> now (that's where the background paints)
+    // Batch 119 audit: this used to write data-theme, the SAME attribute the
+    // colour picker uses — so choosing a background silently wiped the colour
+    // theme, and applyLooks() running on load wiped it again every refresh.
+    // Backgrounds now live on their own attribute so the two compose.
     const root=document.documentElement;
-    if(th==='aurora') root.removeAttribute('data-theme'); else root.setAttribute('data-theme',th);
+    if(th==='aurora') root.removeAttribute('data-bg'); else root.setAttribute('data-bg',th);
   }
   async function chooseOrb(){
     const v=await pick('Pick your orb', ORB_STYLES, {allowSpeech:false, allowType:false});
@@ -2995,7 +3133,7 @@
         glance=await grabGlance();      // small, low quality — cents not dollars
       }
       const {data}=await api('/lifelog',{lat:pos.latitude,lng:pos.longitude,glance,
-        roomCode:localStorage.getItem('buddy_room')||'', myName:localStorage.buddy_myname||'Shaun'});
+        roomCode:pairCode(), myName:localStorage.buddy_myname||'Shaun'});
       if(data&&data.place) lastLogPlace=data.place;
     }catch(e){}
   }
@@ -3051,7 +3189,7 @@
   // Shared layer — moments you were both there for.
   async function sharedMoments(){
     openChat(); addMsg('me','💞 Our moments');
-    const code=localStorage.getItem('buddy_room')||'';
+    const code=pairCode();  // batch 124: was buddy_room, which nothing ever wrote
     if(!code){ const m='No couple room yet — pair with Jess first in Together.'; addMsg('buddy',m); say(m); return; }
     try{
       const {data}=await api('/shared',{roomCode:code});
@@ -3153,6 +3291,15 @@
         setTimeout(()=>{ if(Date.now()-t<2000) window.location.href='https://www.grab.com/'; },1200);
       }});
     }
+    if(seAsia||!c){
+      // Batch 122: Gojek is Grab's main rival in Indonesia and Vietnam. Same
+      // deep-link-then-fallback shape as Grab and Uber below.
+      acts.push({label:'🛵 Open Gojek'+(dest?' to '+dest:''), go:()=>{
+        const u=`gojek://gojek/gocar${destLat?`?dest_lat=${destLat}&dest_lng=${destLng}`:''}`;
+        const t=Date.now(); window.location.href=u;
+        setTimeout(()=>{ if(Date.now()-t<2000) window.location.href='https://www.gojek.com/'; },1200);
+      }});
+    }
     acts.push({label:'🚕 Open Uber'+(dest?' to '+dest:''), go:()=>{
       const u=`uber://?action=setPickup&pickup=my_location${lat?`&pickup[latitude]=${lat}&pickup[longitude]=${lng}`:''}${destLat?`&dropoff[latitude]=${destLat}&dropoff[longitude]=${destLng}`:''}${dest?`&dropoff[nickname]=${encodeURIComponent(dest)}`:''}`;
       const t=Date.now(); window.location.href=u;
@@ -3165,8 +3312,51 @@
       spoken:'Once you\'ve booked the ride, tell me and I\'ll track the rest.'});
   }
   // MESSAGES — WhatsApp with the text pre-typed.
+  // wa.me demands full international format — no +, no leading 0. Stripping
+  // non-digits alone turns "0457 453 719" into "0457453719", which 404s. That
+  // is how every Australian number is saved in his phone, so the WhatsApp
+  // handoff was broken for essentially every contact he has.
+  // Batch 124 audit: two invented localStorage keys (buddy_cc, buddy_cc2) were
+  // never written by anything, so they always fell through to their defaults —
+  // WhatsApp assumed +61 for everyone and GrabFood opened Singapore while he
+  // was in Hanoi. buddy_country IS populated, so derive from it.
+  const COUNTRY_CODES = {
+    australia:{dial:'61',grab:'sg'},          vietnam:{dial:'84',grab:'vn'},
+    thailand:{dial:'66',grab:'th'},           indonesia:{dial:'62',grab:'id'},
+    malaysia:{dial:'60',grab:'my'},           singapore:{dial:'65',grab:'sg'},
+    philippines:{dial:'63',grab:'ph'},        cambodia:{dial:'855',grab:'kh'},
+    myanmar:{dial:'95',grab:'mm'},            laos:{dial:'856',grab:'la'},
+    'new zealand':{dial:'64',grab:'sg'},      japan:{dial:'81',grab:'sg'},
+    'united kingdom':{dial:'44',grab:'sg'},   'united states':{dial:'1',grab:'sg'},
+  };
+  function countryInfo(){
+    const c=(localStorage.getItem('buddy_country')||'').toLowerCase().trim();
+    for(const [name,v] of Object.entries(COUNTRY_CODES)) if(c.includes(name)) return v;
+    return null;
+  }
+  // His HOME dialling code — a saved contact is almost always an AU number even
+  // when he's abroad, so this must NOT follow where he currently is.
+  function homeDial(){ return (localStorage.getItem('buddy_home_dial')||'61').replace(/[^0-9]/g,''); }
+  // Where he IS right now — this one should follow him.
+  function grabRegion(){ const i=countryInfo(); return (i&&i.grab)||'sg'; }
+
+  function waNumber(number){
+    let n=String(number||'').replace(/[^0-9+]/g,'');
+    if(!n) return '';
+    if(n.startsWith('+')) return n.slice(1).replace(/[^0-9]/g,'');
+    n=n.replace(/[^0-9]/g,'');
+    if(n.startsWith('00')) return n.slice(2);            // 0061... international prefix
+    if(n.startsWith('0')){
+      // A national number. Use his home country code, falling back to AU.
+      // Deliberately his HOME code, not where he's standing: a number saved as
+      // 0403… is an Australian number whether he's in Brisbane or Hanoi.
+      return homeDial() + n.slice(1);
+    }
+    // Already looks international (61…, 84…) — leave it.
+    return n;
+  }
   function waHandoff(number, message){
-    const n=String(number||'').replace(/[^0-9]/g,'');
+    const n=waNumber(number);
     const url=`https://wa.me/${n}${message?`?text=${encodeURIComponent(message)}`:''}`;
     handoffCard('WhatsApp'+(n?(' · '+n):''), message?('"'+message.slice(0,80)+'"'):'', [
       {label:'💬 Open WhatsApp', go:()=>{ window.location.href=url; }},
@@ -3303,21 +3493,56 @@
   }
 
   // Shrink an image file to maxPx on its longest side, return a JPEG data URL.
+  // Batch 120 audit found three faults here:
+  //   1. revokeObjectURL only ran on success, so every failed photo leaked a
+  //      blob URL for the session — and a HEIC or corrupt file is exactly the
+  //      case he'd retry several times.
+  //   2. No lower bound. Anthropic rejects images under ~200px on the long
+  //      edge, so a small thumbnail failed at the API with a useless error.
+  //   3. It resolved '' on error and every caller then did .split(',')[1] on
+  //      it, sending "undefined" to the server as if it were an image.
+  // It now always cleans up, refuses what the API would reject, and returns a
+  // reason the caller can actually say out loud.
   function shrinkImage(file, maxPx){
     return new Promise((resolve)=>{
+      if(!file){ resolve(''); return; }
+      // 25MB is beyond any phone photo; anything larger is a wrong file.
+      if(file.size && file.size > 25*1024*1024){ resolve(''); return; }
       const img=new Image(); const url=URL.createObjectURL(file);
+      let done=false;
+      const finish=(v)=>{ if(done) return; done=true; try{ URL.revokeObjectURL(url); }catch(e){} resolve(v); };
+      // A decode that never fires either event would hang the caller forever.
+      const guard=setTimeout(()=>finish(''), 15000);
       img.onload=()=>{
+        clearTimeout(guard);
         let {width:w,height:h}=img;
+        if(!w||!h){ finish(''); return; }
+        // Below the API's minimum there's nothing to gain by sending it.
+        if(Math.max(w,h) < 200){ finish(''); return; }
         const scale=Math.min(1, maxPx/Math.max(w,h));
-        w=Math.round(w*scale); h=Math.round(h*scale);
-        const c=document.createElement('canvas'); c.width=w; c.height=h;
-        c.getContext('2d').drawImage(img,0,0,w,h);
-        URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/jpeg',0.82));
+        w=Math.max(1,Math.round(w*scale)); h=Math.max(1,Math.round(h*scale));
+        try{
+          const c=document.createElement('canvas'); c.width=w; c.height=h;
+          c.getContext('2d').drawImage(img,0,0,w,h);
+          const out=c.toDataURL('image/jpeg',0.82);
+          // A canvas tainted by a cross-origin source yields a stub string.
+          finish(out && out.length > 1000 ? out : '');
+        }catch(e){ finish(''); }
       };
-      img.onerror=()=>resolve('');
+      img.onerror=()=>{ clearTimeout(guard); finish(''); };
       img.src=url;
     });
+  }
+
+  // Every caller was doing `.split(',')[1]` on a possibly-empty result, which
+  // sends the string "undefined" to the server as if it were a photo. This is
+  // the one place that unwraps it, and it says why when it can't.
+  async function imageForUpload(file, maxPx){
+    const d=await shrinkImage(file, maxPx||1024);
+    if(!d) return { ok:false, reason:"I couldn't read that photo — try taking it again, or pick a different one." };
+    const b64=d.split(',')[1];
+    if(!b64) return { ok:false, reason:"That photo didn't come through — give it another go." };
+    return { ok:true, dataUrl:d, base64:b64 };
   }
 
   // ---- Recall: save short notes (per-device) + ask Vision to find them ----
@@ -3379,6 +3604,11 @@
   }
   function chimeArm(){ tone(660,.1,0); tone(880,.12,.09); }
   function chimeNews(){ tone(880,.1,0); tone(1174,.14,.1); }
+  // Batch 111 audit: hands-free was silent about its own state. On glasses you
+  // can't see the button, so a rising pair means "listening" and a falling pair
+  // means "stopped" — the one cue that makes eyes-free use possible.
+  function chimeListen(){ tone(520,.07,0,.05); tone(700,.09,.06,.05); }
+  function chimeStop(){ tone(700,.07,0,.045); tone(480,.09,.06,.045); }
   let voiceUnlocked=false;
   function unlockVoice(){
     if(voiceUnlocked) return; voiceUnlocked=true;
@@ -3612,7 +3842,7 @@
     const num=prompt("Phone number to message? (with country code, digits only — or leave blank to just open WhatsApp)","")||'';
     const msg=prompt("Message to pre-fill? (optional)","")||'';
     let url='https://wa.me/';
-    if(num) url+=num.replace(/\D/g,'');
+    if(num) url+=waNumber(num);   // batch 121: was .replace(/\D/g,'') — kept the leading 0 and 404'd
     if(msg) url+='?text='+encodeURIComponent(msg);
     say('Opening WhatsApp.');
     window.open(url,'_blank');
@@ -3659,11 +3889,24 @@
     }
     const name=prompt("Your name (so your partner sees who's who):", myName())||'me';
     localStorage.setItem('buddy_myname',name.trim());
-    const code=prompt("Enter a shared trip code — you BOTH type the same one\n(e.g. SHAUN-LILA-2026):", pairCode())||'';
+    // Batch 133: buddy_partnername was read by the voice-note flow but nothing
+    // ever wrote it, so every note said "your partner". Pairing is the natural
+    // moment to ask — he's already naming people.
+    const pname=prompt("And what do you call them? (used when they leave you a voice note)", localStorage.getItem('buddy_partnername')||'')||'';
+    if(pname.trim()) localStorage.setItem('buddy_partnername',pname.trim());
+    const code=prompt("Enter a shared trip code — you BOTH type the same one.\nMake it long and not obvious: anyone with this code can see your live location.\n(e.g. SHAUN-JESS-VIETNAM-2026):", pairCode())||'';
     if(!code){ return; }
     localStorage.setItem('buddy_paircode',code.trim().toUpperCase());
     try{
-      const {data}=await api('/pair',{code:pairCode(),name:myName()});
+      const {status,data}=await api('/pair',{code:pairCode(),name:myName()});
+      // Batch 133 audit: the server now refuses short or guessable codes, since
+      // a room carries live location and anyone past the shared token could
+      // join by guessing. Say why rather than failing silently.
+      if(status===400 && data && data.spoken){
+        localStorage.removeItem('buddy_paircode');
+        addMsg('buddy',data.spoken); say(data.spoken);
+        return;
+      }
       document.getElementById('pairSub').textContent='Linked ✓ '+pairCode();
       say(`Linked up on trip code ${pairCode()}. Have your partner enter the same code.`);
     }catch(e){ say("Couldn't link right now — check your connection."); }
@@ -3688,22 +3931,65 @@
         t.remove();
         const ps=(data.partners||[]);
         if(!ps.length){ addMsg('buddy','No one else has joined this trip code yet — have your partner link with the same code.'); return; }
+        // Batch 133 audit: this spoke a distance with no sense of how old the
+        // fix was, so a two-hour-old position read as where she is standing —
+        // and he'd walk to the wrong place. The server already returned
+        // seenAt; the app was throwing it away.
+        const fixAge=(at)=>{
+          if(!at) return {text:'', stale:true};
+          const mins=Math.round((Date.now()-at)/60000);
+          if(mins<2) return {text:'just now', stale:false};
+          if(mins<60) return {text:`${mins} min ago`, stale:mins>15};
+          const hrs=Math.round(mins/60);
+          return {text:`${hrs}h ago`, stale:true};
+        };
         ps.forEach(p=>{
+          const age=fixAge(p.seenAt);
           if(p.meters!=null){
             const dist=p.meters>1000?`${(p.meters/1000).toFixed(1)} km`:`${p.meters} m`;
-            const line=`${p.name} is about ${dist} ${p.bearing||''} of you.`;
+            // Say "was" for anything stale — the tense is the whole warning.
+            const line=age.stale
+              ? `${p.name} WAS about ${dist} ${p.bearing||''} of you${age.text?', '+age.text:''} — that's her last fix, not where she is now.`
+              : `${p.name} is about ${dist} ${p.bearing||''} of you${age.text?' ('+age.text+')':''}.`;
             addMsg('buddy',line); say(line);
             if(p.lat!=null){ const m=addMsg('buddy','📍 Tap to open in Maps'); m.style.cursor='pointer';
-              m.onclick=()=>window.open(`https://maps.google.com/?q=${p.lat},${p.lng}`,'_blank'); }
+              m.onclick=()=>openMaps(`${p.lat},${p.lng}`); }
           } else if(p.lat!=null){
-            addMsg('buddy',`${p.name}'s last spot:`); const m=addMsg('buddy','📍 Open in Maps'); m.style.cursor='pointer';
-            m.onclick=()=>window.open(`https://maps.google.com/?q=${p.lat},${p.lng}`,'_blank');
+            addMsg('buddy',`${p.name}'s last spot${age.text?' ('+age.text+')':''}:`); const m=addMsg('buddy','📍 Open in Maps'); m.style.cursor='pointer';
+            m.onclick=()=>openMaps(`${p.lat},${p.lng}`);
           } else addMsg('buddy',`${p.name} is linked but hasn't shared a location yet.`);
         });
         (data.messages||[]).slice(0,3).forEach(msg=>{ if(msg.by!==myName()) addMsg('buddy',`🗨️ ${msg.by}: ${msg.text}`); });
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check right now."; }
     });
   }
+  // A "meet me here" pin used to sit behind a tile she had to think to tap.
+  // Someone is standing there waiting, so it leads on open — one tap into
+  // turn-by-turn, not a marker she then has to press Directions on.
+  async function partnerPing(){
+    const code=pairCode(); if(!code) return;
+    const since=Number(localStorage.getItem('buddy_pinseen')||0);
+    try{
+      const {data}=await api('/room',{code,name:myName()});
+      const fresh=(data.pins||[]).filter(p=>p.by!==myName() && (p.at||0)>since);
+      if(!fresh.length) return;
+      openChat();
+      const p=fresh[0];
+      const mins=Math.round((Date.now()-(p.at||0))/60000);
+      const when=mins<2?'just now':mins<60?`${mins} min ago`:`${Math.round(mins/60)}h ago`;
+      const line=`${p.by} dropped a pin ${when}: ${p.label}.`;
+      addMsg('buddy','📌 '+line);
+      const go=addMsg('buddy','🧭 Tap to navigate there');
+      go.style.cssText+=';cursor:pointer;font-weight:700';
+      go.onclick=()=>{ say(`Heading to ${p.label}.`); openMaps(`${p.lat},${p.lng}`); };
+      try{ chimeNews(); }catch(e){}
+      say(line+' Tap to navigate.');
+      if(fresh.length>1) addMsg('buddy',`…and ${fresh.length-1} more pin${fresh.length>2?'s':''}.`).style.opacity='.8';
+      // Acknowledge only what was actually shown — same lesson as the watchers.
+      localStorage.setItem('buddy_pinseen', String(p.at||Date.now()));
+    }catch(e){}
+  }
+
   function shareMyPin(){
     const label=prompt("Name this spot for your partner (e.g. 'this cafe', 'the fountain'):","Meet me here")||'Meet me here';
     withRoom(async (code,me)=>{
@@ -3767,9 +4053,12 @@
     openChat(); addMsg('me',`✈️ Flights ${from} → ${to}${when?' '+when:''}`);
     const line=`Opening live fares ${from} to ${to}${when?' for '+when:''}. Tip: for ${to}, midweek flights usually run cheaper — check a day either side.`;
     addMsg('buddy',line); say(line);
-    const q=encodeURIComponent(`Flights to ${to} from ${from}${when?' in '+when:''}`);
-    const el=addMsg('buddy','🔎 Open Google Flights'); el.style.cursor='pointer';
-    el.onclick=()=>window.open('https://www.google.com/travel/flights?q='+q,'_blank');
+    // Batch 122: this used to hardcode Google Flights. Going through the
+    // vendor registry means it picks up the same "float what he actually uses
+    // to the top" behaviour as stays and activities — and adds Skyscanner and
+    // Trip.com, which beat Google on SE Asia routes. The spoken tip and the
+    // follow-on suggestion above are unchanged.
+    vendorList('fly', { where: to, from, when }, 'Flights');
     brain.suggest(`Plan a trip to ${to}`, ()=>{ document.getElementById('chatText').value=`plan my trip to ${to}`; sendChat(); });
   }
 
@@ -3948,11 +4237,46 @@
   // ---- 📖 PHRASEBOOK: your go-to phrases, spoken in the local language ----
   function phrasesGet(){ try{return JSON.parse(localStorage.getItem('buddy_phrases')||'[]');}catch{return[];} }
   function phrasesSave(a){ localStorage.setItem('buddy_phrases',JSON.stringify(a.slice(0,30))); }
+  // Batch 111 audit: speakIn() took a BCP-47 tag, but /converse/turn returns a
+  // language NAME ("Thai"). Without this map every translation was spoken with
+  // an en-AU voice — intelligible to nobody. Also picks a real installed voice
+  // where one exists, which is the difference between "understandable" and
+  // "actually sounds like the language".
+  const LANG_TAGS = {
+    vietnamese:'vi-VN', thai:'th-TH', english:'en-AU', indonesian:'id-ID', malay:'ms-MY',
+    khmer:'km-KH', lao:'lo-LA', 'mandarin chinese':'zh-CN', mandarin:'zh-CN', chinese:'zh-CN',
+    cantonese:'zh-HK', japanese:'ja-JP', korean:'ko-KR', tagalog:'fil-PH', filipino:'fil-PH',
+    burmese:'my-MM', hindi:'hi-IN', nepali:'ne-NP', spanish:'es-ES', french:'fr-FR',
+    german:'de-DE', italian:'it-IT', portuguese:'pt-PT', dutch:'nl-NL', russian:'ru-RU',
+    arabic:'ar-SA', turkish:'tr-TR', greek:'el-GR',
+  };
+  function langTag(name){
+    if(!name) return '';
+    const k=String(name).toLowerCase().trim();
+    if(/^[a-z]{2}(-[A-Za-z]{2,4})?$/i.test(name)) return name; // already a tag
+    return LANG_TAGS[k] || '';
+  }
+  let _voiceCache=null;
+  function voiceFor(tag){
+    if(!tag) return null;
+    try{
+      if(!_voiceCache || !_voiceCache.length) _voiceCache=speechSynthesis.getVoices()||[];
+      const base=tag.split('-')[0].toLowerCase();
+      return _voiceCache.find(v=>v.lang&&v.lang.toLowerCase()===tag.toLowerCase())
+          || _voiceCache.find(v=>v.lang&&v.lang.toLowerCase().startsWith(base)) || null;
+    }catch(e){ return null; }
+  }
+  try{ speechSynthesis.onvoiceschanged=()=>{ _voiceCache=speechSynthesis.getVoices()||[]; }; }catch(e){}
+
   function speakIn(text,lang){
     try{
       buddySpeaking=true; pauseListening();
       speechSynthesis.resume(); speechSynthesis.cancel();
-      const u=new SpeechSynthesisUtterance(text); if(lang) u.lang=lang;
+      const u=new SpeechSynthesisUtterance(text);
+      const tag=langTag(lang);
+      if(tag){ u.lang=tag; const v=voiceFor(tag); if(v) u.voice=v; }
+      // Foreign speech at native rate is a wall of sound to whoever's listening.
+      if(tag && !/^en/i.test(tag)) u.rate=0.92;
       u.onend=u.onerror=()=>{ buddySpeaking=false; if(handsFree) setTimeout(startListening, 300); };
       setTimeout(()=>{ try{ speechSynthesis.resume(); speechSynthesis.speak(u); }catch(e){ buddySpeaking=false; } }, 80);
     }catch(e){ buddySpeaking=false; }
@@ -4020,7 +4344,17 @@
         if(status===501){ t.classList.remove('think'); t.textContent='Meet-in-the-middle needs the Google Maps key.'; return; }
         settle(t,data.spoken||''); say(data.spoken||'');
         if(data.found&&data.place){ brain.setPlace(data.place.name, data.place.address||data.place.name); brain.lastTopic='meetmiddle';
-          brain.suggest(`Directions to ${data.place.name}`, ()=>confirmNavigate(brain.lastDestination)); }
+          // Batch 134: navigation was behind a suggestion chip. A halfway point
+          // is somewhere two people are walking to right now — it gets the
+          // direct tap, and a way to send it to her in the same breath.
+          const go=addMsg('buddy',`🧭 Navigate to ${data.place.name}`);
+          go.style.cssText+=';cursor:pointer;font-weight:700';
+          go.onclick=()=>{ say(`Heading to ${data.place.name}.`); openMaps(data.place.address||data.place.name); };
+          // No "send it to her" button here: /meetmiddle already drops the pin
+          // to BOTH members server-side, so adding one would file a duplicate.
+          // She picks it up through partnerPing() next time she opens.
+          addMsg('buddy',`📌 ${partnerName()} gets the same pin.`).style.opacity='.75';
+        }
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't find a halfway spot right now."; }
     }, ()=>{ t.classList.remove('think'); t.textContent='Location permission needed.'; });
   }
@@ -4115,7 +4449,7 @@
       if(!msgs.length && !pins.length){ addMsg('buddy','Nothing new from your partner yet.'); return; }
       msgs.slice(0,5).forEach(m=>addMsg('buddy',`🗨️ ${m.by}: ${m.text}`));
       pins.slice(0,5).forEach(p=>{ const el=addMsg('buddy',`📌 ${p.by} shared: ${p.label} — tap for Maps`); el.style.cursor='pointer';
-        el.onclick=()=>window.open(`https://maps.google.com/?q=${p.lat},${p.lng}`,'_blank'); });
+        el.onclick=()=>openMaps(`${p.lat},${p.lng}`); });
       if(msgs[0]) say(`${msgs[0].by} says: ${msgs[0].text}`);
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check right now."; }
   }
@@ -4257,7 +4591,20 @@
         openChat(); addMsg('me','🧵 Get me back to my spot');
         const line=data.spoken||"Head roughly toward your spot and I'll retry.";
         addMsg('buddy',line); say(line);
-        if(data.steps&&data.steps.length){ data.steps.slice(0,8).forEach((s,i)=>addMsg('buddy',(i+1)+'. '+s)); }
+        // Hand straight to Google Maps with turn-by-turn voice. Reading eight
+        // steps aloud to someone who is lost is the worst version of this —
+        // he needs a blue line and a voice, not a list to memorise.
+        const nav=addMsg('buddy','🧭 Tap for turn-by-turn back');
+        nav.style.cssText+=';cursor:pointer;font-weight:700';
+        nav.onclick=()=>{ say('Taking you back.'); openMaps(`${spot.lat},${spot.lng}`,'walking'); };
+        if(localStorage.buddy_automaps==='on'){ setTimeout(()=>openMaps(`${spot.lat},${spot.lng}`,'walking'), 900); }
+        // The written steps stay as a fallback for when there's no signal to
+        // load Maps — collapsed, not the main event.
+        if(data.steps&&data.steps.length){
+          const more=addMsg('buddy','📄 Or read the steps');
+          more.style.cssText+=';cursor:pointer;opacity:.7';
+          more.onclick=()=>{ data.steps.slice(0,8).forEach((s,i)=>addMsg('buddy',(i+1)+'. '+s)); more.remove(); };
+        }
       }catch(e){}
     }, ()=>say('Location permission needed.'));
   }
@@ -4381,8 +4728,12 @@
         const line=`${i+1}. ${o.name} — ${o.dish}\n${o.price?o.price+' '+(o.currency||''):''}  ⭐${o.rating||'?'}  ~${o.etaMins||'?'} min${o.note?'\n'+o.note:''}`;
         addMsg('buddy',line.trim());
       });
-      const go=addMsg('buddy','✅ Tap to open Grab and order'); go.style.cursor='pointer';
-      go.onclick=()=>{ say('Opening Grab — pick your order and pay there.'); window.open('https://food.grab.com/','_blank'); };
+      // Batch 123: this hardcoded a bare food.grab.com link — the same mistake
+      // findFlights had. Going through the registry adds Foodpanda and
+      // ShopeeFood and remembers which one he actually uses.
+      vendorList('order', { where: city, what: craving }, '🛵 Order it');
+      // And the sit-down option, which the dead 'eat' category was always for.
+      if(city) vendorList('eat', { where: city, what: craving }, '🍽️ Or eat out');
       addMsg('buddy','After you order, say "any update on my order?" and I\'ll read Grab\'s texts/emails.');
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't find food right now — try again."; }
   }
@@ -4479,7 +4830,7 @@
     if(city) localStorage.setItem('buddy_city',city);
     const goal=prompt("What's the vibe? (e.g. food + temples, chilled, nightlife)","explore the highlights")||'explore';
     const budget=prompt("Budget for the day? (number, optional)","")||'';
-    const currency=prompt("Currency? (optional)", localStorage.getItem('buddy_localcur')||'')||'';
+    const currency=prompt("Currency? (optional)", localStorage.getItem('buddy_currency')||'')||'';
     openChat(); addMsg('me',`🗺️ Plan my day in ${city||'here'} — ${goal}`);
     const t=addMsg('buddy','Planning your day…','think');
     try{
@@ -4686,7 +5037,7 @@
       return {
         name: g('buddy_myname')||'Shaun',
         country: g('buddy_country'), city: g('buddy_city'),
-        homeCurrency: g('buddy_home')||'AUD', localCurrency: g('buddy_localcur')||g('buddy_currency'),
+        homeCurrency: g('buddy_home')||'AUD', localCurrency: g('buddy_currency')  /* batch 124: buddy_localcur was never written */,
         avoid: g('buddy_avoid'),
         flight: j('buddy_flight',null),
         spendToday: todaySpend, spendTotal: total, spendCount: spend.length,
@@ -4765,7 +5116,14 @@
     try{ history.pushState({vision:'layer'},''); }catch(e){} updateBackBtn();
     document.getElementById('chat').classList.add('open');
     if(chatHistory.length===0){
-      addMsg('buddy', openingBrief()); watcherNews();
+      addMsg('buddy', openingBrief()); watcherNews(); pttCheck(); partnerPing();
+      // Hold-to-talk: pointer events so it works with a thumb or a mouse.
+      const _pt=document.getElementById('pttTile');
+      if(_pt && !_pt._wired){
+        _pt._wired=true;
+        _pt.addEventListener('pointerdown',e=>{ e.preventDefault(); pttStart(_pt); });
+        ['pointerup','pointerleave','pointercancel'].forEach(ev=>_pt.addEventListener(ev,()=>pttStop(_pt)));
+      }
       // Batch 87: lead with what's imminent — a flight tomorrow matters more
       // than anything he was about to ask.
       api('/state').then(({data})=>{
@@ -5013,6 +5371,8 @@
       if(skill==='savechat'){ await saveConversation(a.tag||''); return true; }
       if(skill==='recallchat'){ await recallConversation(a.query||original); return true; }
       if(skill==='bookings'){ await bookingsView(a.query||''); return true; }
+      // 'texts' merged into 'readtexts' in the router (batch 116) — branch kept
+      // as an alias so a cached client or an older build still works.
       if(skill==='texts'){ readTexts(); return true; }
       if(skill==='sendtext'){ await replyText(a.to||null, a.message||null); return true; }
       if(skill==='handover'){ await sendHandover(a.context||''); return true; }
@@ -5020,6 +5380,12 @@
       if(skill==='procedures'){ await proceduresView(); return true; }
       if(skill==='findstay'){ await vendorHandoff('stay',{where:a.where,from:a.from,to:a.to,people:a.people}); return true; }
       if(skill==='thingstobook'){ await vendorHandoff('doing',{where:a.where,what:a.what}); return true; }
+      if(skill==='getthere'){ await vendorHandoff('getthere',{where:a.where,from:a.from}); return true; }
+      if(skill==='orderfood'){ await vendorHandoff('order',{where:a.where,what:a.what}); return true; }
+      if(skill==='eatout'){ await vendorHandoff('eat',{where:a.where,what:a.what}); return true; }
+      if(skill==='voicenote'){ pttHint(); return true; }
+      if(skill==='advise'){ await askAdvice(); return true; }
+      if(skill==='alternative'){ await askAlternative(a.intent, a.detail); return true; }
       if(skill==='docs'){ await docsView(); return true; }
       if(skill==='splitbill'){ await splitBill(); return true; }
       if(skill==='favourite'){ const box=document.getElementById('chatText'); if(box){ box.value='favourite that'; sendChat(); } return true; }
@@ -5036,8 +5402,1217 @@
       if(skill==='readpage'){ const m=(a.url||original||'').match(/https?:\/\/\S+/); await readPage(m?m[0]:a.url); return true; }
       if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
       if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
+      if(skill==='myday'){ await myDay(a.days); return true; }
+      if(skill==='showlist'){ await showList(a.list); return true; }
+      if(skill==='tickoff'){ await tickOff(a.list, a.utterance||original); return true; }
+      if(skill==='addlist'){ await addToList(a.list, a.item); return true; }
+      if(skill==='addevent'){ await addEventFromRouter(a); return true; }
+      if(skill==='amifree'){ await amIFree({start:a.start,end:a.end,minutes:a.minutes,days:a.days}); return true; }
+      if(skill==='jobreport'){ await jobReport(a.job, a.dictation); return true; }
+      if(skill==='jobcapture'){ await jobCapture(a.job); return true; }
+      if(skill==='jobrecall'){ await jobRecall(a.query||''); return true; }
+      if(skill==='scan'){ await sceneScan(a.place, a.note); return true; }
+      if(skill==='whatschanged'){ await sceneDiff(a.place); return true; }
+      if(skill==='outofplace'){ await sceneAnomaly(a.place); return true; }
+      if(skill==='whatnext'){ await sceneNext(a.symptom||original, a.place); return true; }
+      if(skill==='provemewrong'){ await sceneFalsify(a.conclusion, a.symptom); return true; }
+      if(skill==='seenbefore'){ await sceneSeen(a.symptom||original); return true; }
+      if(skill==='timeline'){ await sceneTimeline(a.entry); return true; }
+      if(skill==='digest'){ await attentionDigest(); return true; }
+      if(skill==='notnow'){ await attentionDismiss('any', a.subject||original, a.scope); return true; }
+      if(skill==='whyquiet'){ await attentionStatus(); return true; }
+      if(skill==='talkto'){ convoOpen(); return true; }
+      if(skill==='phrasebook'){ await convoPhrasebook(); return true; }
+      if(skill==='convohistory'){ await convoHistory(a.query||''); return true; }
     }catch(e){ /* fall back to chat */ }
     return false;
+  }
+
+  // ============================================================
+  // BATCH 109 — CALENDAR, LISTS & GEEKS2U WORK
+  // ============================================================
+
+  // Speak-or-type capture, same shape as the SMS reply flow.
+  function sayOrType(promptText){
+    return new Promise(resolve=>{
+      openChat();
+      addMsg('buddy', promptText);
+      const mic=document.createElement('div');
+      mic.style.cssText='margin-top:8px;padding:12px 14px;border-radius:12px;background:rgba(245,166,35,.18);'+
+        'border:1px solid rgba(245,166,35,.45);font-weight:700;text-align:center;cursor:pointer';
+      mic.textContent='🎤 Say it';
+      mic.onclick=()=>{
+        const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+        if(!SR){ mic.textContent='Voice not available — type instead'; setTimeout(()=>resolve(prompt(promptText,'')||''),50); return; }
+        mic.textContent='🎙️ Listening…';
+        try{
+          const r=new SR(); r.lang='en-AU'; r.interimResults=false; r.maxAlternatives=1;
+          r.onresult=e=>{ mic.textContent='🎤 Say it'; resolve(e.results[0][0].transcript.trim()); };
+          r.onerror=()=>{ mic.textContent='Didn\u2019t catch that — tap to try again'; };
+          r.start();
+        }catch(e){ mic.textContent='Voice failed — type instead'; resolve(prompt(promptText,'')||''); }
+      };
+      const typed=document.createElement('div');
+      typed.style.cssText='margin-top:6px;text-align:center;opacity:.75;font-size:13px;cursor:pointer';
+      typed.textContent='or type it instead';
+      typed.onclick=()=>resolve(prompt(promptText,'')||'');
+      const host=addMsg('buddy','');
+      host.appendChild(mic); host.appendChild(typed);
+    });
+  }
+
+  // iOS Safari clipboard is unreliable in a PWA, so always leave the text
+  // on screen and selectable — the copy button is a convenience, not the path.
+  async function copyOut(text, label){
+    let ok=false;
+    try{ await navigator.clipboard.writeText(text); ok=true; }catch(e){ ok=false; }
+    const el=addMsg('buddy', (ok?'✅ Copied — ':'📋 ')+(label||'ready to paste'));
+    if(!ok){
+      const box=document.createElement('textarea');
+      box.value=text;
+      box.style.cssText='width:100%;margin-top:8px;min-height:120px;background:rgba(255,255,255,.06);'+
+        'border:1px solid rgba(255,255,255,.16);border-radius:10px;color:inherit;padding:10px;font:inherit';
+      box.onclick=()=>box.select();
+      el.appendChild(box);
+      const hint=document.createElement('div');
+      hint.style.cssText='margin-top:6px;opacity:.7;font-size:12px';
+      hint.textContent='Tap the box to select, then hold to copy.';
+      el.appendChild(hint);
+    }
+    return ok;
+  }
+
+  // ---- Picker: what Vision reads vs what it monitors -------------------
+  // Two independent switches. Read = it can see it when asked. Monitor = it
+  // polls it and may lead the brief. Both off = ignored entirely.
+  async function calendarPicker(refresh){
+    openChat(); addMsg('me','🗓️ Calendars & lists');
+    const _wait=addMsg('buddy','Looking up your calendars…');
+    const {status,data}=await api('/calendar/sources', refresh?{refresh:true}:{}).catch(()=>({status:0,data:{}}));
+    _wait.remove();
+    if(status===0){ addMsg('buddy','Couldn\u2019t reach Vision just then.'); return; }
+    if(!data.ok){ const m=data.error||'iCloud isn\u2019t set up yet.'; addMsg('buddy',m); say(m); return; }
+
+    const all=[...(data.sources||[]), ...(data.feeds||[])];
+    if(!all.length){ addMsg('buddy','No calendars or lists came back.'); return; }
+
+    const prefs={};
+    all.forEach(s=>{ prefs[s.id]={read:!!s.read, monitor:!!s.monitor}; });
+
+    const host=addMsg('buddy','Tap to switch each one on. <b>Read</b> = Vision can see it when you ask. <b>Watch</b> = it checks it and can bring it up.');
+    const wrap=document.createElement('div');
+    wrap.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:6px';
+
+    const groups=[['calendar','Calendars'],['reminders','Lists']];
+    groups.forEach(([kind,heading])=>{
+      const items=all.filter(s=>s.kind===kind);
+      if(!items.length) return;
+      const h=document.createElement('div');
+      h.style.cssText='margin-top:8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.6';
+      h.textContent=heading;
+      wrap.appendChild(h);
+
+      items.forEach(s=>{
+        const row=document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:10px;'+
+          'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10)';
+        const name=document.createElement('div');
+        name.style.cssText='flex:1;min-width:0';
+        const who = s.sharedByOther ? ' · shared with you' : (s.readOnly ? ' · read-only' : '');
+        name.innerHTML='<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+
+          s.name.replace(/</g,'&lt;')+'</div><div style="font-size:11px;opacity:.6">'+kind+who+'</div>';
+        row.appendChild(name);
+
+        [['read','Read'],['monitor','Watch']].forEach(([key,label])=>{
+          const b=document.createElement('div');
+          const paint=()=>{
+            const on=prefs[s.id][key];
+            b.style.cssText='padding:6px 11px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;'+
+              (on?'background:rgba(245,166,35,.28);border:1px solid rgba(245,166,35,.6)'
+                 :'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);opacity:.65');
+            b.textContent=label;
+          };
+          b.onclick=()=>{ prefs[s.id][key]=!prefs[s.id][key]; if(key==='monitor'&&prefs[s.id].monitor) prefs[s.id].read=true; paint(); row.querySelectorAll('[data-k="read"]').forEach(x=>x.dispatchEvent(new Event('repaint'))); };
+          b.setAttribute('data-k',key);
+          b.addEventListener('repaint',paint);
+          paint();
+          row.appendChild(b);
+        });
+        wrap.appendChild(row);
+      });
+    });
+
+    const save=document.createElement('div');
+    save.style.cssText='margin-top:12px;padding:12px;border-radius:12px;text-align:center;font-weight:700;cursor:pointer;'+
+      'background:rgba(245,166,35,.22);border:1px solid rgba(245,166,35,.5)';
+    save.textContent='Save';
+    save.onclick=async()=>{
+      save.textContent='Saving…';
+      const r=await api('/calendar/prefs',{all:prefs}).catch(()=>({status:0}));
+      const on=Object.values(prefs).filter(p=>p.read||p.monitor).length;
+      save.textContent = r.status===200 ? `Saved — ${on} switched on` : 'Save failed';
+      if(r.status===200) say(`Saved. ${on} switched on.`);
+    };
+    wrap.appendChild(save);
+
+    const again=document.createElement('div');
+    again.style.cssText='margin-top:8px;text-align:center;font-size:13px;opacity:.7;cursor:pointer';
+    again.textContent='↻ Look for new lists';
+    again.onclick=()=>calendarPicker(true);
+    wrap.appendChild(again);
+
+    host.appendChild(wrap);
+  }
+
+  // ---- My day ----------------------------------------------------------
+  async function myDay(days){
+    openChat(); addMsg('me','🗓️ What\u2019s on');
+    const _wait=addMsg('buddy','Checking…');
+    const {status,data}=await api('/calendar/day',{days:days||1}).catch(()=>({status:0,data:{}}));
+    _wait.remove();
+    if(status===0){ addMsg('buddy','Couldn\u2019t reach Vision just then.'); return; }
+    if(!data.ok){
+      const m=data.spoken||'Calendars aren\u2019t switched on yet.';
+      addMsg('buddy',m); say(m);
+      const el=addMsg('buddy','🗓️ Open the picker'); el.style.cursor='pointer'; el.onclick=()=>calendarPicker();
+      return;
+    }
+    addMsg('buddy',data.spoken); say(data.spoken);
+    (data.events||[]).slice(0,10).forEach(e=>{
+      const when = e.work && e.whenBoth ? e.whenBoth
+        : (e.allDay ? 'all day' : new Date(e.start).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit',hour12:true}));
+      const el=addMsg('buddy',`${e.work?'🔧':'📅'} ${e.title} — ${when}${e.shared?` · ${e.source}`:''}`);
+      el.style.opacity='.9';
+      if(e.work && e.job){ el.style.cursor='pointer'; el.onclick=()=>jobReport(e.job); }
+    });
+  }
+
+  // ---- Lists -----------------------------------------------------------
+  async function showList(name){
+    if(!name) name=await sayOrType('Which list?');
+    if(!name) return;
+    openChat(); addMsg('me',`📋 ${name}`);
+    const _wait=addMsg('buddy','Reading it…');
+    const {data}=await api('/calendar/list',{name}).catch(()=>({data:{}}));
+    _wait.remove();
+    if(data.ambiguous){
+      const chosen=await pick('Which list?', (data.candidates||[]).map(c=>({label:c.name,value:c.name})));
+      if(chosen) return showList(chosen);
+      return;
+    }
+    const m=data.spoken||'Couldn\u2019t read that list.';
+    addMsg('buddy',m); say(m);
+    if(data.ok && data.shared) addMsg('buddy','⚠️ That one\u2019s shared — changes show up on her phone too.').style.opacity='.75';
+  }
+
+  // Never writes without a read-back. Four of these lists are hers.
+  async function tickOff(list, utterance){
+    if(!list) list=await sayOrType('Which list?');
+    if(!list) return;
+    if(!utterance) utterance=await sayOrType('What\u2019s done? (e.g. "banana done, milk done")');
+    if(!utterance) return;
+
+    openChat(); addMsg('me',`✅ ${utterance}`);
+    const _wait=addMsg('buddy','Matching those up…');
+    const {data}=await api('/calendar/tick/prepare',{list,utterance}).catch(()=>({data:{}}));
+    _wait.remove();
+
+    if(data.ambiguous && data.candidates){
+      const chosen=await pick('Which list?', data.candidates.map(c=>({label:c.name,value:c.name})));
+      if(chosen) return tickOff(chosen, utterance);
+      return;
+    }
+    if(!data.ok){
+      const m=data.spoken||'Couldn\u2019t match those.';
+      addMsg('buddy',m); say(m);
+      if(data.ambiguous&&data.ambiguous.length){
+        data.ambiguous.forEach(a=>addMsg('buddy',`"${a.spoken}" could be: ${a.options.join(' / ')} — say which.`).style.opacity='.8');
+      }
+      return;
+    }
+
+    addMsg('buddy',data.spoken); say(data.spoken);
+    const go=await pick(data.spoken,[
+      {label:'✅ Yes, tick them off',value:'yes'},
+      {label:'🎤 Say it again',value:'redo'},
+      {label:'Cancel',value:'no'}]);
+    if(go==='redo') return tickOff(list, null);
+    if(go!=='yes'){ say('Left it alone.'); return; }
+
+    const r=await api('/calendar/tick/confirm',{}).catch(()=>({data:{}}));
+    const m=(r.data&&r.data.spoken)||'Something went wrong ticking those off.';
+    addMsg('buddy',m); say(m);
+  }
+
+  async function addToList(list, item){
+    if(!item) item=await sayOrType('What should I add?');
+    if(!item) return;
+    if(!list) list=await sayOrType('Which list?');
+    if(!list) return;
+    openChat();
+    const _wait=addMsg('buddy','Adding it…');
+    const {data}=await api('/calendar/add',{list,item}).catch(()=>({data:{}}));
+    _wait.remove();
+    if(data.ambiguous && data.candidates){
+      const chosen=await pick('Which list?', data.candidates.map(c=>({label:c.name,value:c.name})));
+      if(chosen) return addToList(chosen, item);
+      return;
+    }
+    const m=data.spoken||'Couldn\u2019t add that.';
+    openChat(); addMsg('buddy',m); say(m);
+  }
+
+  async function amIFree(args){
+    args=args||{};
+    const {data}=await api('/calendar/free',args).catch(()=>({data:{}}));
+    openChat();
+    if(!data.ok){ const m='Calendars aren\u2019t switched on yet.'; addMsg('buddy',m); say(m); return; }
+    if(data.spoken){ addMsg('buddy',data.spoken); say(data.spoken); return; }
+    const slots=(data.slots||[]).slice(0,5);
+    if(!slots.length){ const m='No clear gaps in that window.'; addMsg('buddy',m); say(m); return; }
+    const m=`You've got ${slots.length} gap${slots.length>1?'s':''} — ${slots.map(s=>s.whenBoth).join(', ')}.`;
+    addMsg('buddy',m); say(m);
+  }
+
+  // ---- Geeks2U job reports --------------------------------------------
+  // The service description is mandatory to close a job and he writes one
+  // every time — this is the repetitive bit worth taking off him.
+  async function jobReport(job, dictation){
+    if(!job) job=await sayOrType('Which job number?');
+    if(!job) return;
+    if(!dictation) dictation=await sayOrType(`What did you do on ${job}? Just talk it through.`);
+    if(!dictation) return;
+
+    openChat(); addMsg('me',`📝 Job report ${job}`);
+    addMsg('buddy','Writing it up…');
+    const {data}=await api('/job/report',{job,dictation}).catch(()=>({data:{}}));
+    if(!data.ok){ const m=data.spoken||'Couldn\u2019t write that up.'; addMsg('buddy',m); say(m); return; }
+
+    if(data.job) localStorage.setItem('buddy_currentjob', String(data.job));
+    const el=addMsg('buddy','');
+    const pre=document.createElement('pre');
+    pre.style.cssText='white-space:pre-wrap;margin:0;font:inherit;line-height:1.5';
+    pre.textContent=data.report;
+    el.appendChild(pre);
+
+    say(`Written up for ${data.job}.`);
+    const btn=addMsg('buddy','📋 Copy for the service description');
+    btn.style.cssText+=';cursor:pointer;font-weight:700';
+    btn.onclick=()=>copyOut(data.report,'paste it into the service description');
+
+    const redo=addMsg('buddy','🎤 Say it differently');
+    redo.style.cssText+=';cursor:pointer;opacity:.75';
+    redo.onclick=()=>jobReport(job, null);
+  }
+
+  // Screenshot -> job record. The CRM is VPN-gated with no API, so showing
+  // Vision the screen is the way in.
+  async function jobCapture(job){
+    openChat(); addMsg('me','📸 Log this job');
+    addMsg('buddy','Pick the job screens — customer info and job info if you\u2019ve got both.');
+    const shots=[];
+    for(let i=0;i<2;i++){
+      const f=await pickImageFile();
+      if(!f) break;
+      const _j=await imageForUpload(f,1400);
+      if(!_j.ok){ addMsg('buddy',_j.reason); break; }
+      shots.push(_j.base64);
+      if(i===0){
+        const more=await pick('Got another screen for this job?',[
+          {label:'📸 Yes, add the other one',value:'yes'},{label:'No, that\u2019s it',value:'no'}]);
+        if(more!=='yes') break;
+      }
+    }
+    if(!shots.length){ addMsg('buddy','No screenshot picked.'); return; }
+
+    addMsg('buddy','Reading it…');
+    const {data}=await api('/job/capture',{images:shots,job}).catch(()=>({data:{}}));
+    if(!data.ok){
+      const m=data.spoken||'Couldn\u2019t read that screen.';
+      addMsg('buddy',m); say(m);
+      if(data.parsed){
+        const n=await sayOrType('What\u2019s the job number?');
+        if(n) return jobCapture(n);
+      }
+      return;
+    }
+    addMsg('buddy',data.spoken); say(data.spoken);
+    // Batch 141: the scene and timeline tools attach work to a job, but nothing
+    // ever recorded WHICH job he's on — the same read-but-never-written bug the
+    // audit contract exists to catch. Capturing a job is the moment he knows.
+    if(data.job) localStorage.setItem('buddy_currentjob', String(data.job));
+    const r=data.record||{};
+    const lines=[['Customer',r.customer],['Phone',r.phone],['Type',r.type],['Appointment',r.appointment],['Problem',r.problem]]
+      .filter(([,v])=>v).map(([k,v])=>`${k}: ${v}`).join('\n');
+    if(lines){ const el=addMsg('buddy',''); const pre=document.createElement('pre');
+      pre.style.cssText='white-space:pre-wrap;margin:0;font:inherit;opacity:.9'; pre.textContent=lines; el.appendChild(pre); }
+    addMsg('buddy','⚠️ Check the phone number — reading it off a screenshot isn\u2019t perfect.').style.opacity='.7';
+  }
+
+  async function addEventFromRouter(a){
+    a=a||{};
+    let title=a.title||await sayOrType('What\u2019s the event?');
+    if(!title) return;
+    let start=a.start;
+    if(!start){
+      const when=await sayOrType('When? (e.g. "Thursday 2pm")');
+      if(!when) return;
+      const d=new Date(when);
+      if(isNaN(d)){
+        openChat();
+        const m='I couldn\u2019t read that as a date — try "2026-07-24 14:00".';
+        addMsg('buddy',m); say(m); return;
+      }
+      start=d.toISOString();
+    }
+    const {data}=await api('/calendar/event',{title,start,calendar:a.calendar}).catch(()=>({data:{}}));
+    const m=data.spoken||'Couldn\u2019t add that.';
+    openChat(); addMsg('buddy',m); say(m);
+  }
+
+  async function jobRecall(query){
+    if(query===undefined) query=await sayOrType('Which job, or whose?');
+    openChat(); addMsg('me',`🔍 ${query||'recent jobs'}`);
+    const _wait=addMsg('buddy','Looking…');
+    const {data}=await api('/job/recall',{query}).catch(()=>({data:{}}));
+    _wait.remove();
+    const m=data.spoken||'Nothing filed yet.';
+    addMsg('buddy',m); say(m);
+    if(data.ok && data.job && data.job.report){
+      const btn=addMsg('buddy','📋 Copy that report');
+      btn.style.cssText+=';cursor:pointer;font-weight:700';
+      btn.onclick=()=>copyOut(data.job.report,'report copied');
+    }
+  }
+
+  // ============================================================
+  // BATCH 110 — CONVERSATION MODE
+  // Full-screen, two-sided, mic stays live between turns.
+  // Meta's layout, Google's romanisation + hold-up text, Apple's phrasebook,
+  // and Vision's memory underneath — which is the bit none of them have.
+  // ============================================================
+
+  const convo = {
+    open:false, turns:[], listening:false, rec:null,
+    autoMic: (localStorage.getItem('buddy_convo_automic')||'1')==='1',
+    speak:  (localStorage.getItem('buddy_convo_speak')||'1')==='1',
+    theirLang: localStorage.getItem('buddy_theirlang')||'',
+    busy:false,
+  };
+
+  function convoOpen(){
+    if(convo.open) return;
+    // The global hands-free mic and the conversation mic are two recognisers
+    // fighting for one microphone — iOS gives it to neither. Park the global
+    // one for the duration and restore it on close.
+    convo.wasHandsFree = (typeof handsFree!=='undefined') && handsFree;
+    if(convo.wasHandsFree){ try{ handsFree=false; rec&&rec.stop(); }catch(e){} }
+    convo.open=true; convo.turns=[];
+
+    const o=document.createElement('div');
+    o.id='convoOverlay';
+    o.style.cssText='position:fixed;inset:0;z-index:1400;background:var(--bg,#0a0e1f);display:flex;flex-direction:column';
+    o.innerHTML=
+      '<div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.10)">'+
+        '<div id="convoClose" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px">✕</div>'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-weight:700">Conversation</div>'+
+          '<div id="convoLang" style="font-size:12px;opacity:.65">Just talk — I work out the language</div>'+
+        '</div>'+
+        '<div id="convoBook" style="padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);cursor:pointer;font-size:13px">📖</div>'+
+        '<div id="convoSave" style="padding:8px 12px;border-radius:999px;background:rgba(245,166,35,.22);border:1px solid rgba(245,166,35,.5);cursor:pointer;font-size:13px;font-weight:700">Save</div>'+
+      '</div>'+
+      '<div id="convoFeed" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px"></div>'+
+      '<div style="padding:12px 16px 22px;border-top:1px solid rgba(255,255,255,.10)">'+
+        '<div id="convoStatus" style="text-align:center;font-size:13px;opacity:.7;min-height:20px;margin-bottom:10px">Tap the mic and speak</div>'+
+        '<div style="display:flex;align-items:center;gap:12px">'+
+          '<div id="convoType" style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.07);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px">⌨️</div>'+
+          '<div id="convoMic" style="flex:1;height:58px;border-radius:29px;display:flex;align-items:center;justify-content:center;gap:9px;cursor:pointer;font-weight:800;font-size:16px;background:rgba(245,166,35,.24);border:1px solid rgba(245,166,35,.55)">🎤 Speak</div>'+
+          '<div id="convoOpts" style="width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.07);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px">⚙️</div>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(o);
+
+    document.getElementById('convoClose').onclick=convoClose;
+    document.getElementById('convoMic').onclick=()=>convo.listening?convoStopMic():convoStartMic();
+    document.getElementById('convoType').onclick=convoTypeLine;
+    document.getElementById('convoOpts').onclick=convoOptions;
+    document.getElementById('convoSave').onclick=()=>convoSave();
+    document.getElementById('convoBook').onclick=convoPhrasebook;
+
+    convoHint();
+    // Straight into listening — the whole point is not tapping between turns.
+    setTimeout(convoStartMic, 350);
+  }
+
+  function convoHint(){
+    const el=document.getElementById('convoLang');
+    if(!el) return;
+    el.textContent = convo.theirLang
+      ? `Auto-detecting · usually ${convo.theirLang}`
+      : 'Just talk — I work out the language';
+  }
+
+  function convoClose(){
+    convoStopMic();
+    const o=document.getElementById('convoOverlay');
+    if(o) o.remove();
+    convo.open=false;
+    if(convo.wasHandsFree){ try{ handsFree=true; startListening(); }catch(e){} convo.wasHandsFree=false; }
+    if(convo.turns.length>=2) setTimeout(()=>convoSavePrompt(), 400);
+  }
+
+  function convoStatus(msg){
+    const el=document.getElementById('convoStatus');
+    if(el) el.textContent=msg;
+  }
+
+  function convoMicPaint(){
+    const b=document.getElementById('convoMic');
+    if(!b) return;
+    if(convo.listening){
+      b.style.background='rgba(80,200,120,.26)';
+      b.style.border='1px solid rgba(80,200,120,.6)';
+      b.textContent='🎙️ Listening — tap to stop';
+    }else{
+      b.style.background='rgba(245,166,35,.24)';
+      b.style.border='1px solid rgba(245,166,35,.55)';
+      b.textContent='🎤 Speak';
+    }
+  }
+
+  function convoStartMic(){
+    if(convo.listening||convo.busy) return;
+    // Vision's own voice would otherwise be heard and translated back at us.
+    // The global say() sets buddySpeaking; wait it out rather than talk over it.
+    if(typeof buddySpeaking!=='undefined' && buddySpeaking){
+      setTimeout(()=>{ if(convo.open&&!convo.busy) convoStartMic(); }, 400);
+      return;
+    }
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){ convoStatus('Voice isn\u2019t available in this browser — use ⌨️ to type.'); return; }
+    try{
+      const r=new SR();
+      // Recognition is anchored to his language; the model does the real
+      // detection from the words, so this stays put rather than flip-flopping.
+      r.lang='en-AU'; r.interimResults=false; r.maxAlternatives=1; r.continuous=false;
+      r.onresult=e=>{
+        const t=(e.results[0][0].transcript||'').trim();
+        if(t) convoTurn(t);
+      };
+      r.onerror=ev=>{
+        convo.listening=false; convoMicPaint();
+        if(ev.error==='not-allowed') convoStatus('Microphone blocked — allow it in Safari settings.');
+        else convoStatus('Didn\u2019t catch that — tap to try again.');
+      };
+      r.onend=()=>{
+        convo.listening=false; convoMicPaint();
+        // Auto-restart is what makes it a conversation instead of a form,
+        // but never while Vision is mid-sentence or a turn is in flight.
+        if(convo.autoMic && convo.open && !convo.busy) setTimeout(()=>{ if(convo.open&&!convo.busy) convoStartMic(); }, 400);
+      };
+      convo.rec=r; r.start();
+      convo.listening=true; convoMicPaint(); convoStatus('Go ahead…');
+      try{ chimeListen(); }catch(e){}
+    }catch(e){ convo.listening=false; convoMicPaint(); }
+  }
+
+  function convoStopMic(){
+    const was=convo.listening;
+    convo.autoMicWas=convo.autoMic;
+    try{ convo.rec&&convo.rec.stop(); }catch(e){}
+    convo.listening=false; convoMicPaint();
+    if(was){ try{ chimeStop(); }catch(e){} }
+  }
+
+  async function convoTypeLine(){
+    const t=prompt('Type the line (either language):','');
+    if(t&&t.trim()) convoTurn(t.trim());
+  }
+
+  // ---- one turn ----------------------------------------------------------
+  async function convoTurn(text){
+    if(convo.busy) return;
+    convo.busy=true;
+    convoStopMic();
+
+    const feed=document.getElementById('convoFeed');
+    const pending=convoBubble({who:'me', text, pending:true});
+    feed.scrollTop=feed.scrollHeight;
+    convoStatus('Translating…');
+
+    try{
+      const {data}=await api('/converse/turn',{
+        text,
+        theirLang: convo.theirLang||undefined,
+        history: convo.turns.slice(-4).map(t=>({who:t.who,lang:t.lang,text:t.text})),
+      });
+
+      if(!data||data.fallback||!data.translation){
+        pending.remove();
+        convoStatus('Didn\u2019t get that — try again.');
+        convo.busy=false;
+        if(convo.autoMic) setTimeout(convoStartMic,300);
+        return;
+      }
+
+      const incoming = data.direction==='to-me';
+      pending.remove();
+
+      const turn={
+        who: incoming?'them':'me',
+        lang: data.detected||'',
+        text,
+        translation: data.translation,
+        roman: data.roman||'',
+        tone: data.tone||'',
+        note: data.note||'',
+        confidence: data.confidence,
+      };
+      convo.turns.push(turn);
+      convoBubble(turn);
+
+      if(incoming && data.detected && data.detected!==convo.theirLang){
+        convo.theirLang=data.detected;
+        localStorage.setItem('buddy_theirlang',data.detected);
+        convoHint();
+      }
+
+      // Speak the side the other person needs to hear — IN THEIR LANGUAGE.
+      // (Audit: this was plain say(), so Thai came out in an Australian voice.)
+      if(convo.speak){
+        const target = incoming ? 'English' : (convo.theirLang || data.detected || '');
+        speakIn(data.translation, target);
+      }
+
+      feed.scrollTop=feed.scrollHeight;
+      convoStatus(convo.autoMic?'Listening again…':'Tap the mic for the next line');
+    }catch(e){
+      pending.remove();
+      convoStatus('Connection hiccup — try again.');
+    }
+    convo.busy=false;
+    if(convo.autoMic && convo.open) setTimeout(convoStartMic, convo.speak?900:300);
+  }
+
+  // ---- a bubble ----------------------------------------------------------
+  // Two-sided like Meta's, with Google's big hold-up text and romanisation.
+  function convoBubble(t){
+    const feed=document.getElementById('convoFeed');
+    const mine=t.who==='me';
+    const wrap=document.createElement('div');
+    wrap.style.cssText='display:flex;flex-direction:column;align-items:'+(mine?'flex-end':'flex-start')+';gap:4px';
+
+    const bub=document.createElement('div');
+    bub.style.cssText='max-width:86%;padding:13px 16px;border-radius:20px;cursor:pointer;'+
+      (mine?'background:rgba(245,166,35,.20);border:1px solid rgba(245,166,35,.42);border-bottom-right-radius:6px'
+           :'background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-bottom-left-radius:6px');
+
+    if(t.pending){
+      bub.style.opacity='.55';
+      bub.textContent=t.text;
+      wrap.appendChild(bub); feed.appendChild(wrap);
+      return wrap;
+    }
+
+    // The translation is the point — it goes big, so it can be held up.
+    const main=document.createElement('div');
+    main.style.cssText='font-size:21px;line-height:1.35;font-weight:600';
+    main.textContent=t.translation;
+    bub.appendChild(main);
+
+    if(t.roman){
+      const rom=document.createElement('div');
+      rom.style.cssText='margin-top:5px;font-size:14px;opacity:.72;font-style:italic';
+      rom.textContent=t.roman;
+      bub.appendChild(rom);
+    }
+
+    const orig=document.createElement('div');
+    orig.style.cssText='margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.10);font-size:13px;opacity:.6';
+    orig.textContent=t.text;
+    bub.appendChild(orig);
+
+    // Tap to replay — the single most-used gesture in every translate app.
+    bub.onclick=()=>{
+      // Replay in the language the line is actually in.
+      speakIn(t.translation, mine ? (convo.theirLang||'') : 'English');
+      bub.style.opacity='.7'; setTimeout(()=>bub.style.opacity='1',260);
+    };
+
+    const meta=document.createElement('div');
+    meta.style.cssText='display:flex;gap:8px;align-items:center;font-size:11px;opacity:.55;padding:0 6px';
+    const bits=[];
+    if(t.lang) bits.push(t.lang);
+    if(t.tone && !/neutral/i.test(t.tone)) bits.push(t.tone);
+    if(typeof t.confidence==='number' && t.confidence<0.6) bits.push('unsure');
+    meta.textContent=bits.join(' · ');
+
+    const star=document.createElement('span');
+    star.style.cssText='margin-left:auto;cursor:pointer;font-size:14px;opacity:.8';
+    star.textContent='☆';
+    star.onclick=async(ev)=>{
+      ev.stopPropagation();
+      star.textContent='★';
+      await api('/converse/phrases',{action:'add',text:t.text,translation:t.translation,lang:t.lang}).catch(()=>{});
+    };
+    meta.appendChild(star);
+
+    wrap.appendChild(bub);
+    wrap.appendChild(meta);
+
+    if(t.note){
+      const n=document.createElement('div');
+      n.style.cssText='font-size:12px;opacity:.7;padding:0 8px;max-width:86%';
+      n.textContent='💡 '+t.note;
+      wrap.appendChild(n);
+    }
+
+    feed.appendChild(wrap);
+    return wrap;
+  }
+
+  // ---- options -----------------------------------------------------------
+  async function convoOptions(){
+    const wasAuto=convo.autoMic;
+    convoStopMic();
+    const choice=await pick('Conversation settings',[
+      {label:(convo.autoMic?'✅':'⬜')+' Mic restarts by itself',value:'mic'},
+      {label:(convo.speak?'✅':'⬜')+' Speak translations aloud',value:'speak'},
+      {label:'🌐 Set their language manually',value:'lang'},
+      {label:'🗑️ Clear this conversation',value:'clear'},
+    ]);
+    if(choice==='mic'){ convo.autoMic=!convo.autoMic; localStorage.setItem('buddy_convo_automic',convo.autoMic?'1':'0'); }
+    if(choice==='speak'){ convo.speak=!convo.speak; localStorage.setItem('buddy_convo_speak',convo.speak?'1':'0'); }
+    if(choice==='lang'){
+      const l=prompt('Which language are they speaking? (leave blank for auto)',convo.theirLang||'');
+      convo.theirLang=(l||'').trim();
+      localStorage.setItem('buddy_theirlang',convo.theirLang);
+      // Batch 124: buddy_mylang was read in two places but nothing ever wrote
+      // it, so it silently stayed 'English' forever. Set it here alongside the
+      // other language, which is where he'd expect to change it.
+      const mine=prompt('And what are YOU speaking?', localStorage.getItem('buddy_mylang')||'English');
+      if(mine && mine.trim()) localStorage.setItem('buddy_mylang', mine.trim());
+      convoHint();
+    }
+    if(choice==='clear'){
+      convo.turns=[];
+      const f=document.getElementById('convoFeed'); if(f) f.innerHTML='';
+      await api('/converse/save',{discard:true}).catch(()=>{});
+      convoStatus('Cleared.');
+    }
+    if(wasAuto&&convo.open&&choice!=='clear') setTimeout(convoStartMic,250);
+  }
+
+  // ---- saving ------------------------------------------------------------
+  async function convoSave(tag){
+    if(!convo.turns.length){ convoStatus('Nothing to save yet.'); return; }
+    convoStopMic();
+    if(tag===undefined){
+      tag=await new Promise(r=>{
+        const t=prompt('Save it as… (e.g. "the guesthouse bloke", "tuk-tuk driver")','');
+        r(t===null?undefined:t);
+      });
+      if(tag===undefined) return;
+    }
+    convoStatus('Saving…');
+    const {data}=await api('/converse/save',{tag}).catch(()=>({data:{}}));
+    if(data&&data.ok){
+      convoStatus('Saved into memory.');
+      if(data.summary) toast(data.summary.slice(0,90));
+    }else convoStatus('Couldn\u2019t save that.');
+  }
+
+  async function convoSavePrompt(){
+    const go=await pick('Keep that conversation?',[
+      {label:'💾 Save it',value:'yes'},
+      {label:'Discard',value:'no'}]);
+    if(go==='yes') await convoSave();
+    else await api('/converse/save',{discard:true}).catch(()=>{});
+  }
+
+  // ---- phrasebook --------------------------------------------------------
+  async function convoPhrasebook(){
+    const wasAuto=convo.autoMic&&convo.open;
+    convoStopMic();
+    if(!convo.open){ openChat(); }
+    const _wait=addMsg('buddy','Opening your phrasebook…');
+    const {data}=await api('/converse/phrases',{}).catch(()=>({data:{}}));
+    _wait.remove();
+    const list=(data&&data.phrases)||[];
+    if(!list.length){
+      if(convo.open) convoStatus('No saved phrases yet — tap ☆ on a line to keep it.');
+      else { openChat(); addMsg('buddy','No saved phrases yet. Star a line in a conversation to keep it.'); }
+      if(wasAuto) setTimeout(convoStartMic,250);
+      return;
+    }
+    const chosen=await pick('Phrasebook — tap to say it', list.map(p=>({
+      label:`${p.translation}${p.lang?`  (${p.lang})`:''}\n${p.text}`, value:p.id })));
+    if(chosen){
+      const p=list.find(x=>x.id===chosen);
+      if(p){ speakIn(p.translation, p.lang||''); await api('/converse/phrases',{action:'add',text:p.text,translation:p.translation,lang:p.lang}).catch(()=>{}); }
+    }
+    if(wasAuto) setTimeout(convoStartMic,250);
+  }
+
+  // ---- recall ------------------------------------------------------------
+  async function convoHistory(query){
+    openChat(); addMsg('me',query?`🗣️ ${query}`:'🗣️ My conversations');
+    const _wait=addMsg('buddy','Looking…');
+    const {data}=await api('/converse/history',{query:query||''}).catch(()=>({data:{}}));
+    _wait.remove();
+    const m=(data&&data.spoken)||'Nothing saved yet.';
+    addMsg('buddy',m); say(m);
+    if(data&&data.conversations){
+      data.conversations.slice(0,6).forEach(c=>{
+        const el=addMsg('buddy',`🗣️ ${c.tag||'(untagged)'} — ${c.langs.join('/')||'?'}, ${c.turns} lines`);
+        el.style.cssText+=';opacity:.85;cursor:pointer';
+        el.onclick=()=>{ if(c.summary){ addMsg('buddy',c.summary); say(c.summary); } };
+      });
+    }
+  }
+
+  // ============================================================
+  // FAST PATH (batch 116 audit)
+  // Measured: every utterance cost TWO sequential model calls — /route
+  // (~4,200 tokens in, of which 2,570 was the skill list) then /chat. That's
+  // ~2-3s before Vision says a word, and routing latency is the half you feel
+  // most because nothing is spoken until it returns.
+  //
+  // Siri and Alexa resolve their common commands on-device in milliseconds and
+  // only reach for a model when they genuinely can't tell. This does the same:
+  // an unambiguous phrasing dispatches straight to the skill, skipping the
+  // round trip entirely.
+  //
+  // Rules kept deliberately strict — a wrong local guess is far worse than a
+  // slower correct answer, so anything with the slightest ambiguity falls
+  // through to the model. In particular "to do" is NEVER matched locally,
+  // because three of his lists contain that phrase.
+  // ============================================================
+  const FAST_PATH = [
+    // --- calendar & lists ---
+    { re: /^(?:what(?:'s| is| have i got)?\s+on|what's happening)(?:\s+(?:today|on today))?\??$/i,
+      skill: 'myday', args: () => ({ days: 1 }) },
+    { re: /^what(?:'s| is)?\s+on\s+(?:this\s+)?week\??$/i,
+      skill: 'myday', args: () => ({ days: 7 }) },
+    { re: /^(?:am i|are we)\s+(?:free|busy)(?:\s+.*)?$/i,
+      skill: 'amifree', args: () => ({}) },
+
+    // A list name only counts when he says it explicitly. "my list" alone is
+    // ambiguous across twelve of them and goes to the model.
+    { re: /^(?:what(?:'s| is)?\s+on\s+)?(?:my\s+)?(groceries|grocery|shopping|bills|cookies|caravan|family|peptides?(?:\/?vitamins)?)\s*(?:list)?\??$/i,
+      skill: 'showlist', args: m => ({ list: m[1] }) },
+    { re: /^(?:read|show|check)\s+(?:me\s+)?(?:the\s+|my\s+)?(groceries|grocery|shopping|bills|cookies|caravan|family)\s*(?:list)?\??$/i,
+      skill: 'showlist', args: m => ({ list: m[1] }) },
+
+    // "banana done, milk done" — the phrasing he actually asked for.
+    { re: /^(.+?\bdone\b.*)$/i,
+      skill: 'tickoff',
+      guard: t => /\b(done|got it|picked up)\b/i.test(t) && !/\bwhat|when|why|how|who\b/i.test(t) && t.length < 120,
+      args: (m, t) => ({ utterance: t }) },
+    // "check" alone is too common a verb — it swallows "check my email".
+    // Only treat it as a tick-off when "off" makes the intent explicit.
+    { re: /^(?:tick|cross|mark)\s+(?:off\s+)?(.+)$/i,
+      skill: 'tickoff', args: (m, t) => ({ utterance: t }) },
+    { re: /^check\s+off\s+(.+)$/i,
+      skill: 'tickoff', args: (m, t) => ({ utterance: t }) },
+
+    { re: /^add\s+(.+?)\s+to\s+(?:my\s+)?(groceries|grocery|shopping|bills|cookies|caravan|family)\s*(?:list)?$/i,
+      skill: 'addlist', args: m => ({ item: m[1], list: m[2] }) },
+
+    // --- Geeks2U work ---
+    { re: /^(?:write\s+(?:up\s+)?(?:a\s+)?)?job\s+report\s+(?:for\s+)?(\d{6,8})$/i,
+      skill: 'jobreport', args: m => ({ job: m[1] }) },
+    { re: /^(?:log|save|capture|file)\s+(?:this\s+)?job$/i,
+      skill: 'jobcapture', args: () => ({}) },
+    { re: /^(?:what did i do (?:for|on)|who was)\s+(?:job\s+)?(\d{6,8})\??$/i,
+      skill: 'jobrecall', args: m => ({ query: m[1] }) },
+    { re: /^(?:my\s+)?(?:recent\s+|past\s+|last\s+)jobs\??$/i,
+      skill: 'jobrecall', args: () => ({ query: '' }) },
+
+    // --- conversation ---
+    { re: /^(?:start\s+)?(?:a\s+)?conversation(?:\s+mode)?$/i,
+      skill: 'talkto', args: () => ({}) },
+    { re: /^(?:help me\s+)?talk to (?:this|him|her|them|the)\b.*$/i,
+      skill: 'talkto', args: () => ({}) },
+    { re: /^(?:my\s+)?phrase\s*book\??$/i,
+      skill: 'phrasebook', args: () => ({}) },
+
+    // --- everyday ---
+    { re: /^(?:what(?:'s| is)? the\s+)?weather(?:\s+(?:today|now|like))?\??$/i,
+      skill: 'weather', args: () => ({}) },
+    { re: /^(?:read\s+)?(?:my\s+)?(?:unread\s+)?texts\??$/i,
+      skill: 'readtexts', args: () => ({}) },
+    { re: /^(?:check\s+)?(?:my\s+)?(?:email|mail)(?:\s+brief(?:ing)?)?\??$/i,
+      skill: 'mailbrief', args: () => ({}) },
+    { re: /^(?:what(?:'s| is)?\s+)?(?:nearby|near me|around here)\??$/i,
+      skill: 'nearby', args: () => ({}) },
+  ];
+
+  // Returns {skill,args} on a confident local match, else null.
+  function fastRoute(text) {
+    const t = String(text || '').trim();
+    if (!t || t.length > 140) return null;
+    // Anything that reads like a question for the brain rather than a command
+    // goes to the model — "why", "explain", "should I" are never fast-pathed.
+    if (/\b(why|explain|compare|should i|what do you think|how come)\b/i.test(t)) return null;
+    for (const r of FAST_PATH) {
+      const m = r.re.exec(t);
+      if (!m) continue;
+      if (r.guard && !r.guard(t)) continue;
+      try { return { skill: r.skill, args: r.args(m, t), local: true }; }
+      catch (e) { return null; }
+    }
+    return null;
+  }
+
+  // ============================================================
+  // ADVISORY LAYER (batch 129)
+  // Never acts — only ever says something he can say yes to.
+  // ============================================================
+  async function askAdvice(){
+    openChat(); addMsg('me','💡 Anything I should know?');
+    const _wait=addMsg('buddy','Having a look…');
+    const {data}=await api('/advise',{}).catch(()=>({data:{}}));
+    _wait.remove();
+    const m=(data&&data.spoken)||"Nothing worth flagging.";
+    addMsg('buddy',m); say(m);
+    // Each note is a thing he can act on, so make them tappable rather than
+    // leaving him to retype what he just heard.
+    (data&&data.notes||[]).forEach(n=>{
+      if(n.kind==='job'){ const el=addMsg('buddy','📝 Write that job up now'); el.style.cssText+=';cursor:pointer;font-weight:600'; el.onclick=()=>jobReport('',''); }
+      if(n.kind==='weather'){ const el=addMsg('buddy','🌤️ Check the forecast'); el.style.cssText+=';cursor:pointer;font-weight:600'; el.onclick=()=>{ document.getElementById('chatText').value='weather'; sendChat(); }; }
+      if(n.kind==='arrival'){ const el=addMsg('buddy','🧭 Run me through the local norms'); el.style.cssText+=';cursor:pointer;font-weight:600'; el.onclick=()=>{ document.getElementById('chatText').value='what should I know about the local customs here'; sendChat(); }; }
+    });
+  }
+
+  // "What haven't I thought of?" — the option he didn't ask about.
+  async function askAlternative(intent, detail){
+    if(!intent) intent=await sayOrType('What were you about to do?');
+    if(!intent) return;
+    openChat(); addMsg('me','🤔 What else could I do?');
+    const _wait=addMsg('buddy','Thinking it through…');
+    const {data}=await api('/alternative',{intent,detail:detail||''}).catch(()=>({data:{}}));
+    _wait.remove();
+    const m=(data&&data.alternative)||"Nothing better comes to mind — what you're doing looks right.";
+    addMsg('buddy',m); say(m);
+  }
+
+  // ============================================================
+  // PUSH-TO-TALK (batch 133)
+  // Hold, speak, release — it lands on her phone. Deliberately NOT live
+  // audio: iOS Safari can't hold a stream with the screen off, so a real
+  // walkie-talkie would mean riding with the phone awake under a helmet.
+  // A held note survives a dropped signal and waits for her instead.
+  // ============================================================
+  let _ptt = { rec:null, chunks:[], startedAt:0, stream:null };
+
+  async function pttStart(btn){
+    if(_ptt.rec) return;
+    const code=pairCode();
+    if(!code){ say("Link with Jess first — tap 'Link with…'."); return; }
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      _ptt.stream=stream; _ptt.chunks=[]; _ptt.startedAt=Date.now();
+      const rec=new MediaRecorder(stream);
+      rec.ondataavailable=e=>{ if(e.data && e.data.size) _ptt.chunks.push(e.data); };
+      rec.onstop=()=>pttSend(code);
+      rec.start();
+      _ptt.rec=rec;
+      if(btn){ btn.textContent='🔴 Release to send'; btn.style.background='rgba(255,80,80,.28)'; }
+      try{ chimeListen(); }catch(e){}
+      // Hard stop so a stuck button can't record the whole ride.
+      _ptt.timer=setTimeout(()=>pttStop(btn), 30000);
+    }catch(e){ say("I couldn't get the mic — check the permission."); }
+  }
+
+  function pttStop(btn){
+    clearTimeout(_ptt.timer);
+    if(!_ptt.rec) return;
+    try{ _ptt.rec.stop(); }catch(e){}
+    try{ _ptt.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    _ptt.rec=null;
+    if(btn){ btn.textContent='🎙️ Hold to talk'; btn.style.background='rgba(245,166,35,.24)'; }
+    try{ chimeStop(); }catch(e){}
+  }
+
+  async function pttSend(code){
+    const secs=Math.round((Date.now()-_ptt.startedAt)/1000);
+    if(secs<1 || !_ptt.chunks.length){ return; }   // a stray tap isn't a message
+    const blob=new Blob(_ptt.chunks,{type:_ptt.chunks[0].type||'audio/webm'});
+    const b64=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(String(fr.result).split(',')[1]||''); fr.onerror=()=>r(''); fr.readAsDataURL(blob); });
+    if(!b64){ say("That didn't record properly — try again."); return; }
+    openChat();
+    const el=addMsg('me',`🎙️ Voice note to ${partnerName()} (${secs}s)`);
+    const {status,data}=await api('/roomnote',{code,name:myName(),audio:b64,mediaType:blob.type,seconds:secs}).catch(()=>({status:0,data:{}}));
+    if(status===0||!data.ok){ el.textContent=`🎙️ Couldn't send that one — ${(data&&data.spoken)||'try again'}.`; return; }
+    el.textContent=`🎙️ Sent to ${partnerName()} (${secs}s) ✓`;
+  }
+
+  function partnerName(){ return localStorage.getItem('buddy_partnername')||'your partner'; }
+
+  // A tap isn't a hold — say so rather than doing nothing, which reads as broken.
+  function pttHint(){
+    if(_ptt.startedAt && Date.now()-_ptt.startedAt < 1200) return;  // that was a hold, not a tap
+    const m=`Hold this down while you talk, then let go — it sends ${partnerName()} a voice note.`;
+    openChat(); addMsg('buddy',m); say(m);
+  }
+
+  // Check for notes she's left. Runs on open alongside the other room checks.
+  async function pttCheck(){
+    const code=pairCode(); if(!code) return;
+    const since=Number(localStorage.getItem('buddy_noteseen')||0);
+    try{
+      const {data}=await api('/roomnote',{code,name:myName(),since});
+      const notes=(data&&data.notes)||[];
+      if(!notes.length) return;
+      openChat();
+      notes.slice(0,3).forEach(n=>{
+        const mins=Math.round((Date.now()-n.at)/60000);
+        const when=mins<2?'just now':mins<60?`${mins} min ago`:`${Math.round(mins/60)}h ago`;
+        const el=addMsg('buddy',`🎙️ ${n.by}, ${when} (${n.secs}s) — tap to play`);
+        el.style.cssText+=';cursor:pointer;font-weight:600';
+        el.onclick=()=>{ try{ new Audio(`data:${n.mediaType};base64,${n.audio}`).play(); }catch(e){ addMsg('buddy',"Couldn't play that one."); } };
+        if(n.text) addMsg('buddy','“'+n.text+'”').style.opacity='.8';
+      });
+      chimeNews();
+      // Only acknowledge what actually rendered — same lesson as the watchers.
+      localStorage.setItem('buddy_noteseen', String(Math.max(...notes.slice(0,3).map(n=>n.at))));
+    }catch(e){}
+  }
+
+  // ============================================================
+  // THE INVESTIGATOR (batch 141)
+  // Not a detective — it notices what CHANGED. Every answer is
+  // grounded in a comparison against something real: a prior visit,
+  // the rest of the install, or his own five years of jobs.
+  // ============================================================
+
+  // Batch 142: a fix makes site-matching reliable — "Chermside" and "chermside
+  // job" would otherwise become two places and the diff would compare nothing.
+  // Best-effort: inside a building there may be no fix, and that must never
+  // block a capture.
+  function sceneFix(){
+    return new Promise(resolve=>{
+      if(!navigator.geolocation){ resolve(null); return; }
+      const done=setTimeout(()=>resolve(null), 4000);
+      navigator.geolocation.getCurrentPosition(
+        p=>{ clearTimeout(done); resolve({lat:p.coords.latitude, lng:p.coords.longitude}); },
+        ()=>{ clearTimeout(done); resolve(null); },
+        {enableHighAccuracy:true, timeout:3500, maximumAge:60000});
+    });
+  }
+
+  function scenePlace(){ return localStorage.getItem('buddy_scene_place')||''; }
+  function sceneSetPlace(p){ if(p) localStorage.setItem('buddy_scene_place', p); }
+
+  async function askPlace(prompt_){
+    const last=scenePlace();
+    const p=await sayOrType(prompt_+(last?` (last was ${last})`:''));
+    const v=(p||'').trim()||last;
+    if(v) sceneSetPlace(v);
+    return v;
+  }
+
+  // Walk the room. Up to four frames of the same place, so a later visit has
+  // something real to diff against.
+  async function sceneScan(place, note){
+    if(!place) place=await askPlace('Where is this?');
+    if(!place) return;
+    openChat(); addMsg('me',`🔎 Scanning ${place}`);
+    const shots=[];
+    for(let i=0;i<4;i++){
+      const f=await pickImageFile();
+      if(!f) break;
+      const img=await imageForUpload(f,1400);
+      if(!img.ok){ addMsg('buddy',img.reason); break; }
+      shots.push(img.base64);
+      if(i<3){
+        const more=await pick(`${shots.length} frame${shots.length>1?'s':''} — another angle?`,[
+          {label:'📸 Another',value:'y'},{label:'That\u2019s the lot',value:'n'}]);
+        if(more!=='y') break;
+      }
+    }
+    if(!shots.length){ addMsg('buddy','No frames taken.'); return; }
+    const _w=addMsg('buddy','Recording what\u2019s here…');
+    const fix=await sceneFix();
+    const {data}=await api('/scene/capture',{place,images:shots,note:note||'',job:localStorage.getItem('buddy_currentjob')||'',
+      lat:fix?fix.lat:undefined, lng:fix?fix.lng:undefined}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Couldn\u2019t record that.';
+    addMsg('buddy',m); say(m);
+    if(data&&data.ok){
+      if(data.matchedBy==='location'&&data.knownAs) addMsg('buddy',`📍 Same site as "${data.knownAs}".`).style.opacity='.8';
+      const s=data.scene||{};
+      if(s.equipment&&s.equipment.length){
+        const el=addMsg('buddy','');
+        const pre=document.createElement('pre');
+        pre.style.cssText='white-space:pre-wrap;margin:0;font:inherit;opacity:.9;font-size:13px';
+        pre.textContent=s.equipment.map(e=>`• ${e.what}${e.model?` (${e.model})`:''}${e.state?` — ${e.state}`:''}`).join('\n');
+        el.appendChild(pre);
+      }
+      if(s.notable&&s.notable.length) addMsg('buddy','⚠️ '+s.notable.join(' · ')).style.opacity='.9';
+      if(data.priorVisits){
+        const d=addMsg('buddy','🔀 What\u2019s changed since last time?');
+        d.style.cssText+=';cursor:pointer;font-weight:700';
+        d.onclick=()=>sceneDiff(place);
+      }
+    }
+  }
+
+  // The only part that can be certain: two records, one difference.
+  async function sceneDiff(place){
+    if(!place) place=await askPlace('Which place?');
+    if(!place) return;
+    openChat(); addMsg('me',`🔀 What\u2019s changed at ${place}`);
+    const _w=addMsg('buddy','Comparing with last visit…');
+    const fix=await sceneFix();
+    const {data}=await api('/scene/diff',{place,lat:fix?fix.lat:undefined,lng:fix?fix.lng:undefined}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Couldn\u2019t compare those.';
+    addMsg('buddy',m); say(m);
+    if(data&&data.ok){
+      const rows=[
+        ['Appeared', data.appeared], ['Gone', data.gone],
+        ['Changed', data.changed], ['Not sure', data.uncertain],
+      ].filter(([,v])=>v&&v.length);
+      rows.forEach(([k,v])=>addMsg('buddy',`${k}: ${v.join(' · ')}`).style.opacity='.88');
+    }
+  }
+
+  async function sceneAnomaly(place){
+    if(!place) place=await askPlace('Which place?');
+    if(!place) return;
+    openChat(); addMsg('me',`🧩 Anything out of place at ${place}`);
+    const _w=addMsg('buddy','Having a look…');
+    const fix=await sceneFix();
+    const {data}=await api('/scene/anomaly',{place,lat:fix?fix.lat:undefined,lng:fix?fix.lng:undefined}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Couldn\u2019t look it over.';
+    addMsg('buddy',m); say(m);
+    (data&&data.findings||[]).forEach(f=>{
+      const mark=f.confidence==='high'?'🔴':f.confidence==='medium'?'🟠':'⚪';
+      addMsg('buddy',`${mark} ${f.what}${f.why?` — ${f.why}`:''}`).style.opacity='.9';
+    });
+  }
+
+  // Candidates with what rules each one out. Never a verdict.
+  async function sceneNext(symptom, place){
+    if(!symptom) symptom=await sayOrType('What\u2019s it doing?');
+    if(!symptom) return;
+    openChat(); addMsg('me',`➡️ ${symptom}`);
+    const _w=addMsg('buddy','Working through it…');
+    const fix=await sceneFix();
+    const {data}=await api('/scene/next',{symptom,place:place||scenePlace(),lat:fix?fix.lat:undefined,lng:fix?fix.lng:undefined}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Couldn\u2019t work that through.';
+    addMsg('buddy',m); say(m);
+    if(data&&data.seenBefore) addMsg('buddy','📂 '+data.seenBefore).style.opacity='.9';
+    (data&&data.checks||[]).forEach((c,i)=>{
+      addMsg('buddy',`${i+1}. ${c.check}${c.minutes?`  (~${c.minutes} min)`:''}${c.rulesOut?`\n   rules out: ${c.rulesOut}`:''}`).style.opacity='.92';
+    });
+    if(data&&data.cannotNarrow) addMsg('buddy','I can\u2019t narrow it further than that from here.').style.opacity='.75';
+    if(data&&data.ok){
+      const f=addMsg('buddy','🤔 When you\u2019ve decided — tap to sanity check it');
+      f.style.cssText+=';cursor:pointer;opacity:.8';
+      f.onclick=()=>sceneFalsify(null, symptom);
+    }
+  }
+
+  // The aviation question. Asked before he packs up.
+  async function sceneFalsify(conclusion, symptom){
+    if(!conclusion) conclusion=await sayOrType('What do you reckon it is?');
+    if(!conclusion) return;
+    openChat(); addMsg('me',`🤔 ${conclusion}`);
+    const _w=addMsg('buddy','Thinking it through…');
+    const {data}=await api('/scene/falsify',{conclusion,symptom:symptom||''}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Couldn\u2019t think that through.';
+    addMsg('buddy',m); say(m);
+    if(data&&data.test) addMsg('buddy','🧪 '+data.test).style.opacity='.9';
+  }
+
+  async function sceneSeen(symptom){
+    if(!symptom) symptom=await sayOrType('What\u2019s the fault?');
+    if(!symptom) return;
+    openChat(); addMsg('me',`📂 Seen this before?`);
+    const _w=addMsg('buddy','Checking your history…');
+    const {data}=await api('/scene/seen',{symptom}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Nothing matching in your history.';
+    addMsg('buddy',m); say(m);
+    (data&&data.lines||[]).slice(1).forEach(l=>addMsg('buddy','• '+l).style.opacity='.85');
+  }
+
+  // Writes itself if he narrates. Settles "how long were you there".
+  async function sceneTimeline(entry){
+    const job=localStorage.getItem('buddy_currentjob')||'';
+    if(entry===undefined){
+      const {data}=await api('/scene/timeline',{job}).catch(()=>({data:{}}));
+      openChat();
+      const m=(data&&data.spoken)||'Nothing logged yet.';
+      addMsg('buddy',m); say(m);
+      (data&&data.entries||[]).forEach(e=>addMsg('buddy',`${e.clock}  ${e.what}`).style.opacity='.85');
+      return;
+    }
+    if(!entry) entry=await sayOrType('What did you just do?');
+    if(!entry) return;
+    await api('/scene/timeline',{action:'add',job,entry}).catch(()=>{});
+    openChat(); addMsg('buddy',`🕐 ${entry}`).style.opacity='.85';
+  }
+
+  // ============================================================
+  // THE ATTENTION LAYER (batch 143)
+  // The judgement about when to speak. Without it, 104 skills makes
+  // Vision worse — an assistant that speaks every time gets muted,
+  // and then the one thing that mattered goes past unheard.
+  // ============================================================
+
+  // One moment, everything in it — the pattern that survives (Screen Time,
+  // Whoop's morning readout) rather than scattered interruptions.
+  async function attentionDigest(){
+    openChat(); addMsg('me','📋 What have you got for me?');
+    const _w=addMsg('buddy','Having a look…');
+    const {data}=await api('/attention/digest',{}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||'Nothing waiting.';
+    addMsg('buddy',m); say(m);
+    // Each item is dismissible right there — brushing something off has to be
+    // as easy as hearing it, or he never bothers and just stops listening.
+    (data&&data.items||[]).forEach(it=>{
+      const row=addMsg('buddy','   ⤷ not now');
+      row.style.cssText+=';cursor:pointer;opacity:.65;font-size:12px';
+      row.onclick=()=>attentionDismiss(it.kind, it.note);
+    });
+  }
+
+  // "Not now" has to mean something, or he learns that talking to it changes
+  // nothing — which is when he stops.
+  async function attentionDismiss(kind, subject, scope){
+    if(!scope){
+      scope=await pick('How long should I leave it?',[
+        {label:'A few hours',value:'once'},
+        {label:'Rest of today',value:'today'},
+        {label:'Whole trip',value:'trip'}]);
+      if(!scope) return;
+    }
+    const {data}=await api('/attention/dismiss',{kind:kind||'any',subject:subject||'',scope}).catch(()=>({data:{}}));
+    const m=(data&&data.spoken)||'Righto.';
+    openChat(); addMsg('buddy',m); say(m);
+  }
+
+  // Being able to ask why it's quiet is what makes silence trustworthy rather
+  // than suspicious.
+  async function attentionStatus(){
+    openChat(); addMsg('me','🤫 What are you sitting on?');
+    const {data}=await api('/attention/status',{}).catch(()=>({data:{}}));
+    const m=(data&&data.spoken)||'Nothing waiting.';
+    addMsg('buddy',m); say(m);
+    if(data&&data.holding){
+      const el=addMsg('buddy','📋 Run through them now');
+      el.style.cssText+=';cursor:pointer;font-weight:700';
+      el.onclick=()=>attentionDigest();
+    }
   }
 
   async function sendChat(){
@@ -5244,6 +6819,19 @@
       const m=on?`${label} on.`:`${label} off.`;
       addMsg('buddy',m); say(m); return;
     }
+    // ---- FAST PATH: resolve the obvious ones locally, no round trip ----
+    try{
+      const fast=fastRoute(text);
+      if(fast){
+        const handled=await dispatchSkill(fast.skill, fast.args, text);
+        if(handled){
+          try{ api('/diag',{action:'note',cat:'voice',msg:'fastpath: '+fast.skill}).catch(()=>{}); }catch(e){}
+          return;
+        }
+        // If the skill declined it, fall through to the model rather than fail.
+      }
+    }catch(e){ /* fast path is best-effort — never block on it */ }
+
     // ---- Intelligent router: dispatch to a specific skill first (agentic feel) ----
     try{
       const rt=await api('/route',{message:text, history:chatHistory.slice(-6), brief:brain.brief()});
@@ -5529,8 +7117,22 @@
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{
         const {data}=await api('/places',{lat:pos.coords.latitude,lng:pos.coords.longitude,query:what,recommend:'auto'});
+        // Batch 134: this spoke a recommendation and stopped, leaving him to
+        // remember a name and type it into Maps. Anything that names a real
+        // place is now one tap from turn-by-turn with voice.
+        const top=data.places?.[0];
         if(data.recommendation){ nearbySub.textContent='Vision recommends'; say(data.recommendation); toast(data.recommendation); }
-        else { const first=data.places?.[0]; say(first?`Nearest: ${first.name}.`:'Nothing found nearby.'); }
+        else { say(top?`Nearest: ${top.name}.`:'Nothing found nearby.'); }
+        if(top){
+          openChat();
+          if(data.recommendation) addMsg('buddy',data.recommendation);
+          (data.places||[]).slice(0,3).forEach(p=>{
+            const el=addMsg('buddy',`🧭 ${p.name}${p.rating?` ★${p.rating}`:''} — tap to navigate`);
+            el.style.cssText+=';cursor:pointer';
+            el.onclick=()=>{ say(`Taking you to ${p.name}.`); openMaps(p.address||p.name); };
+          });
+          brain.setPlace(top.name, top.address||top.name);
+        }
       }catch(e){} finally{ busy('nearbySub',false); }
     }, ()=>{ busy('nearbySub',false); say('Location permission needed.'); });
   }

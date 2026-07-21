@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vision — the whole system</title>
+<style>
+/* ---------------------------------------------------------------------------
+   The subject is a travel assistant that lives in a pair of glasses, built by
+   one person over 139 batches. Its own vernacular is the technical drawing:
+   an exploded diagram where you slide through the depth of a machine and watch
+   each layer surface. So the slider is not a control bolted onto a dashboard —
+   it IS the diagram, and the page has nothing else competing with it.
+
+   Palette taken from the app itself (amber on midnight) rather than invented,
+   because this documents that app and should feel like the same object.
+--------------------------------------------------------------------------- */
+:root{
+  --ink:#0a0e1f;            /* the app's midnight */
+  --ink-2:#111730;
+  --amber:#f5a623;          /* the app's accent */
+  --amber-dim:rgba(245,166,35,.16);
+  --paper:#e8e6df;          /* drafting paper, warm off-white */
+  --paper-dim:rgba(232,230,223,.52);
+  --rule:rgba(232,230,223,.14);
+  --teal:#5fc9c0;           /* the companion arc from the logo */
+  --line:1px solid var(--rule);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--ink);
+  color:var(--paper);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  font-size:15px; line-height:1.55;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* Faint grid, like the paper a technical drawing is set on. */
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image:
+    linear-gradient(rgba(232,230,223,.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232,230,223,.028) 1px, transparent 1px);
+  background-size:34px 34px;
+}
+
+.wrap{position:relative; z-index:1; max-width:1080px; margin:0 auto; padding:0 22px 90px}
+
+/* --- masthead ----------------------------------------------------------- */
+header{padding:64px 0 34px; border-bottom:var(--line)}
+.eyebrow{
+  font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--paper-dim); margin-bottom:20px;
+}
+h1{
+  font-family:Georgia,"Times New Roman",serif;
+  font-size:clamp(38px,7vw,68px); font-weight:400; line-height:1.02;
+  letter-spacing:-.02em; margin-bottom:16px;
+}
+h1 em{font-style:italic; color:var(--amber)}
+.standfirst{max-width:56ch; color:var(--paper-dim); font-size:14px}
+
+/* --- the counters ------------------------------------------------------- */
+.counts{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr));
+  gap:1px; background:var(--rule); border:var(--line); border-left:0; border-right:0;
+  margin:34px 0 0;
+}
+.count{background:var(--ink); padding:16px 14px}
+.count b{display:block; font-family:Georgia,serif; font-size:26px; font-weight:400; color:var(--amber)}
+.count span{font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--paper-dim)}
+
+/* --- the depth control -------------------------------------------------- */
+.control{
+  position:sticky; top:0; z-index:20;
+  background:linear-gradient(var(--ink) 78%, transparent);
+  padding:26px 0 22px; margin-top:8px;
+}
+.control-head{
+  display:flex; align-items:baseline; justify-content:space-between;
+  gap:16px; margin-bottom:16px; flex-wrap:wrap;
+}
+.depth-label{font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--paper-dim)}
+.depth-now{font-family:Georgia,serif; font-size:19px; color:var(--paper)}
+.depth-now i{font-style:normal; color:var(--amber); margin-right:9px}
+
+input[type=range]{
+  -webkit-appearance:none; appearance:none;
+  width:100%; height:34px; background:transparent; cursor:grab;
+}
+input[type=range]:active{cursor:grabbing}
+input[type=range]::-webkit-slider-runnable-track{
+  height:2px; background:var(--rule);
+}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:16px; height:16px; margin-top:-7px; border-radius:50%;
+  background:var(--amber); border:3px solid var(--ink);
+  box-shadow:0 0 0 1px var(--amber);
+}
+input[type=range]::-moz-range-thumb{
+  width:16px; height:16px; border-radius:50%;
+  background:var(--amber); border:3px solid var(--ink); box-shadow:0 0 0 1px var(--amber);
+}
+input[type=range]:focus-visible{outline:2px solid var(--teal); outline-offset:6px}
+
+.ticks{display:flex; justify-content:space-between; margin-top:2px}
+.tick{
+  font-size:10px; letter-spacing:.1em; color:var(--paper-dim);
+  background:none; border:0; padding:8px 2px; cursor:pointer;
+  font-family:inherit; transition:color .18s;
+}
+.tick[aria-current="true"]{color:var(--amber)}
+.tick:hover{color:var(--paper)}
+
+/* --- the layers --------------------------------------------------------- */
+.layer{
+  border-bottom:var(--line); padding:34px 0;
+  opacity:.2; transition:opacity .4s ease;
+}
+.layer.on{opacity:1}
+.layer.past{opacity:.4}
+@media (prefers-reduced-motion:reduce){
+  .layer{transition:none}
+}
+
+.layer-head{display:flex; gap:20px; align-items:baseline; margin-bottom:8px}
+.layer-no{
+  font-family:Georgia,serif; font-size:34px; color:var(--amber);
+  line-height:1; min-width:44px;
+}
+.layer-title{font-family:Georgia,serif; font-size:23px; font-weight:400}
+.layer-note{color:var(--paper-dim); font-size:13px; max-width:60ch; margin:0 0 20px 64px}
+
+/* --- domains ------------------------------------------------------------ */
+.domains{display:grid; grid-template-columns:repeat(auto-fill,minmax(258px,1fr)); gap:1px;
+  background:var(--rule); border:var(--line); margin-left:64px}
+.domain{background:var(--ink-2); padding:16px 16px 18px}
+.domain h3{
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--teal); font-weight:400; margin-bottom:12px;
+  display:flex; justify-content:space-between;
+}
+.domain h3 span{color:var(--paper-dim)}
+.skill{
+  display:block; width:100%; text-align:left; background:none; border:0;
+  color:var(--paper); font-family:inherit; font-size:12.5px;
+  padding:4px 0; cursor:pointer; border-bottom:1px solid transparent;
+}
+.skill:hover,.skill:focus-visible{color:var(--amber); outline:none; border-bottom-color:var(--amber-dim)}
+.skill::before{content:"› "; color:var(--paper-dim)}
+
+/* --- the detail rail ---------------------------------------------------- */
+.rail{
+  position:fixed; right:0; top:0; bottom:0; width:min(360px,88vw);
+  background:var(--ink-2); border-left:1px solid var(--amber-dim);
+  padding:30px 26px; z-index:40; overflow-y:auto;
+  transform:translateX(101%); transition:transform .28s ease;
+}
+.rail.open{transform:translateX(0)}
+@media (prefers-reduced-motion:reduce){ .rail{transition:none} }
+.rail h4{font-family:Georgia,serif; font-size:24px; font-weight:400; color:var(--amber); margin-bottom:6px}
+.rail .said{font-size:12px; color:var(--paper-dim); margin-bottom:22px}
+.chain{list-style:none}
+.chain li{
+  padding:11px 0 11px 22px; border-left:1px solid var(--rule);
+  position:relative; font-size:12.5px;
+}
+.chain li::before{
+  content:""; position:absolute; left:-4px; top:17px;
+  width:7px; height:7px; border-radius:50%; background:var(--amber);
+}
+.chain b{display:block; font-weight:400; color:var(--teal); font-size:10px;
+  letter-spacing:.14em; text-transform:uppercase; margin-bottom:3px}
+.rail-close{
+  position:absolute; top:22px; right:22px; background:none; border:0;
+  color:var(--paper-dim); font-family:inherit; font-size:20px; cursor:pointer; line-height:1;
+}
+.rail-close:hover{color:var(--amber)}
+
+/* --- the ledger --------------------------------------------------------- */
+.ledger{margin-top:54px}
+.ledger h2{font-family:Georgia,serif; font-size:26px; font-weight:400; margin-bottom:6px}
+.ledger p{color:var(--paper-dim); font-size:13px; margin-bottom:22px; max-width:60ch}
+table{width:100%; border-collapse:collapse; font-size:12.5px}
+th,td{text-align:left; padding:9px 10px; border-bottom:var(--line)}
+th{font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--paper-dim); font-weight:400}
+td.n{text-align:right; color:var(--amber); font-variant-numeric:tabular-nums}
+tr:hover td{background:rgba(245,166,35,.045)}
+
+.footnote{
+  margin-top:44px; padding-top:22px; border-top:var(--line);
+  color:var(--paper-dim); font-size:12px; max-width:64ch;
+}
+.footnote strong{color:var(--paper); font-weight:400}
+
+@media(max-width:640px){
+  .domains,.layer-note{margin-left:0}
+  .layer-head{gap:12px}
+  .layer-no{font-size:26px; min-width:32px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Vision · build 139 · every layer</div>
+  <h1>One request, <em>six layers deep</em>.</h1>
+  <p class="standfirst">
+    Say “get me back to the hotel” and it crosses the whole system: a local
+    shortcut, a router, an endpoint, four stores, an advisor and Google Maps.
+    Drag the slider to go down through it.
+  </p>
+
+  <div class="counts" id="counts"></div>
+</header>
+
+<div class="control">
+  <div class="control-head">
+    <span class="depth-label">Depth</span>
+    <span class="depth-now" id="depthNow"></span>
+  </div>
+  <input type="range" id="depth" min="1" max="6" value="1" step="1"
+         aria-label="How deep into the system to look">
+  <div class="ticks" id="ticks"></div>
+</div>
+
+<div id="layers"></div>
+
+<section class="ledger">
+  <h2>What holds it together</h2>
+  <p>
+    Seventeen suites, run against the real files. Each one exists because it
+    caught something — the number in the right column is what it checks now.
+  </p>
+  <table>
+    <thead><tr><th>Suite</th><th>What it refuses to let happen</th><th class="n">Checks</th></tr></thead>
+    <tbody id="ledger"></tbody>
+  </table>
+</section>
+
+<p class="footnote">
+  <strong>Every number here was counted from the source</strong>, not estimated.
+  The one thing this page can’t tell you is whether it works: none of it has run
+  on the server yet. Seventeen green suites prove the parts agree with each
+  other — a deploy is what proves the rest.
+</p>
+
+</div>
+
+<aside class="rail" id="rail" aria-live="polite">
+  <button class="rail-close" id="railClose" aria-label="Close">×</button>
+  <h4 id="railTitle"></h4>
+  <p class="said" id="railSaid"></p>
+  <ul class="chain" id="railChain"></ul>
+</aside>
+
+<script>
+const DATA = {"domains":{"Getting around":[["unlost","get me back / walk me to my spot"],["whereis","where is my wife/partner/husband, find them"],["nearby","find/show ANY kind of place NEAR ME — restaurants, cafes, bars, pubs, banks, ATM, pharmacy"],["navigate","directions / take me to / how do I get to / route to / walk me to / drive me to / get me t"],["flight","track/check the status of a SPECIFIC flight he is already booked on or names by number — '"],["rememberspot","remember/pin this spot — where I parked, my hotel"],["backto","take me back to my car/hotel/a saved spot"],["flightsearch","find/shop for flights to BUY — cheapest flights to X, flights from A to B in <month>, when"],["getthere","bus/train/ferry/overland travel between two places — 'how do I get from Hanoi to Sapa', 'b"],["ride","get a taxi/grab/uber/ride/lift somewhere — 'get me a grab to the airport', 'book a ride', "],["transit","buses, trains, metro, ferries, airport transfers — 'when's the next bus to X', 'train time"]],"Sleep & eat":[["findfood","ORDER food for delivery, I'm hungry order me a <dish>, food delivery — NOT finding places "],["orderupdate","any update on my order/where's my food/my delivery"],["allergy","what's in this dish / is this safe to eat / is this street food alright"],["stay","find a hotel/hostel/villa/place to stay, where should I stay in X, accommodation near me"],["menu","read/translate a menu, what can I eat here, what is good on this menu"],["findstay","find somewhere to stay, book a hotel, airbnb, accommodation in X"],["orderfood","order food TO me / delivery — 'order me some pho', 'get food delivered', 'grabfood'"],["eatout","find a restaurant to GO to / eat out / where should we eat — sit-down, not delivery"],["booktable","book/reserve a table, appointment, tour or ticket — 'book a table for 2 at 7', 'reserve so"]],"Money":[["scamcheck","is a price fair?"],["gooddeal","is this good value/worth it?"],["currency","convert money"],["couplespend","our shared spend / who owes who / log shared expense"],["logspend","log/record spending — spent 50 on lunch, log 12 for coffee"],["tripbudget","what will the trip cost, how much do I need for X days in Y, daily budget for a country"],["splitbill","split the bill, divide the cost, what does each person owe"],["spend","what has Vision cost / my AI spend / usage bill"]],"Talking to people":[["etiquette","local customs/politeness/tipping"],["converse","translate this / say this in X / what did they say — a SINGLE line"],["talkto","start a back-and-forth conversation with someone — 'talk to this bloke', 'conversation mod"],["phrasebook","my phrases, my phrasebook, saved phrases, how do I say that one again"],["convohistory","what did we talk about, what did that bloke say, recall a conversation with someone"],["tellpartner","tell/message my wife/partner something"],["voicenote","send my partner a voice note / hold to talk / leave her a message by voice"],["sayphrase","how do I say X here / teach me a local phrase"],["sendtext","text/SMS/message someone, send a message to a number, reply to that text, tell them"],["whatsapp","send a WhatsApp message to someone — 'whatsapp the hotel', 'message X on whatsapp'"],["call","call/phone/ring a number"]],"Jess & me":[["sharepin","send/share my location or a meet-here pin to my partner"],["meetmiddle","find somewhere halfway between us / meet in the middle"],["onmyway","tell my partner I'm on my way / how far am I from her"],["livelocation","share/stop my live location with my partner"],["sharedmoments","our moments / what did we do together / shared memories with partner"]],"Planning":[["planday","plan my day/itinerary"],["itinerary","my trip/bookings/flights/what's next/my schedule"],["activities","things to do, what's worth doing/seeing here, any events on, ideas for tomorrow"],["tripplan","plan my trip/X days in Y, build me an itinerary for a destination"],["tripday","what's on today/tomorrow/day N of my plan, what's next on the trip"],["packlist","what should I pack, packing list"],["esim","data/eSIM/SIM card for a country, how do I get internet there, roaming options"],["bookings","my bookings, what have I booked, my reservations, booking reference, add a booking"],["thingstobook","tours, attractions, tickets, what can we book in X, things to do"],["myday","what's on today/this week, my calendar, what have I got on, am I busy — his OWN calendar a"],["addevent","put something in my calendar — 'book Thursday 2pm', 'put the job in for Friday'"],["amifree","am I free on X, when am I free, find me a gap, do I have anything at that time"]],"Lists & jobs":[["handover","email me that, send me the details, send that to my inbox, I'll deal with it later"],["expiry","passport expiry, when does my visa run out, are my documents still valid, document dates"],["docs","my documents, insurance policy, embassy number, passport number, emergency details"],["showlist","what's on my groceries/shopping/bills/to-do list, read me a list"],["tickoff","mark list items done — 'banana done, milk done', 'tick off bread', 'got the milk'"],["addlist","add something to a list — 'add bread to groceries', 'put milk on the list'"],["jobreport","write up a Geeks2U job report/service description — 'job report for 1295115', 'write up th"],["jobcapture","log/file this job from a screenshot of the CRM — 'log this job', 'save this job screen'"],["jobrecall","what did I do for job X / for a customer name / my recent jobs"]],"Seeing":[["landmark","what is this place/building?"],["journal","trip journal / write up our trip / trip story"],["livelook","live look / watch what I'm seeing / narrate the scene / keep looking and tell me what's th"],["readpage","read/summarise a link or web page — any message containing a URL to read, 'read this', 'su"],["lifelog","my day / timeline / where have I been / what did I do today"],["capture","capture/log this moment — 'capture this', 'log what's happening', 'record this moment', 'w"]],"Looking back":[["debrief","wrap up my day / day summary / how did today go"],["dayview","my day / what did I do on X / show me yesterday / my timeline for a date"],["memoryhealth","what do you know about me, memory health, tidy up my memory, what have you learned"],["savechat","save/remember this conversation, save that as the hotel manager, log what we agreed"],["recallchat","what did the driver say, what did we agree with X, what did the hotel manager promise"],["procedures","how do I do things, what habits have you noticed, how I work"],["favourite","favourite that, save this place, that place was great"],["seenrecall","recall what Vision has SEEN before — 'what was that plant/landmark/menu', 'what did I phot"]],"Watching out":[["chat","general talk/questions — the default"],["weather",""],["survival","emergency phrases/offline pack"],["music","play music/a song/artist/playlist/vibe"],["status","my status/briefing/how am I doing/catch me up"],["readtexts","read my texts/messages, any new messages, what did they say, check my SMS"],["mailbrief","check/read my email/inbox"],["safety","safety heads-up / any scams here / is it safe around here"],["arrival","I just landed / arrival mode / set up new country"],["logbug","log a bug / something's broken / that's wrong / report a problem — anything reporting Visi"],["bugs","my bugs / show the bug log / what have I reported"],["plan","a whole outing in one go — 'sort dinner tonight', 'plan my afternoon', 'organise getting t"],["advise","anything I should know / what am I missing / anything worth flagging / heads up"],["alternative","what else could I do / is there another way / what haven't I thought of"],["watcher","watch/keep an eye on/monitor/let me know if-or-when — recurring or threshold alerts: 'watc"]]},"layers":[["1","What he says","Voice or a tile. 94 ways in.","skills"],["2","Working out what he meant","A local fast path catches the obvious ones. Everything else asks the model.","router"],["3","Doing it","105 endpoints. Each one guarded, bounded, and able to answer in words.","routes"],["4","Remembering","27 stores. Survival-weighted, distilled nightly, all recoverable on a new phone.","memory"],["5","Noticing","Eight advisors reading everything at once. They never act.","advisors"],["6","Reaching the world","18 vendors, Google Maps with voice, CalDAV, IMAP, the Claude API.","outside"]],"facts":{"skills":94,"routes":105,"tiles":99,"stores":27,"vendors":18,"suites":17,"checks":999,"serverKB":352,"appKB":421}};
+
+/* --- masthead counters --------------------------------------------------- */
+const f = DATA.facts;
+document.getElementById('counts').innerHTML = [
+  [f.skills,'ways in'], [f.routes,'endpoints'], [f.stores,'stores'],
+  [f.vendors,'vendors'], [f.suites,'suites'], [f.checks,'checks'],
+].map(([n,l]) => `<div class="count"><b>${n}</b><span>${l}</span></div>`).join('');
+
+/* --- the six layers ------------------------------------------------------
+   Layer 1 is the only one that lists skills; the rest describe what happens
+   to a request as it goes down. Depth is the organising idea, so the deeper
+   layers are deliberately quieter — there is less to choose from down there,
+   which is the point.
+-------------------------------------------------------------------------- */
+const LAYER_BODY = {
+  1: () => `<div class="domains">` + Object.entries(DATA.domains).map(([name, list]) => `
+      <div class="domain">
+        <h3>${name}<span>${list.length}</span></h3>
+        ${list.map(([n, d]) => `<button class="skill" data-skill="${n}" data-desc="${d.replace(/"/g,'&quot;')}">${n}</button>`).join('')}
+      </div>`).join('') + `</div>`,
+
+  2: () => plain([
+    ['19 local rules', 'Unambiguous phrasings resolve on the phone with no round trip. “Banana done, milk done” never leaves the device.'],
+    ['Everything else', 'Goes to a router that knows all 94 skills. It defers rather than guesses: “what’s on my to-do list” asks which one, because three of his lists contain that phrase.'],
+    ['A wrong guess costs more than a pause', 'The fast path is deliberately narrow. 10 out of 10 ambiguous phrasings hand over to the model.'],
+  ]),
+
+  3: () => plain([
+    ['105 endpoints', 'Every one authenticated, rate-limited, and bounded by a timeout.'],
+    ['They answer in words', 'Every model-backed endpoint returns a spoken line, so a client only ever needs to say it. That is what makes the native app a thin connector instead of a rewrite.'],
+    ['Failure is speakable too', 'No endpoint answers with a bare error. On glasses, an unspeakable failure is silence — the worst outcome there is.'],
+  ]),
+
+  4: () => plain([
+    ['27 stores', 'Memories, job reports, conversations, calendar preferences, shared spend.'],
+    ['Weighted, not just stored', 'A job report outranks a life-log breadcrumb. Repetition amplifies what something is already worth rather than substituting for it.'],
+    ['It survives the phone', 'Every store moves to a new device on a spoken recovery code. Nothing is left behind.'],
+    ['And it survives a crash', 'Writes are atomic with a backup. A half-written file can no longer reset everything he has told it.'],
+  ]),
+
+  5: () => plain([
+    ['Eight advisors', 'A 4:30pm job while he is three hours behind. A job done but never written up, so unpaid. Spending well above his usual. A booking inside 36 hours.'],
+    ['They read everything at once', 'Calendar, jobs, spend, bookings, memory and profile together — which is what no single skill can do.'],
+    ['They never act', 'Ten purity rules, enforced by tests: no writes, no sends, no model calls. Everything is something he can say yes to.'],
+    ['And they stay quiet', 'Capped at two. Of 200 stress prompts, 109 required silence — the half that matters, because an advisor that always speaks gets ignored.'],
+  ]),
+
+  6: () => plain([
+    ['18 vendors, 6 categories', 'Flights, stays, overland, things to do, delivery, eating out. Whichever one he actually uses floats to the top.'],
+    ['Google Maps with voice', 'Every path that names a place is one tap from turn-by-turn. Native app first, web fallback second — a dropped pin is not directions.'],
+    ['His own calendars', 'CalDAV to iCloud, including the ones Jess shares. Read and watch are separate switches, both off until he says otherwise.'],
+    ['And the brain', 'One gateway to Claude with retries, backoff and prompt caching. 57 call sites, one place to harden.'],
+  ]),
+};
+
+function plain(rows){
+  return `<div class="domains">` + rows.map(([h, b]) => `
+    <div class="domain"><h3>${h}</h3>
+      <div style="font-size:12.5px;color:var(--paper)">${b}</div>
+    </div>`).join('') + `</div>`;
+}
+
+document.getElementById('layers').innerHTML = DATA.layers.map(([no, title, note]) => `
+  <section class="layer" data-layer="${no}">
+    <div class="layer-head"><div class="layer-no">${no}</div><h2 class="layer-title">${title}</h2></div>
+    <p class="layer-note">${note}</p>
+    ${LAYER_BODY[no] ? LAYER_BODY[no]() : ''}
+  </section>`).join('');
+
+/* --- the depth control --------------------------------------------------- */
+const slider = document.getElementById('depth');
+const ticks  = document.getElementById('ticks');
+const now    = document.getElementById('depthNow');
+
+ticks.innerHTML = DATA.layers.map(([no, title]) =>
+  `<button class="tick" data-go="${no}">${no}</button>`).join('');
+
+function render(v){
+  v = Number(v);
+  now.innerHTML = `<i>${v}</i>${DATA.layers[v-1][1]}`;
+  document.querySelectorAll('.layer').forEach(el => {
+    const n = Number(el.dataset.layer);
+    el.classList.toggle('on', n === v);
+    el.classList.toggle('past', n < v);
+  });
+  ticks.querySelectorAll('.tick').forEach(t =>
+    t.setAttribute('aria-current', String(Number(t.dataset.go) === v)));
+  const target = document.querySelector(`.layer[data-layer="${v}"]`);
+  if (target) target.scrollIntoView({behavior:'smooth', block:'start'});
+}
+slider.addEventListener('input', e => render(e.target.value));
+ticks.addEventListener('click', e => {
+  const b = e.target.closest('.tick'); if (!b) return;
+  slider.value = b.dataset.go; render(b.dataset.go);
+});
+
+/* --- a skill, traced through all six layers ------------------------------ */
+const rail = document.getElementById('rail');
+document.getElementById('layers').addEventListener('click', e => {
+  const b = e.target.closest('.skill'); if (!b) return;
+  document.getElementById('railTitle').textContent = b.dataset.skill;
+  document.getElementById('railSaid').textContent = b.dataset.desc || '';
+  document.getElementById('railChain').innerHTML = [
+    ['Said', 'Spoken, or tapped as one of 99 tiles.'],
+    ['Routed', 'Fast path if it is unambiguous, otherwise the model decides — and defers when it cannot tell.'],
+    ['Handled', 'One of 105 endpoints. Guarded, bounded, and it answers in words.'],
+    ['Remembered', 'What matters is weighted and kept; the rest decays.'],
+    ['Noticed', 'The advisors can raise it later, unprompted, if it becomes worth mentioning.'],
+    ['Out', 'A vendor link, a map with voice, a calendar write, or just a spoken answer.'],
+  ].map(([k, v]) => `<li><b>${k}</b>${v}</li>`).join('');
+  rail.classList.add('open');
+});
+document.getElementById('railClose').onclick = () => rail.classList.remove('open');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') rail.classList.remove('open'); });
+
+/* --- the ledger ---------------------------------------------------------- */
+document.getElementById('ledger').innerHTML = [
+  ['audit','A dead tile, an unguarded route, a theme that wipes another','—'],
+  ['prompts','An endpoint inventing a price he would act on',242],
+  ['caldav','A tick landing on the wrong item of his wife\u2019s list',67],
+  ['workflows','A skill that connects but does nothing',27],
+  ['couple-trip','Something learned on day one not reaching day nine',28],
+  ['transport','A journey that breaks between two legs',67],
+  ['advisor','An advisor that talks when it should be quiet',210],
+  ['flows','\u201cNot yet\u201d quietly turning into \u201cnever\u201d',27],
+  ['watchers','A finding that fires and never reaches him',23],
+  ['rooms','A guessed code exposing where he is standing',21],
+  ['couple','A two-hour-old position read out as where she is now',26],
+  ['navigation','Directions with no map, or a map with no voice',76],
+  ['nightout','A night out that falls apart at the third venue',84],
+  ['storage','A crash mid-write erasing everything he has said',22],
+  ['native','A Swift rewrite of what the brain should answer',26],
+  ['recovery','A new phone that comes back only half-remembering',22],
+  ['sweep','A fix in one place quietly breaking another',33],
+].map(([n, w, c]) => `<tr><td>${n}</td><td>${w}</td><td class="n">${c}</td></tr>`).join('');
+
+render(1);
+</script>
+</body>
+</html>
