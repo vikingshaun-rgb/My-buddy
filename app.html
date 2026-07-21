@@ -88,17 +88,35 @@
   /* Serif packs need a touch more size and looser leading to read well */
   body[data-font="sacred"] .msg, body[data-font="celestial"] .msg{font-size:16.5px;line-height:1.55}
 
-  html,body{background:var(--midnight);color:var(--paper);font-family:var(--f-body);-webkit-font-smoothing:antialiased}
+  /* Batch 145: this was `html,body{background:...}` — and body being opaque is
+     what hid all 16 background artworks. html keeps the base colour so there is
+     never a white flash on load; body must stay transparent for the artwork on
+     html::before to show through. */
+  html{background:var(--midnight)}
+  body{background:transparent;color:var(--paper);font-family:var(--f-body);-webkit-font-smoothing:antialiased}
   /* Batch 95: the background lives on HTML, not body. body::before sat behind
      opaque children (the wrap and tile grids paint their own backgrounds), so
      only thin bands showed through. Now: html paints the theme, body is
      transparent, and content sits naturally on top. */
   html{background:var(--midnight)}
-  body{background:transparent !important}
+  /* Batch 145: THE REASON "Heaven" NEVER APPEARED. The artwork paints on
+     html::before at z-index 0, and the rule above deliberately made body
+     transparent so it could show through. But a LATER body rule re-declared
+     an opaque background — the ambient glow plus var(--midnight) — which
+     paints above an html pseudo-element and hid every one of the 16
+     backgrounds completely.
+     The setting had been saving correctly all along. It simply could not be
+     seen, which is why it looked like the picker was broken.
+     The ambient glow is worth keeping, so it moves to body::before at
+     z-index 0 alongside the artwork, and body itself stays genuinely
+     transparent. Selecting a background now composes with the palette
+     instead of being buried by it. */
   body>*{position:relative;z-index:1}
   body{max-width:520px;margin:0 auto;padding:0 18px 40px;min-height:100vh;
+    background:transparent}
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
     background:radial-gradient(1200px 500px at 80% -10%,rgba(245,166,35,.10),transparent 60%),
-    radial-gradient(900px 500px at -10% 20%,rgba(61,214,176,.07),transparent 55%),var(--midnight)}
+    radial-gradient(900px 500px at -10% 20%,rgba(61,214,176,.07),transparent 55%)}
   .ribbon{position:sticky;top:0;z-index:20;margin:0 -18px 22px;padding:14px 18px 12px;
     background:linear-gradient(180deg,rgba(11,16,38,.96),rgba(11,16,38,.82));
     backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
@@ -281,7 +299,7 @@
 
   <div id="edgeGlow"></div>
   <div id="hero" style="text-align:center;padding:18px 0 8px">
-    <div id="orb" onclick="orbTap()"></div>
+    <div id="orb" onclick="orbTap()"><i class="wings" aria-hidden="true"></i></div>
     <div id="voiceBars"><span></span><span></span><span></span><span></span><span></span></div>
     <div id="glance" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:12px 16px 0"></div>
   </div>
@@ -461,6 +479,66 @@
       transparent 180deg, rgba(255,240,200,.35) 192deg, transparent 204deg,
       transparent 270deg, rgba(255,240,200,.28) 282deg, transparent 294deg);
     filter:blur(3px);inset:-30px;animation:orbSpin 26s linear infinite reverse}
+  /* Batch 145 — the Heaven orb, after his Inarius reference.
+     The wings there aren't feathers, they're ribbons of light sweeping back
+     and up from behind the figure, brightest where they meet it and fading
+     as they splay. So: twelve strands drawn with conic gradients, each one
+     a thin bright wedge, arranged in a fan and rotated out from the centre.
+     Hidden unless the Heaven orb is chosen — every other orb ignores it. */
+  #orb .wings{display:none}
+  body[data-orb="heaven"] #orb{overflow:visible}
+  body[data-orb="heaven"] #orb .wings{
+    display:block;position:absolute;left:50%;top:50%;width:1px;height:1px;
+    transform:translate(-50%,-50%);pointer-events:none;z-index:-1}
+  body[data-orb="heaven"] #orb .wings::before,
+  body[data-orb="heaven"] #orb .wings::after{
+    content:"";position:absolute;left:50%;top:50%;width:230px;height:150px;
+    /* Six wedges per side, uneven on purpose — evenly spaced strands read as
+       a fan or a sunburst, and the reference is neither. */
+    background:
+      conic-gradient(from 92deg at 0% 50%,
+        transparent 0deg, rgba(255,244,214,.55) 2.5deg, transparent 5deg,
+        transparent 11deg, rgba(255,238,196,.40) 13.5deg, transparent 16deg,
+        transparent 23deg, rgba(255,246,220,.50) 25.5deg, transparent 28deg,
+        transparent 36deg, rgba(255,236,190,.34) 38.5deg, transparent 41deg,
+        transparent 50deg, rgba(255,244,214,.44) 52.5deg, transparent 55deg,
+        transparent 64deg, rgba(255,240,205,.26) 66.5deg, transparent 69deg);
+    filter:blur(1.4px);
+    transform-origin:0% 50%;
+    animation:wingBreathe 6.5s ease-in-out infinite}
+  body[data-orb="heaven"] #orb .wings::before{
+    transform:translate(0,-50%) rotate(-32deg)}
+  body[data-orb="heaven"] #orb .wings::after{
+    /* Mirrored, and half a beat behind, so the two sides never pulse in
+       lockstep — that's what makes it read as alive rather than as a graphic. */
+    transform:translate(0,-50%) rotate(-148deg) scaleY(-1);
+    animation-delay:-3.1s}
+  @keyframes wingBreathe{
+    0%,100%{opacity:.62;filter:blur(1.4px)}
+    50%    {opacity:.92;filter:blur(2.2px)}}
+  @media (prefers-reduced-motion:reduce){
+    body[data-orb="heaven"] #orb .wings::before,
+    body[data-orb="heaven"] #orb .wings::after{animation:none;opacity:.75}}
+
+  /* Batch 145: "digital" was offered in the picker and had a background but no
+     orb, so picking it left the orb on whatever came before — a world that is
+     half itself. Cyan grid, hard edges, no warmth. */
+  body[data-orb="digital"] #orb{
+    background:radial-gradient(circle at 42% 30%, #EAFBFF, #9FE8FF 24%, #35B4E8 55%, #12557A 80%, #041824 100%);
+    box-shadow:0 0 30px rgba(80,200,255,.65), 0 0 80px rgba(60,160,255,.35),
+               inset 0 -6px 16px rgba(4,24,36,.55), inset 0 6px 14px rgba(255,255,255,.5);
+    animation:orbFloat 6s ease-in-out infinite}
+  body[data-orb="digital"] #orb::before{
+    background:none;
+    border:1px solid rgba(120,220,255,.5);border-style:dashed;
+    inset:-12px;filter:none;animation:orbSpin 14s linear infinite}
+  body[data-orb="digital"] #orb::after{
+    background:
+      linear-gradient(rgba(120,220,255,.16) 1px, transparent 1px) 0 0/100% 8px,
+      linear-gradient(90deg, rgba(120,220,255,.16) 1px, transparent 1px) 0 0/8px 100%;
+    inset:-22px;border-radius:50%;filter:blur(.5px);opacity:.7;
+    animation:orbSpin 30s linear infinite reverse}
+
   @keyframes heavenRise{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-8px) scale(1.03)}}
 
   html[data-bg="heaven"]::before{
@@ -475,7 +553,19 @@
 
   /* --- HELL: molten, cracked, breathing embers --- */
   body[data-orb="hell"] #orb{
-    background:radial-gradient(circle at 40% 34%, #FFD9A0, #FF6B1A 24%, #B31200 52%, #4a0400 76%, #120000 100%);
+    /* Batch 146: Diablo. The light comes from INSIDE a cracked shell, not from
+       the surface — so the highlight sits low and small, the mass above it is
+       near-black, and the fissures are drawn as hard-edged bands rather than a
+       smooth gradient. Heaven radiates; this one is containing something. */
+    background:
+      radial-gradient(38% 30% at 50% 78%, rgba(255,190,90,.95), rgba(255,90,20,.55) 40%, transparent 72%),
+      conic-gradient(from 18deg at 52% 62%,
+        transparent 0deg, rgba(255,110,25,.5) 3deg, transparent 7deg,
+        transparent 62deg, rgba(255,80,15,.42) 65deg, transparent 69deg,
+        transparent 140deg, rgba(255,130,35,.46) 143deg, transparent 147deg,
+        transparent 226deg, rgba(255,70,10,.38) 229deg, transparent 233deg,
+        transparent 300deg, rgba(255,100,20,.44) 303deg, transparent 307deg),
+      radial-gradient(circle at 40% 34%, #FFD9A0, #FF6B1A 24%, #B31200 52%, #4a0400 76%, #120000 100%);
     box-shadow:0 0 32px rgba(255,80,20,.75), 0 0 90px rgba(190,20,10,.45), 0 0 170px rgba(120,0,0,.3),
                inset 0 -10px 26px rgba(0,0,0,.75), inset 0 4px 12px rgba(255,140,60,.35);
     animation:hellBreathe 3.6s ease-in-out infinite}
@@ -485,8 +575,161 @@
   body[data-orb="hell"] #orb::after{
     background:radial-gradient(circle, rgba(255,70,10,.35), transparent 64%);
     filter:blur(10px);inset:-28px;animation:hellFlare 2.4s ease-in-out infinite}
+  /* Batch 146 — the Diablo orb, given the same treatment as Heaven.
+     Heaven's wings splay back and down as soft ribbons of light. Diablo is the
+     inversion: horns sweeping UP and OUT, hard-edged, with fire behind rather
+     than radiance around. Three per side, the outer pair longest, because a
+     symmetric pair reads as a cartoon devil and an uneven fan reads as a crown.
+     Reuses the same .wings element — every orb has one, only Heaven and Hell
+     ask for it. */
+  body[data-orb="hell"] #orb{overflow:visible}
+  body[data-orb="hell"] #orb .wings{
+    display:block;position:absolute;left:50%;top:50%;width:1px;height:1px;
+    transform:translate(-50%,-50%);pointer-events:none;z-index:-1}
+  body[data-orb="hell"] #orb .wings::before,
+  body[data-orb="hell"] #orb .wings::after{
+    content:"";position:absolute;left:50%;top:50%;width:150px;height:150px;
+    /* Hard-edged wedges — no soft falloff. Molten at the base, dark at the tip,
+       the way heated metal actually looks. */
+    background:
+      conic-gradient(from 236deg at 0% 100%,
+        transparent 0deg, rgba(255,120,30,.85) 1.6deg, rgba(180,30,0,.55) 3.4deg, transparent 5deg,
+        transparent 13deg, rgba(255,90,20,.70) 14.6deg, rgba(140,20,0,.45) 16.2deg, transparent 18deg,
+        transparent 27deg, rgba(255,140,40,.60) 28.4deg, rgba(120,15,0,.4) 30deg, transparent 32deg);
+    filter:blur(.7px) saturate(1.5);
+    transform-origin:0% 100%;
+    animation:hornEmber 3.2s ease-in-out infinite}
+  body[data-orb="hell"] #orb .wings::before{
+    transform:translate(-2px,-100%) rotate(-6deg)}
+  body[data-orb="hell"] #orb .wings::after{
+    /* Mirrored and offset in time — Heaven breathes in unison, Hell flickers
+       out of step, which is what makes one calm and the other unsettling. */
+    transform:translate(2px,-100%) rotate(6deg) scaleX(-1);
+    animation-delay:-1.7s}
+  @keyframes hornEmber{
+    0%,100%{opacity:.72;filter:blur(.7px) saturate(1.5) brightness(1)}
+    38%    {opacity:.95;filter:blur(1.1px) saturate(1.8) brightness(1.35)}
+    62%    {opacity:.80;filter:blur(.8px) saturate(1.6) brightness(1.1)}}
+  @media (prefers-reduced-motion:reduce){
+    body[data-orb="hell"] #orb .wings::before,
+    body[data-orb="hell"] #orb .wings::after{animation:none;opacity:.85}}
+
+  /* ── LILITH (batch 146) ────────────────────────────────────────────────
+     Deliberately NOT hell-in-another-colour. Diablo is heat and containment;
+     Lilith is bone and blood — cold light, vertical rather than radiating, and
+     those ribbed wings that frame rather than splay. The palette is desaturated
+     crimson against ivory, which is what makes her read as regal instead of
+     merely demonic. */
+  body[data-orb="lilith"] #orb{
+    background:
+      radial-gradient(30% 26% at 50% 70%, rgba(255,225,220,.85), transparent 70%),
+      radial-gradient(circle at 44% 30%, #F6E6E2, #C9707A 26%, #7E1F33 56%, #38091A 80%, #14040B 100%);
+    box-shadow:0 0 30px rgba(200,60,80,.6), 0 0 84px rgba(120,20,40,.4), 0 0 150px rgba(60,5,20,.3),
+               inset 0 -9px 24px rgba(20,4,11,.8), inset 0 5px 14px rgba(255,220,215,.45);
+    animation:lilithBreathe 5.2s ease-in-out infinite}
+  body[data-orb="lilith"] #orb::before{
+    /* A bone ring, not a halo — closed, hard, and slowly turning. */
+    background:none;
+    border:2px solid rgba(240,225,215,.5);border-left-color:rgba(150,30,55,.6);
+    inset:-15px;filter:none;animation:orbSpin 24s linear infinite}
+  body[data-orb="lilith"] #orb::after{
+    background:radial-gradient(circle, rgba(190,40,70,.3), transparent 62%);
+    filter:blur(11px);inset:-30px;animation:hellFlare 4.4s ease-in-out infinite}
+  body[data-orb="lilith"] #orb{overflow:visible}
+  body[data-orb="lilith"] #orb .wings{
+    display:block;position:absolute;left:50%;top:50%;width:1px;height:1px;
+    transform:translate(-50%,-50%);pointer-events:none;z-index:-1}
+  body[data-orb="lilith"] #orb .wings::before,
+  body[data-orb="lilith"] #orb .wings::after{
+    content:"";position:absolute;left:50%;top:50%;width:200px;height:190px;
+    /* Ribbed, not stranded. Wider wedges with visible gaps between them so they
+       read as membrane over bone rather than as ribbons of light. */
+    background:
+      conic-gradient(from 250deg at 0% 100%,
+        transparent 0deg, rgba(245,230,222,.42) 4deg, rgba(150,35,60,.30) 9deg, transparent 13deg,
+        transparent 19deg, rgba(245,230,222,.36) 23deg, rgba(130,25,50,.26) 28deg, transparent 32deg,
+        transparent 39deg, rgba(245,230,222,.30) 43deg, rgba(110,20,45,.22) 48deg, transparent 52deg,
+        transparent 60deg, rgba(245,230,222,.22) 64deg, transparent 70deg);
+    filter:blur(1.1px);
+    transform-origin:0% 100%;
+    animation:lilithWing 7.5s ease-in-out infinite}
+  body[data-orb="lilith"] #orb .wings::before{
+    transform:translate(0,-100%) rotate(-18deg)}
+  body[data-orb="lilith"] #orb .wings::after{
+    transform:translate(0,-100%) rotate(18deg) scaleX(-1);
+    animation-delay:-3.75s}
+  @keyframes lilithBreathe{
+    0%,100%{transform:scale(1);filter:brightness(1)}
+    50%    {transform:scale(1.035);filter:brightness(1.14)}}
+  @keyframes lilithWing{
+    0%,100%{opacity:.55;transform-origin:0% 100%}
+    50%    {opacity:.85}}
+  @media (prefers-reduced-motion:reduce){
+    body[data-orb="lilith"] #orb .wings::before,
+    body[data-orb="lilith"] #orb .wings::after{animation:none;opacity:.7}}
+
   @keyframes hellBreathe{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.05);filter:brightness(1.25)}}
   @keyframes hellFlare{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.14)}}
+
+  /* ── LIGHTNING (batch 147) ──────────────────────────────────────────────
+     A strike lights the whole scene, so it goes on html::after — a free
+     full-screen layer sitting above the artwork and below the content. Only
+     three worlds get it, and only because it means something there: Diablo's
+     sky cracks, Lilith's cathedral flickers, and Jarvis has a HUD fault pulse.
+     Everywhere else it would be decoration for its own sake.
+
+     Long gaps are the whole trick. The strike itself is ~180ms of a 9-11s
+     cycle — a flash every two seconds is a strobe, and something he'd turn
+     off within a day. */
+  html[data-bg="hell"]::after,
+  html[data-bg="lilith"]::after,
+  html[data-bg="jarvis"]::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0}
+  html[data-bg="hell"]::after{
+    background:
+      linear-gradient(102deg, transparent 47.6%, rgba(255,170,90,.85) 48.2%, rgba(255,120,40,.5) 48.9%, transparent 49.4%),
+      linear-gradient(96deg,  transparent 61.5%, rgba(255,150,70,.55) 62.0%, transparent 62.6%),
+      radial-gradient(70% 45% at 50% 0%, rgba(255,140,50,.32), transparent 70%);
+    animation:strikeHell 9.5s ease-out infinite}
+  html[data-bg="lilith"]::after{
+    /* Cold and slower — a flicker through a vault rather than a crack of fire. */
+    background:
+      linear-gradient(94deg, transparent 38.8%, rgba(255,235,230,.6) 39.3%, rgba(190,60,90,.35) 39.9%, transparent 40.4%),
+      radial-gradient(60% 50% at 45% 0%, rgba(240,220,220,.2), transparent 72%);
+    animation:strikeLilith 13s ease-out infinite}
+  html[data-bg="jarvis"]::after{
+    /* Not lightning — a HUD fault pulse. Horizontal, cyan, and brief. */
+    background:linear-gradient(180deg, transparent 34%, rgba(90,200,255,.28) 34.6%, transparent 35.2%);
+    animation:strikeJarvis 7s linear infinite}
+
+  /* The double-tap is what makes a strike read as real: bright, gone, a
+     fainter echo, then dark for a long time. */
+  @keyframes strikeHell{
+    0%,100%{opacity:0}
+    1.2%{opacity:.9} 1.9%{opacity:.1} 2.6%{opacity:.55} 3.4%{opacity:0}}
+  @keyframes strikeLilith{
+    0%,100%{opacity:0}
+    0.9%{opacity:.7} 1.5%{opacity:.05} 2.1%{opacity:.35} 2.9%{opacity:0}}
+  @keyframes strikeJarvis{
+    0%,100%{opacity:0}
+    2%{opacity:.5} 3%{opacity:0} 4%{opacity:.25} 5%{opacity:0}}
+
+  /* Someone who asked for stillness should not get a flashing screen. */
+  @media (prefers-reduced-motion:reduce){
+    html[data-bg="hell"]::after,
+    html[data-bg="lilith"]::after,
+    html[data-bg="jarvis"]::after{animation:none;opacity:0}}
+
+  html[data-bg="lilith"]::before{
+    background:
+      /* Vertical shafts, like light through ribs. */
+      conic-gradient(from 268deg at 22% 120%, transparent 0deg, rgba(240,225,220,.10) 3deg, transparent 6deg),
+      conic-gradient(from 272deg at 50% 130%, transparent 0deg, rgba(240,225,220,.13) 4deg, transparent 8deg),
+      conic-gradient(from 276deg at 78% 120%, transparent 0deg, rgba(240,225,220,.09) 3deg, transparent 6deg),
+      radial-gradient(60% 40% at 50% 108%, rgba(150,30,60,.42), transparent 70%),
+      radial-gradient(70% 55% at 50% -8%, rgba(28,6,16,.9), transparent 74%),
+      linear-gradient(180deg, #12040A, #240713 55%, #3A0D1E);
+    opacity:.34;filter:saturate(1.1)}
 
   html[data-bg="hell"]::before{
     background:
@@ -1952,7 +2195,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='144';
+  const BUILD_VERSION='147';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -2811,7 +3054,8 @@
     {label:'♌ Leo — lion\'s heart',value:'leo'},
     {label:'♐ Sagittarius — the archer',value:'sagittarius'},
     {label:'😇 Heaven — sanctified light',value:'heaven'},
-    {label:'😈 Hell — molten crust',value:'hell'},
+    {label:'😈 Diablo — molten crust',value:'hell'},
+    {label:'🩸 Lilith — bone & blood',value:'lilith'},
   ];
   const BG_THEMES=[
     {label:'🌌 Aurora (default)',value:'aurora'},
@@ -3594,21 +3838,90 @@
     try{
       _ac=_ac||new (window.AudioContext||window.webkitAudioContext)();
       const o=_ac.createOscillator(), g=_ac.createGain();
-      o.frequency.value=freq; o.type='sine';
+      o.frequency.value=freq;
+      // Batch 145: the waveform is what actually distinguishes one world from
+      // another. A sine is warm and clean; a triangle is thinner and glassier;
+      // a square reads as machinery. Fixed at 'sine', every theme sounded the
+      // same however the notes were arranged.
+      const _sv = SOUND_WORLDS[soundTheme()] || SOUND_WORLDS.aurora;
+      o.type = _sv.wave;
+      if (_sv.detune) o.detune.value = _sv.detune;
       g.gain.setValueAtTime(0.0001,_ac.currentTime+(when||0));
-      g.gain.exponentialRampToValueAtTime(vol||0.06,_ac.currentTime+(when||0)+0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001,_ac.currentTime+(when||0)+(dur||0.12));
+      const _atk = _sv.attack || 0.02, _tail = _sv.tail || 1;
+      g.gain.exponentialRampToValueAtTime((vol||0.06)*(_sv.gain||1),_ac.currentTime+(when||0)+_atk);
+      g.gain.exponentialRampToValueAtTime(0.0001,_ac.currentTime+(when||0)+(dur||0.12)*_tail);
       o.connect(g); g.connect(_ac.destination);
       o.start(_ac.currentTime+(when||0)); o.stop(_ac.currentTime+(when||0)+(dur||0.12)+0.05);
     }catch(e){}
   }
-  function chimeArm(){ tone(660,.1,0); tone(880,.12,.09); }
-  function chimeNews(){ tone(880,.1,0); tone(1174,.14,.1); }
+  /* ===========================================================
+     SOUND WORLDS (batch 145)
+     One voice per background, so the theme is heard as well as seen.
+     Every world plays the SAME events — armed, news, listening, stopped —
+     because he learns what each one means and that must not shift when he
+     changes the look. Only the timbre changes.
+
+     Kept deliberately quiet: these fire while he's riding, working, or
+     mid-conversation. A cue that startles is a cue he turns off.
+     =========================================================== */
+  const SOUND_WORLDS = {
+    aurora:      { wave:'sine',     gain:1.0,  root:660, step:220, tail:1.0, attack:.02 },
+    // Golden, blooming, hangs in the air. The wings are ribbons of light, so
+    // the sound should be too — soft attack, long tail, a fifth apart.
+    heaven:      { wave:'sine',     gain:0.9,  root:528, step:264, tail:2.2, attack:.06, detune:4 },
+    // Low, close, slightly detuned so it never quite settles.
+    hell:        { wave:'triangle', gain:1.0,  root:196, step:98,  tail:1.6, attack:.01, detune:-14 },
+    // Lilith: cold where hell is hot. A minor third instead of a fifth, a long
+    // tail, and flat by a few cents — unsettling without ever being loud.
+    lilith:      { wave:'sine',     gain:0.85, root:233, step:110, tail:2.6, attack:.05, detune:-22 },
+    // Clean, precise, engineered. Jarvis is a machine that respects you.
+    jarvis:      { wave:'triangle', gain:0.95, root:784, step:196, tail:0.8, attack:.008 },
+    // Terminal beeps. Square, short, no warmth.
+    matrix:      { wave:'square',   gain:0.55, root:880, step:0,   tail:0.45, attack:.004 },
+    digital:     { wave:'square',   gain:0.55, root:988, step:110, tail:0.5,  attack:.004 },
+    crt:         { wave:'square',   gain:0.5,  root:740, step:0,   tail:0.4,  attack:.004, detune:-8 },
+    // Industrial. Blunt, low, mechanical.
+    machine:     { wave:'sawtooth', gain:0.5,  root:220, step:110, tail:0.7,  attack:.004 },
+    // Otherworldly — a wide detune is what makes something sound not-quite-right.
+    alien:       { wave:'sine',     gain:0.8,  root:432, step:333, tail:1.8,  attack:.03, detune:31 },
+    // Wooden, hollow, unhurried.
+    nature:      { wave:'triangle', gain:0.85, root:392, step:147, tail:1.4,  attack:.02 },
+    // Dry and warm, like heat.
+    desert:      { wave:'triangle', gain:0.8,  root:349, step:175, tail:1.2,  attack:.025 },
+    // Submerged: low, slow, muffled by a long attack.
+    deepsea:     { wave:'sine',     gain:0.75, root:262, step:131, tail:2.4,  attack:.09 },
+    // Bright and open.
+    solar:       { wave:'sine',     gain:1.0,  root:698, step:262, tail:1.3,  attack:.015 },
+    // Understated to the point of nearly nothing.
+    noir:        { wave:'triangle', gain:0.6,  root:311, step:104, tail:1.0,  attack:.02 },
+    paper:       { wave:'sine',     gain:0.55, root:523, step:131, tail:0.6,  attack:.02 },
+    // Regal, warm.
+    leo:         { wave:'sine',     gain:1.0,  root:587, step:196, tail:1.5,  attack:.02 },
+    // Distant, arcing.
+    sagittarius: { wave:'triangle', gain:0.9,  root:659, step:247, tail:1.7,  attack:.03 },
+  };
+
+  // The sound follows the BACKGROUND, not the orb — the background is what he
+  // picked to set the mood, and the orb often just follows it anyway.
+  function soundTheme(){
+    let t = localStorage.buddy_soundworld || localStorage.buddy_bg || 'aurora';
+    if (t === 'auto') t = (localStorage.buddy_bg && localStorage.buddy_bg !== 'auto') ? localStorage.buddy_bg : 'aurora';
+    return SOUND_WORLDS[t] ? t : 'aurora';
+  }
+  function _w(){ return SOUND_WORLDS[soundTheme()] || SOUND_WORLDS.aurora; }
+
+  // The four cues, now voiced by whichever world he's in. The SHAPE is fixed
+  // and deliberate — rising means started, falling means stopped — because he
+  // learns that and it must not change when he changes the look.
+  function chimeArm(){  const w=_w(); tone(w.root,.10,0);   tone(w.root+w.step,.12,.09); }
+  function chimeNews(){ const w=_w(); tone(w.root+w.step,.10,0); tone(w.root+w.step*1.6,.14,.10); }
   // Batch 111 audit: hands-free was silent about its own state. On glasses you
   // can't see the button, so a rising pair means "listening" and a falling pair
   // means "stopped" — the one cue that makes eyes-free use possible.
-  function chimeListen(){ tone(520,.07,0,.05); tone(700,.09,.06,.05); }
-  function chimeStop(){ tone(700,.07,0,.045); tone(480,.09,.06,.045); }
+  // Rising pair = the mic is open. Falling pair = it closed. On glasses this is
+  // the only way to tell, so the direction is never allowed to vary by theme.
+  function chimeListen(){ const w=_w(); tone(w.root*0.8,.07,0,.05); tone(w.root*1.06,.09,.06,.05); }
+  function chimeStop(){   const w=_w(); tone(w.root*1.06,.07,0,.045); tone(w.root*0.73,.09,.06,.045); }
   let voiceUnlocked=false;
   function unlockVoice(){
     if(voiceUnlocked) return; voiceUnlocked=true;

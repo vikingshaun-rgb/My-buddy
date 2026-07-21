@@ -29,7 +29,7 @@ const GROUPS = [
     name: 'The brain',
     why: 'what it knows, how it decides, and whether it can be trusted to answer',
     suites: [
-      ['audit-144.js',      'contracts: dead tiles, unguarded routes, theme collisions'],
+      ['audit-147.js',      'contracts: dead tiles, unguarded routes, theme collisions'],
       ['test-prompts.js',   'no endpoint invents a price he would act on'],
       ['sim-advisor.js',    'it notices what matters and stays quiet otherwise'],
       ['sim-attention.js',  'it knows when to speak, and when he is busy'],
@@ -71,6 +71,13 @@ const GROUPS = [
       ['sim-nightout.js',   '10 long chains including a night out in Da Nang'],
       ['sim-sweep.js',      'a fix in one place quietly breaking another'],
       ['sim-wiring.js',     'a module built, tested, and connected to nothing'],
+    ],
+  },
+  {
+    name: 'The look and the sound',
+    why: 'a theme that saves correctly but cannot be seen is the worst kind of bug',
+    suites: [
+      ['sim-themes.js', 'backgrounds, orbs, palettes and sound worlds, all coherent'],
     ],
   },
   {
