@@ -1,0 +1,143 @@
+══════════════════════════════════════════════════════════════════
+  VISION — 100 REAL-WORLD SIMULATIONS
+  2026-07-22 08:15  ·  build under test: app.html + server.js
+══════════════════════════════════════════════════════════════════
+
+## A. NAVIGATION & SMART CHAINING (22)
+   ✅ A01 "navigate home" routes to home
+   ✅ A02 "take me home" routes to home
+   ✅ A03 "take me to the hotel" → home base
+   ✅ A04 "back to the hotel" → home base
+   ✅ A05 bare "home" → home base
+   ✅ A06 "go home" → home base
+   ✅ A07 "navigate to the airport" NOT hijacked as home
+   ✅ A08 "take me to the market" NOT hijacked
+   ✅ A09 "take me to the bank" NOT hijacked
+   ✅ A10 "this is my hotel" sets base
+   ✅ A11 "set home here" sets base
+   ✅ A12 ride + scooter 2km away → CHAIN (fetch first)
+   ✅ A13 ride + at scooter → DIRECT (no walk-leg)
+   ✅ A14 walking mode → DIRECT (never chains)
+   ✅ A15 no scooter saved → DIRECT
+   ✅ A16 "take me to dinner" (drivable) chains when scooter far
+   ✅ A17 smartNav is the single shared chain impl
+   ✅ A18 navigateWith delegates to smartNav (one path)
+   ✅ A19 leg-2 works for ANY dest (buddy_pendingnav)
+   ✅ A20 travel mode honoured (scooter→driving)
+   ✅ A21 "navigate" skill dispatches
+   ✅ A22 "getthere" (directions) skill dispatches
+
+## B. DAILY LIFE — the easy-world stuff (20)
+   ✅ B01 "what's around me" → nearby
+   ✅ B02 "find me a coffee" → findfood
+   ✅ B03 "is this a fair price" → scamcheck
+   ✅ B04 "is this a good deal" → gooddeal
+   ✅ B05 currency convert → currency
+   ✅ B06 "split the bill" → splitbill
+   ✅ B07 tip calc reachable → splitbill/tip path
+   ✅ B08 "what's the weather" → weather
+   ✅ B09 "I'm lost" → getUnlost recall path
+   ✅ B10 spend tracking → spend/logspend
+   ✅ B11 "what should I do" → advise
+   ✅ B12 "find a good spot to eat out" → eatout
+   ✅ B13 order food → orderfood
+   ✅ B14 "what's that landmark" → landmark
+   ✅ B15 "how do I behave here" → etiquette
+   ✅ B16 safety heads-up → safety
+   ✅ B17 "what's my day look like" → myday
+   ✅ B18 season/what-to-wear → season
+   ✅ B19 phrasebook → phrasebook/sayphrase
+   ✅ B20 add to a list ("remind me to buy X") → addlist
+
+## C. TRAVEL & FLIGHTS (16)
+   ✅ C01 track a flight → flight
+   ✅ C02 search flights → flightsearch
+   ✅ C03 arrival autopilot → arrival
+   ✅ C04 build itinerary → itinerary
+   ✅ C05 "plan my day" → planday
+   ✅ C06 "plan my trip" → tripplan
+   ✅ C07 packing list → packlist
+   ✅ C08 eSIM / data → esim
+   ✅ C09 visa info → docs/procedures
+   ✅ C10 find a stay → stay/findstay
+   ✅ C11 things to do → activities
+   ✅ C12 trip budget → tripbudget
+   ✅ C13 trip day view → tripday
+   ✅ C14 order/parcel update → orderupdate
+   ✅ C15 transit directions → transit
+   ✅ C16 book a table → booktable
+
+## D. GLASSES / CAMERA EXPERIENCE (14)
+   ✅ D01 "capture this moment" → capture
+   ✅ D02 capture stamps LIVE gps not stale city (source)
+   ✅ D03 live look (what am I seeing) → livelook
+   ✅ D04 scene scan → scan
+   ✅ D05 read a menu → menu
+   ✅ D06 read a sign/page → readpage
+   ✅ D07 live translate present
+   ✅ D08 what changed in scene → whatschanged
+   ✅ D09 seen before? → seenbefore
+   ✅ D10 out-of-place detector → outofplace
+   ✅ D11 allergy check on a dish → allergy
+   ✅ D12 captured moment saved with coords (navigable recall)
+   ✅ D13 "no video kept" — only written account persists
+   ✅ D14 recall what I saw → seenrecall
+
+## E. MEMORY & RECALL — save one way, recall another (14)
+   ✅ E01 recall "scooter" among 5 spots → correct
+   ✅ E02 recall "chilli" (partial) → chilli stall
+   ✅ E03 recall "rooftop" → rooftop bar
+   ✅ E04 recall "coffee" → coffee place (not chilli)
+   ✅ E05 recall "bike" does NOT return chilli stall
+   ✅ E06 verbatim "the coffee place" exact
+   ✅ E07 no-name recall → most recent spot
+   ✅ E08 guard: "sunglasses" not a spot → falls through
+   ✅ E09 guard: "my scooter" IS a spot → intercept
+   ✅ E10 coords persist in remember() (navigable)
+   ✅ E11 consider() passes coords through
+   ✅ E12 recall a saved note → recallchat/convohistory
+   ✅ E13 "what did I see at X" → seenrecall
+   ✅ E14 memory health / tidy → memoryhealth
+
+## F. MULTI-SKILL WORKFLOWS — anticipate & chain (10)
+   ✅ F01 router supports multi-step ("A and then B")
+   ✅ F02 "find a bank and take me there" — nav is a valid follow-on
+   ✅ F03 plan-day proposes navigate to first stop
+   ✅ F04 landmark → offers etiquette + directions next
+   ✅ F05 nearby result → offers directions
+   ✅ F06 every skill offers an obvious next step (nextMoves)
+   ✅ F07 every skill deposits a memory (rememberSkill)
+   ✅ F08 vague follow-up resolves ("take me there")
+   ✅ F09 proactive briefing fuses tiles (composeBriefing)
+   ✅ F10 "brief me" on-demand pull works
+
+## G. COMMS & SAFETY — irreversible actions (2, weighted)
+   ✅ G01 emergency call guards against a junk number
+   ✅ G02 SMS reply reads back / confirms before sending
+
+## H. WORK (Geeks2U) — minor (2)
+   ✅ H01 capture a job → jobcapture
+   ✅ H02 recall a job → jobrecall
+
+══════════════════════════════════════════════════════════════════
+  SCORECARD  (safety-weighted — 🛡 areas count double)
+══════════════════════════════════════════════════════════════════
+  Navigation         ██████████ 100%  (14/14)
+  Smart chaining     ██████████ 100%  (8/8) 🛡
+  Daily life         ██████████ 100%  (20/20)
+  Travel & flights   ██████████ 100%  (16/16)
+  Glasses/camera     ██████████ 100%  (14/14) 🛡
+  Memory & recall    ██████████ 100%  (14/14) 🛡
+  Multi-skill flows  ██████████ 100%  (10/10)
+  Comms & safety     ██████████ 100%  (2/2) 🛡
+  Work               ██████████ 100%  (2/2)
+  ──────────────────────────────────────────────────────────────
+  RAW:  100/100 checks passed
+  SAFETY-WEIGHTED HUMAN-READINESS:  100%
+
+  ✅ 100/100 — Vision behaves correctly across every simulated real-world situation.
+
+  NOTE (honest boundary): these 100 prove the BRAIN LOGIC — routing, chaining,
+  recall, state. The real microphone, GPS, camera, and Maps handoff are verified
+  on the phone/glasses, not here. 100/100 means the logic is sound.
+══════════════════════════════════════════════════════════════════
