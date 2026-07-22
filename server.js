@@ -1597,7 +1597,8 @@ const ROUTER_SKILLS =
       "\"digest\" (what have you got for me / what have you been holding / catch me up / anything saved up; args: none), " +
       "\"notnow\" (not now / not today / stop telling me that / leave it / I'm busy — he is brushing something off; args: subject, scope = once|today|trip), " +
       "\"whyquiet\" (what are you sitting on / why are you quiet / are you holding anything; args: none), " +
-      "\"learned\" (what have you learned about me / what do you know about my habits / what patterns have you noticed; args: none). ";
+      "\"learned\" (what have you learned about me / what do you know about my habits / what patterns have you noticed; args: none), " +
+      "\"season\" (is it typhoon/wet/dry season, what's the weather like there in March, can I swim then, best time to visit, what's the outlook for the next few months; args: place, when, activity). ";
 
 // Derived from ROUTER_SKILLS itself so the validator can never drift from
 // what the model was actually offered.
@@ -2553,36 +2554,379 @@ app.get("/health", requireAuth, async (req, res) => {
 
 // --- Weather: current + short forecast (Open-Meteo, no key) ---
 // Body: { lat, lng }
+/* Batch 157: weather only ever answered "here, now". He asks about Da Nang
+ * tomorrow, or Lombok when he gets there — both perfectly reasonable, neither
+ * of which the endpoint could do. Geocoding a named place is one extra call
+ * and turns one question into three. */
+/* --- RESOLVING A VAGUE PLACE (batch 159) ------------------------------------
+ * "The local beach" is not a place — it's a description. His own coordinates
+ * are the wrong answer, because he's asking about somewhere he ISN'T yet.
+ *
+ * The failure is quiet: marine data for an inland point returns nulls, so he
+ * gets "no data" rather than the beach conditions, and nothing explains why.
+ *
+ * So: one resolver, used by everything that needs real coordinates. Saved
+ * places first (he told us where his gym is), then a search near him. And it
+ * always reports WHAT it resolved to, so the answer can name the guess —
+ * "Coolum's flat this morning" rather than an unexplained forecast.
+ * ------------------------------------------------------------------------ */
+
+// Phrasings that describe a kind of place rather than name one. These are the
+// ones where using his own position silently gives the wrong answer.
+const VAGUE_PLACE = /\b(the |a |my |nearest |closest |local |nearby |round here|around here)\b/i;
+const KIND_WORDS = /\b(beach|surf|coast|shore|servo|petrol|gas station|chemist|pharmacy|supermarket|shop|store|market|cafe|coffee|restaurant|pub|bar|gym|atm|bank|hospital|clinic|park|station)\b/i;
+
+function looksVague(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (!KIND_WORDS.test(t)) return false;          // not a kind of place at all
+
+  // A hedge word settles it: "the local beach", "nearest chemist".
+  if (VAGUE_PLACE.test(t)) {
+    // ...unless a proper name follows it — "the Coolum Beach surf club".
+    const words = t.split(/\s+/).filter(w => !VAGUE_PLACE.test(w));
+    const named = words.some(w => /^[A-Z][a-z]{2,}$/.test(w) && !KIND_WORDS.test(w));
+    return !named;
+  }
+
+  // No hedge. A capitalised word that isn't the kind-word is a name —
+  // "Coolum Beach", "Bondi Beach", "Woolworths Caboolture".
+  const hasName = t.split(/\s+/).some(w => /^[A-Z][a-z]{2,}$/.test(w) && !KIND_WORDS.test(w));
+  if (hasName) return false;
+
+  // Bare kind-word on its own: "beach", "chemist".
+  return t.split(/\s+/).length <= 2;
+}
+
+/* Returns { lat, lng, name, resolved } — resolved true when it had to pick
+ * something, which is the signal to name it in the answer. */
+async function resolvePlaceFor(uid, { text, lat, lng } = {}) {
+  const t = String(text || "").trim();
+
+  // Nothing to resolve — he gave a real name, so geocode it directly.
+  if (t && !looksVague(t)) {
+    const geo = await placeToCoords(t);
+    if (geo) return { ...geo, resolved: false };
+  }
+
+  // A saved place beats a search every time — he told us where it is.
+  if (t) {
+    const key = t.toLowerCase().replace(/^(my|the)\s+/, "").trim();
+    const saved = (STORE.profiles[uid] || {}).places || {};
+    if (saved[key]) {
+      const geo = await placeToCoords(saved[key].address || saved[key]);
+      if (geo) return { ...geo, name: key, resolved: false };
+    }
+  }
+
+  // Vague, and we know where he is: find the real thing near him.
+  if (t && lat != null && lng != null && GMAPS_KEY) {
+    try {
+      const u = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
+      u.searchParams.set("query", t);
+      u.searchParams.set("location", `${lat},${lng}`);
+      u.searchParams.set("radius", "30000");
+      u.searchParams.set("key", GMAPS_KEY);
+      const r = await fetch(u);
+      const j = await r.json();
+      const hit = j.results?.[0];
+      if (hit) {
+        return {
+          lat: hit.geometry.location.lat,
+          lng: hit.geometry.location.lng,
+          name: hit.name || hit.formatted_address,
+          // It picked something he didn't name — say so in the answer.
+          resolved: true,
+        };
+      }
+    } catch {}
+  }
+
+  // Fall back to where he is, and be honest that nothing was resolved.
+  if (lat != null && lng != null) return { lat, lng, name: "", resolved: false };
+  return null;
+}
+
+async function placeToCoords(place) {
+  if (!place || !GMAPS_KEY) return null;
+  try {
+    const u = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    u.searchParams.set("address", String(place).slice(0, 120));
+    u.searchParams.set("key", GMAPS_KEY);
+    const r = await fetch(u);
+    const j = await r.json();
+    const hit = j.results?.[0];
+    if (!hit) return null;
+    return {
+      lat: hit.geometry.location.lat,
+      lng: hit.geometry.location.lng,
+      name: hit.address_components?.[0]?.long_name || hit.formatted_address,
+    };
+  } catch { return null; }
+}
+
+/* Batch 158: marine conditions from Open-Meteo's Marine API — same provider,
+ * no key. Swell, wind waves and sea temperature, which is what actually
+ * decides whether a swim or a dive is on.
+ *
+ * NOT included, deliberately:
+ *   TIDES      Open-Meteo has none, and the paid alternatives want a monthly
+ *              fee for something he can read off a free app. Saying "check the
+ *              tide app" beats inventing a number.
+ *   VISIBILITY No API gives this reliably — it's local and day to day. The
+ *              dive shop knows; a model guessing does not.
+ */
+async function marineFor(lat, lng, daysOut) {
+  try {
+    const u = new URL("https://marine-api.open-meteo.com/v1/marine");
+    u.searchParams.set("latitude", String(lat));
+    u.searchParams.set("longitude", String(lng));
+    u.searchParams.set("daily", "wave_height_max,wave_direction_dominant,wave_period_max,swell_wave_height_max,swell_wave_period_max,swell_wave_direction_dominant");
+    u.searchParams.set("current", "wave_height,sea_surface_temperature,swell_wave_height,swell_wave_period");
+    u.searchParams.set("forecast_days", String(Math.max(2, Math.min(8, (daysOut || 0) + 2))));
+    u.searchParams.set("timezone", "auto");
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 6000);
+    const r = await fetch(u, { signal: ctl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const j = await r.json();
+    // Inland coordinates return nulls rather than an error — treat that as
+    // "no marine data" rather than reporting a zero-metre swell.
+    const d = j.daily || {}, c = j.current || {};
+    const wave = d.wave_height_max?.[daysOut];
+    if (wave == null && c.wave_height == null) return null;
+    return {
+      waveM: wave ?? c.wave_height,
+      swellM: d.swell_wave_height_max?.[daysOut] ?? c.swell_wave_height,
+      swellPeriodS: d.swell_wave_period_max?.[daysOut] ?? c.swell_wave_period,
+      swellFrom: compassFromDegrees(d.swell_wave_direction_dominant?.[daysOut]),
+      waveFrom: compassFromDegrees(d.wave_direction_dominant?.[daysOut]),
+      seaTempC: c.sea_surface_temperature ?? null,
+    };
+  } catch { return null; }
+}
+
+// "South-east" is what he'd say. 157 degrees is not.
+function compassFromDegrees(deg) {
+  if (deg == null) return "";
+  const pts = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
+  return pts[Math.round(((deg % 360) / 45)) % 8];
+}
+
+// Is he asking about the water? Only then is any of this worth fetching.
+function wantsMarine(said) {
+  return /\b(swim|swimming|surf|surfing|beach|dive|diving|snorkel|snorkelling|snorkeling|boat|sail|sailing|kayak|paddle|fish|fishing|swell|waves?|tide|ocean|sea|water)\b/i
+    .test(String(said || ""));
+}
+
 app.post("/weather", requireAuth, async (req, res) => {
-  const { lat, lng } = req.body || {};
-  if (lat == null || lng == null) return res.status(400).json({ error: "lat,lng required" });
+  let { lat, lng, place, day, onArrival, said } = req.body || {};
+  let placeName = "";
+
+  // Batch 159: "the local beach" used to fall through to his own coordinates —
+  // which are 5km inland, so the marine API returned nulls and he got "no
+  // data" instead of the beach conditions. The resolver turns a description
+  // into a real place first, and says which one it picked.
+  let resolvedGuess = false;
+  if (place) {
+    const geo = await resolvePlaceFor(uidOf(req), { text: place, lat, lng });
+    if (!geo) {
+      return res.status(200).json({ fallback: true, spoken: `I couldn't find ${place} — try the town or city name?` });
+    }
+    lat = geo.lat; lng = geo.lng; placeName = geo.name || place;
+    resolvedGuess = !!geo.resolved;
+  }
+  if (lat == null || lng == null) return res.status(400).json({ error: "lat,lng or place required" });
+
+  // How many days out does he need? Open-Meteo is honest past about 14 —
+  // beyond that it's climate, not forecast, and belongs in /season.
+  const daysOut = Math.max(0, Math.min(14, Number(day) || 0));
+  const forecastDays = Math.max(2, Math.min(16, daysOut + 2));
+
   const u = new URL("https://api.open-meteo.com/v1/forecast");
   u.searchParams.set("latitude", String(lat));
   u.searchParams.set("longitude", String(lng));
   u.searchParams.set("current", "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m");
-  u.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_probability_max");
-  u.searchParams.set("forecast_days", "2");
+  u.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,uv_index_max");
+  u.searchParams.set("forecast_days", String(forecastDays));
   u.searchParams.set("timezone", "auto");
   try {
-    const r = await fetch(u);
+    // Only fetch marine data when he's actually asking about the water —
+    // a swell reading on a chemist trip is noise, and it's a second call.
+    const marineWanted = wantsMarine(said);
+    const [r, marine] = await Promise.all([
+      fetch(u),
+      marineWanted ? marineFor(lat, lng, daysOut) : Promise.resolve(null),
+    ]);
     const data = await r.json();
     // Vision's warm spoken forecast + a practical tip.
     let spoken = "";
     try {
       const c = data.current || {}, d = data.daily || {};
-      const facts = `Now: ${c.temperature_2m}°C (feels ${c.apparent_temperature}°), wind ${c.wind_speed_10m} km/h, precip ${c.precipitation}mm, code ${c.weather_code}. ` +
-        `Today high ${d.temperature_2m_max?.[0]}° low ${d.temperature_2m_min?.[0]}°, rain chance ${d.precipitation_probability_max?.[0]}%.`;
+      // Which day is he actually asking about? "Now" only makes sense for
+      // today and here — for Da Nang tomorrow, the current reading is noise.
+      const when = daysOut === 0 ? "today" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`;
+      const where = placeName || "where he is";
+      const i = daysOut;
+
+      const facts = (daysOut === 0
+          ? `Right now: ${c.temperature_2m}°C (feels ${c.apparent_temperature}°), wind ${c.wind_speed_10m} km/h, precip ${c.precipitation}mm, code ${c.weather_code}. `
+          : "")
+        + `${when.charAt(0).toUpperCase() + when.slice(1)} in ${where}: `
+        + `high ${d.temperature_2m_max?.[i]}° low ${d.temperature_2m_min?.[i]}°, `
+        + `rain chance ${d.precipitation_probability_max?.[i]}%, code ${d.weather_code?.[i]}`
+        + (d.uv_index_max?.[i] != null ? `, UV ${d.uv_index_max[i]}` : "") + ".";
+
+      // The marine numbers only mean something turned into a verdict. "Swell's
+      // up, 1.8 metres" tells him whether to bother; "significant wave height
+      // 1.8m, period 11s, direction 157 degrees" does not.
+      const marineFacts = marine
+        ? `\nWater: ${marine.waveM != null ? `waves ${marine.waveM}m` : ""}` +
+          `${marine.swellM != null ? `, swell ${marine.swellM}m` : ""}` +
+          `${marine.swellPeriodS != null ? ` at ${marine.swellPeriodS}s` : ""}` +
+          `${marine.swellFrom ? ` from the ${marine.swellFrom}` : ""}` +
+          `${marine.seaTempC != null ? `, sea ${Math.round(marine.seaTempC)}°C` : ""}.`
+        : "";
+
       const g = await callClaude({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 120,
-        system: "You are Vision in Shaun's glasses. Say the weather like a friend — one or two spoken sentences, plain temps, and ONE practical tip (jacket/umbrella/sunscreen/wind) when relevant. No numbers-soup, no markdown." + NO_INVENT,
-        messages: [{ role: "user", content: `Give Shaun the weather from this data:\n${facts}` }],
+        max_tokens: 170,
+        system: "You are Vision in Shaun's glasses. Say the weather like a friend — one or two spoken sentences, plain temps, and ONE practical tip (jacket, umbrella, sunscreen, wind) when it's actually warranted. " +
+          "Say the place and the day when he asked about somewhere other than here, so he knows you understood. " +
+          (resolvedGuess
+            ? `He described a kind of place rather than naming one, and you picked ${placeName}. Name it in your answer — ` +
+              `"Coolum's flat this morning" — so he can correct you if that's the wrong one. Do not ask; just say which. `
+            : "") +
+          "No numbers-soup." +
+          (marineFacts
+            ? " He's asking about the water, so give him the VERDICT first — is it a good day for it — and only then a number or two. " +
+              "Under half a metre is flat and easy. Around a metre is fine for a strong swimmer, choppy for anyone else. " +
+              "Over 1.5 metres is not a swimming day, and say so plainly. A long swell period means clean surf rather than chop. " +
+              "Never guess at water clarity or tides — you do not have that data. If he asks, tell him the dive shop or a tide app will know."
+            : "") +
+          NO_INVENT + ANSWER_FIRST + SPOKEN_PLAIN,
+        messages: [{ role: "user", content: `Give Shaun the weather from this data:\n${facts}${marineFacts}` }],
       });
       if (g.status === 200) { const j = JSON.parse(g.text);
         spoken = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim(); }
     } catch {}
-    res.json({ raw: data, spoken: spoken || `It's ${data.current?.temperature_2m}° right now.` });
+    // A fallback with the actual numbers in it — if the model call fails he
+    // still gets the answer, just less warmly phrased.
+    const dd = data.daily || {};
+    const plain = daysOut === 0
+      ? `${Math.round(data.current?.temperature_2m)}° right now${placeName ? ` in ${placeName}` : ""}` +
+        `, high ${Math.round(dd.temperature_2m_max?.[0])}°` +
+        (dd.precipitation_probability_max?.[0] > 20 ? `, ${dd.precipitation_probability_max[0]}% chance of rain` : "") + "."
+      : `${placeName || "There"} ${daysOut === 1 ? "tomorrow" : `in ${daysOut} days`}: ` +
+        `${Math.round(dd.temperature_2m_min?.[daysOut])}° to ${Math.round(dd.temperature_2m_max?.[daysOut])}°` +
+        (dd.precipitation_probability_max?.[daysOut] > 20 ? `, ${dd.precipitation_probability_max[daysOut]}% chance of rain` : ", looking dry") + ".";
+
+    res.json({
+      raw: data,
+      marine,
+      place: placeName,
+      day: daysOut,
+      rainChance: dd.precipitation_probability_max?.[daysOut] ?? null,
+      high: dd.temperature_2m_max?.[daysOut] ?? null,
+      low: dd.temperature_2m_min?.[daysOut] ?? null,
+      spoken: spoken || plain,
+    });
   } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — try me again in a moment.", detail: String(e && e.message || e).slice(0, 160) }); }
+});
+
+/* --- SEASONS (batch 157) ----------------------------------------------------
+ * "Is it typhoon season?" and "can I swim in Lombok in March?" are not
+ * forecast questions — no API goes out three months, and pretending otherwise
+ * would be the worst kind of confident. They're climate: patterns the model
+ * genuinely knows.
+ *
+ * Which makes this the highest-risk endpoint in the system for invention. He
+ * would book a flight around "typhoon season ends mid-October". So it is
+ * guarded harder than anything else: describe the PATTERN, never assert exact
+ * dates, and say plainly that it shifts year to year and wants checking closer
+ * to the time.
+ * ------------------------------------------------------------------------ */
+app.post("/season", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { place, when, activity } = req.body || {};
+  const prof = profileOf(uid) || {};
+  let where = place || prof.city || prof.country || "";
+  if (!where) return res.status(400).json({ error: "place required", spoken: "Where are you asking about?" });
+  // Batch 159: a description like "the local beach" would have gone to the
+  // model as a literal string. Resolve it to a real place first, same as
+  // weather does, so the answer is about somewhere that exists.
+  if (looksVague(where)) {
+    const geo = await resolvePlaceFor(uid, { text: where, lat: req.body?.lat, lng: req.body?.lng });
+    if (geo && geo.name) where = geo.name;
+  }
+
+  // If he's asked about somewhere he's actually going, use his real dates
+  // rather than making him repeat them.
+  let dates = "";
+  try {
+    const bookings = (STORE.bookings || {})[uid] || [];
+    const match = bookings.find(b => String(b.what || "").toLowerCase().includes(String(where).toLowerCase()));
+    if (match && match.whenISO) dates = ` He arrives around ${new Date(match.whenISO).toDateString()}.`;
+  } catch {}
+
+  const mem = recallFor(uid, `${where} ${activity || ""}`, 3).map(m => m.t).join(" | ");
+
+  try {
+    const { status, text } = await callClaude({
+      model: "claude-sonnet-4-6",
+      max_tokens: 420,
+      system:
+        "He is asking about the SEASON somewhere, not the forecast — this is beyond any forecast, so answer from what you " +
+        "know about the climate there. " +
+        "THE ONE RULE: never state exact dates as fact. Seasons shift by weeks year to year, and he will book flights " +
+        "around what you say. Say 'usually', 'around', 'tends to' — and say plainly that it moves and wants checking " +
+        "closer to the time. " +
+        "Answer what he actually asked: if he wants to swim, talk about the water, the swell and anything that stings, " +
+        "not the average rainfall. If he asks about typhoons or the wet season, say when it usually runs and what it " +
+        "actually means day to day — most 'wet season' is an afternoon downpour, not a washout, and saying so is more " +
+        "useful than a warning. " +
+        "If a month is genuinely a bad idea, say so plainly rather than hedging." +
+        NO_INVENT_STRICT + ANSWER_FIRST + SPOKEN_PLAIN,
+      messages: [{ role: "user", content:
+        `Where: ${where}${when ? `\nWhen: ${when}` : ""}${activity ? `\nHe wants to: ${activity}` : ""}${dates}` +
+        (mem ? `\n\nWhat you remember about how he travels: ${mem}` : "") +
+        `\n\nReply as compact JSON ONLY: ` +
+        `"spoken" (two or three sentences he can hear — the answer first), ` +
+        `"season" (short name of what's on then, e.g. "tail of the wet season"), ` +
+        `"watchFor" (array of up to 3 short strings — what actually affects him), ` +
+        `"goodFor" (array of up to 3 short strings), ` +
+        `"verdict" (one of: good, mixed, avoid), ` +
+        `"checkCloser" (true if the timing is near enough to a boundary that he should confirm nearer the date).` }],
+    });
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't work that out just now — try me again." });
+
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+    catch { p = { spoken: raw.slice(0, 400), watchFor: [], goodFor: [], verdict: "mixed", checkCloser: true }; }
+
+    // Anything seasonal is worth remembering — he'll ask again about the same
+    // place, and next time it can lead with what he already knows.
+    try {
+      const mem2 = STORE.mem[uid] = STORE.mem[uid] || [];
+      mem2.push({ t: `season: ${where}${when ? ` in ${when}` : ""} — ${p.season || p.verdict || ""}`, at: Date.now() });
+      while (mem2.length > 400) mem2.shift();
+      saveStore();
+    } catch {}
+
+    res.json({
+      ok: true,
+      place: where,
+      season: p.season || "",
+      watchFor: (p.watchFor || []).slice(0, 3),
+      goodFor: (p.goodFor || []).slice(0, 3),
+      verdict: p.verdict || "mixed",
+      checkCloser: p.checkCloser !== false,
+      spoken: p.spoken || "",
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Couldn't work that out just now — try me again." });
+  }
 });
 
 // --- Currency: convert using daily ECB rates (Frankfurter, no key) ---

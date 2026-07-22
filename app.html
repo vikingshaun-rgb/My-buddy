@@ -2205,7 +2205,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='156';
+  const BUILD_VERSION='159';
   async function logBug(report){
     if(!report){
       report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -5677,7 +5677,8 @@
         const {data}=await api('/currency',{from:a.from,to:a.to,amount:a.amount||1});
         t.classList.remove('think'); t.textContent=data.spoken||`${a.amount||1} ${a.from} → ${a.to}`; say(data.spoken||''); return true;
       }
-      if(skill==='weather'){ weatherHere(); brain.lastTopic='weather'; setTimeout(()=>brain.suggest('Plan my day around this', ()=>planDay()), 1200); return true; }
+      if(skill==='season'){ await askSeason(a.place, a.when, a.activity); return true; }
+      if(skill==='weather'){ weatherHere(original||''); brain.lastTopic='weather'; setTimeout(()=>brain.suggest('Plan my day around this', ()=>planDay()), 1200); return true; }
       if(skill==='unlost'){ getUnlost(); return true; }
       if(skill==='survival'){ offlinePack(); return true; }
       if(skill==='whereis'){ whereIsPartner(); brain.lastTopic='whereis'; setTimeout(()=>brain.suggest('Drop a meet-here pin', ()=>shareMyPin()), 1200); return true; }
@@ -7528,17 +7529,110 @@
     say(line); document.getElementById('spendSub').textContent=`${total.toFixed(2)} ${home} so far`;
   }
 
-  // ---- live: weather (uses browser geolocation) ----
-  function weatherHere(){
+  /* Which day and which place is he actually asking about? Both are usually
+   * right there in the sentence, and asking him to repeat himself is exactly
+   * the sort of friction that makes an assistant tiring. */
+  function weatherWhen(said){
+    const t = String(said||'').toLowerCase();
+    if (/\btoday\b|\bright now\b|\bnow\b/.test(t)) return 0;
+    if (/\btomorrow\b/.test(t)) return 1;
+    if (/\bday after tomorrow\b|\bin two days\b/.test(t)) return 2;
+    const m = t.match(/\bin (\d{1,2}) days?\b/);
+    if (m) return Math.min(14, Number(m[1]));
+    // Named days: "on Friday" -> however many days that is.
+    const days = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+    for (let i=0;i<7;i++){
+      if (new RegExp(`\\b${days[i]}\\b`).test(t)) {
+        const now=new Date().getDay();
+        return (i - now + 7) % 7 || 7;   // "monday" on a Monday means next Monday
+      }
+    }
+    return 0;
+  }
+
+  function weatherWhere(said){
+    const t = String(said||'');
+    // "in Da Nang", "at Lombok", "for Brisbane" — the place follows the
+    // preposition and stops at a time word.
+    // "to" and "down at" matter as much as "in" and "at" — "I'm headed to the
+    // local beach" was extracting nothing and falling back to his own
+    // coordinates, which is the inland answer he did not ask for.
+    const m = t.match(/\b(?:in|at|for|to|over in|down at|up at|round at)\s+([A-Za-z][A-Za-z\s'-]{2,40}?)(?=\s+(?:today|tomorrow|on|next|this|later|in \d|$)|[,.?!]|$)/i);
+    if (!m) return '';
+    const p = m[1].trim();
+    // Guard against grabbing a time word as a place name.
+    if (/^(the|a|an|there|here|it|town|morning|arvo|afternoon|evening)$/i.test(p)) return '';
+    return p;
+  }
+
+  // ---- live: weather ----
+  // Handles here-and-now, somewhere-else, and a day up to a fortnight out.
+  // Beyond that it's climate rather than forecast, and that's askSeason's job.
+  async function weatherHere(said){
+    said = said || '';
+    const place = weatherWhere(said);
+    const day = weatherWhen(said);
+
+    // A named place needs no location permission at all.
+    if(place){
+      busy('wxSub',true);
+      try{
+        const {data}=await api('/weather',{place,day,said});
+        const line=data.spoken||`Couldn't get the weather for ${place}.`;
+        say(line); openChat(); addMsg('buddy',line);
+        showMarine(data);
+      }catch(e){ say(`Couldn't get the weather for ${place}.`); }
+      finally{ busy('wxSub',false); }
+      return;
+    }
+
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     busy('wxSub',true);
     navigator.geolocation.getCurrentPosition(async pos=>{
-      try{ const {data}=await api('/weather',{lat:pos.coords.latitude,lng:pos.coords.longitude});
+      try{ const {data}=await api('/weather',{lat:pos.coords.latitude,lng:pos.coords.longitude,day,said});
         const t=data.raw?.current?.temperature_2m;
-        if(t!=null) wxSub.textContent=`${Math.round(t)}° now`;
-        say(data.spoken || (t!=null?`It's ${Math.round(t)} degrees.`:'Weather unavailable.'));
+        if(t!=null&&day===0) wxSub.textContent=`${Math.round(t)}° now`;
+        const line=data.spoken || (t!=null?`It's ${Math.round(t)} degrees.`:'Weather unavailable.');
+        say(line);
+        if(data.marine){ openChat(); addMsg('buddy',line); showMarine(data); }
       }catch(e){} finally{ busy('wxSub',false); }
     }, ()=>{ busy('wxSub',false); say('Location permission needed.'); });
+  }
+
+  // The numbers, under the verdict. Only shown when there's water data, and
+  // deliberately after the spoken line — the verdict is the answer, these are
+  // the workings.
+  function showMarine(data){
+    const m = data && data.marine;
+    if(!m) return;
+    const bits=[];
+    if(m.waveM!=null) bits.push(`waves ${m.waveM} m`);
+    if(m.swellM!=null) bits.push(`swell ${m.swellM} m${m.swellPeriodS?` at ${m.swellPeriodS}s`:''}${m.swellFrom?` from the ${m.swellFrom}`:''}`);
+    if(m.seaTempC!=null) bits.push(`sea ${Math.round(m.seaTempC)}°`);
+    if(bits.length) addMsg('buddy','🌊 '+bits.join(' · ')).style.opacity='.85';
+    // Say what it does NOT know, rather than letting the silence imply it's
+    // all covered. Tides and clarity are the two people assume are in there.
+    addMsg('buddy','No tides or water clarity — a tide app or the dive shop will have those.').style.opacity='.6';
+  }
+
+  /* Seasons are a different question from weather — no forecast reaches three
+   * months out, so this is the model's knowledge of the climate rather than
+   * data. Which is why it says plainly that seasons move. */
+  async function askSeason(place, when, activity){
+    if(!place) place = await sayOrType('Where are you asking about?');
+    if(!place) return;
+    openChat(); addMsg('me',`🌏 ${place}${when?` in ${when}`:''}${activity?` — ${activity}`:''}`);
+    const _w=addMsg('buddy','Having a think…');
+    const {data}=await api('/season',{place,when:when||'',activity:activity||''}).catch(()=>({data:{}}));
+    _w.remove();
+    const m=(data&&data.spoken)||"Couldn't work that out just now.";
+    addMsg('buddy',m); say(m);
+    if(data&&data.ok){
+      if(data.goodFor&&data.goodFor.length) addMsg('buddy','👍 '+data.goodFor.join(' · ')).style.opacity='.88';
+      if(data.watchFor&&data.watchFor.length) addMsg('buddy','⚠️ '+data.watchFor.join(' · ')).style.opacity='.88';
+      // The honest caveat, said every time it applies rather than buried once.
+      if(data.checkCloser) addMsg('buddy','Seasons shift by a few weeks each year — worth checking nearer the time.').style.opacity='.65';
+    }
   }
 
   // ---- live: nearby ----
