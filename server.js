@@ -1975,6 +1975,60 @@ app.post("/chat", requireAuth, async (req, res) => {
 // --- Directions: Google routing, returned as clean spoken steps ---
 // Body: { originLat, originLng, destination, mode? ("walking"|"driving"|"transit"|"bicycling") }
 // Returns: { summary, distanceText, durationText, steps: [{ text, distanceMeters, lat, lng }] }
+// Shared route fetch — used by /directions AND the /getthere concierge skill,
+// so both parse Google's transit detail (times, fare, stops) the same way.
+// Returns { ok, status, googleStatus?, route:{ summary, distanceText, durationText,
+//   durationValue, rides[], fare, minsUntil, steps[], first } } or an error shape.
+async function fetchRoute({ originLat, originLng, destination, mode, departAt }) {
+  if (!GMAPS_KEY) return { ok: false, status: 501, error: "google_directions_disabled" };
+  if (originLat == null || originLng == null || !destination) return { ok: false, status: 400, error: "origin+destination required" };
+  const travelMode = ["walking", "driving", "transit", "bicycling"].includes(mode) ? mode : "walking";
+  const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
+  url.searchParams.set("origin", `${originLat},${originLng}`);
+  url.searchParams.set("destination", destination);
+  url.searchParams.set("mode", travelMode);
+  url.searchParams.set("key", GMAPS_KEY);
+  if (travelMode === "transit") {
+    const dep = Number(departAt) || 0;
+    url.searchParams.set("departure_time", dep ? String(Math.floor(dep / 1000)) : "now");
+    url.searchParams.set("alternatives", "true");
+  }
+  const r = await fetch(url);
+  const data = await r.json();
+  if (data.status !== "OK" || !data.routes?.length) return { ok: false, status: 404, googleStatus: data.status };
+  const route = data.routes[0];
+  const leg = route.legs[0];
+  const clean = (html) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const steps = leg.steps.map((s) => ({
+    text: clean(s.html_instructions || ""),
+    distanceMeters: s.distance?.value ?? 0,
+    lat: s.start_location?.lat, lng: s.start_location?.lng,
+  }));
+  const rides = leg.steps.filter(s => s.travel_mode === "TRANSIT" && s.transit_details).map(s => {
+    const t = s.transit_details;
+    return {
+      line: t.line?.short_name || t.line?.name || "",
+      kind: (t.line?.vehicle?.name || "service").toLowerCase(),
+      towards: t.headsign || "", from: t.departure_stop?.name || "", to: t.arrival_stop?.name || "",
+      departs: t.departure_time?.text || "", departsAt: t.departure_time?.value ? t.departure_time.value * 1000 : 0,
+      arrives: t.arrival_time?.text || "", arrivesAt: t.arrival_time?.value ? t.arrival_time.value * 1000 : 0,
+      stops: t.num_stops || 0,
+    };
+  });
+  const first = rides[0] || null;
+  const minsUntil = first && first.departsAt ? Math.round((first.departsAt - Date.now()) / 60000) : null;
+  const fare = route.fare ? { text: route.fare.text, value: route.fare.value, currency: route.fare.currency } : null;
+  return {
+    ok: true, status: 200,
+    route: {
+      summary: route.summary || "",
+      distanceText: leg.distance?.text || "", durationText: leg.duration?.text || "",
+      durationValue: leg.duration?.value || 0,   // seconds — needed to work timing backwards
+      rides, fare, minsUntil, steps, first,
+    },
+  };
+}
+
 app.post("/directions", requireAuth, async (req, res) => {
   if (!GMAPS_KEY) {
     return res.status(501).json({ error: "google_directions_disabled",
@@ -1984,74 +2038,13 @@ app.post("/directions", requireAuth, async (req, res) => {
   if (originLat == null || originLng == null || !destination) {
     return res.status(400).json({ error: "originLat, originLng, destination required" });
   }
-  const travelMode = ["walking", "driving", "transit", "bicycling"].includes(mode) ? mode : "walking";
-
-  const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
-  url.searchParams.set("origin", `${originLat},${originLng}`);
-  url.searchParams.set("destination", destination); // Google geocodes the text for us
-  url.searchParams.set("mode", travelMode);
-  url.searchParams.set("key", GMAPS_KEY);
-  // Batch 155: transit is time-sensitive in a way driving isn't — the 7am and
-  // 7pm answers are different journeys. Without a departure time Google
-  // assumes "now", which is why "Brisbane tomorrow" returned today's trains.
-  if (travelMode === "transit") {
-    const dep = Number((req.body || {}).departAt) || 0;
-    url.searchParams.set("departure_time", dep ? String(Math.floor(dep / 1000)) : "now");
-    url.searchParams.set("alternatives", "true");
-  }
-
   try {
-    const r = await fetch(url);
-    const data = await r.json();
-    if (data.status !== "OK" || !data.routes?.length) {
-      return res.status(404).json({ error: "no_route", googleStatus: data.status });
+    const rr = await fetchRoute({ originLat, originLng, destination, mode, departAt: (req.body || {}).departAt });
+    if (!rr.ok) {
+      if (rr.status === 404) return res.status(404).json({ error: "no_route", googleStatus: rr.googleStatus });
+      return res.status(rr.status || 502).json({ error: rr.error || "route_failed" });
     }
-    const route = data.routes[0];
-    const leg = route.legs[0];
-
-    // Strip Google's HTML tags from instructions so TTS reads them cleanly.
-    const clean = (html) =>
-      html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-
-    const steps = leg.steps.map((s) => ({
-      text: clean(s.html_instructions || ""),
-      distanceMeters: s.distance?.value ?? 0,
-      lat: s.start_location?.lat,
-      lng: s.start_location?.lng,
-    }));
-
-    /* Batch 155: the transit detail Google already sends and we were binning.
-     * Platform is deliberately absent — Google almost never provides it, and
-     * inventing a platform number is exactly the kind of confident-and-wrong
-     * that gets someone on the wrong train. */
-    const rides = leg.steps
-      .filter(s => s.travel_mode === "TRANSIT" && s.transit_details)
-      .map(s => {
-        const t = s.transit_details;
-        return {
-          line: t.line?.short_name || t.line?.name || "",
-          kind: (t.line?.vehicle?.name || "service").toLowerCase(),
-          towards: t.headsign || "",
-          from: t.departure_stop?.name || "",
-          to: t.arrival_stop?.name || "",
-          departs: t.departure_time?.text || "",
-          departsAt: t.departure_time?.value ? t.departure_time.value * 1000 : 0,
-          arrives: t.arrival_time?.text || "",
-          stops: t.num_stops || 0,
-        };
-      });
-
-    const first = rides[0] || null;
-    const minsUntil = first && first.departsAt
-      ? Math.round((first.departsAt - Date.now()) / 60000) : null;
-
-    // Google gives a fare for some networks and not others. Saying "about $X"
-    // when it does, and admitting when it doesn't, beats guessing either way.
-    const fare = route.fare
-      ? { text: route.fare.text, value: route.fare.value, currency: route.fare.currency }
-      : null;
-
-    // Concierge voice: a warm one-line summary Vision can speak before guiding.
+    const { summary, distanceText, durationText, rides, fare, minsUntil, steps, first } = rr.route;
     let spoken = "";
     try {
       const firstFew = steps.slice(0, 3).map(s => s.text).join(". ");
@@ -2060,42 +2053,31 @@ app.post("/directions", requireAuth, async (req, res) => {
         max_tokens: 120,
         system: "You are Vision guiding Shaun through his glasses. One warm, natural spoken sentence — no lists." + NO_INVENT + ANSWER_FIRST,
         messages: [{ role: "user", content: first
-          ? // A train answer lives or dies on the departure time. Lead with it.
-            `Tell Shaun about this journey in ONE spoken sentence. Lead with WHEN the service leaves and which one it is. ` +
+          ? `Tell Shaun about this journey in ONE spoken sentence. Lead with WHEN the service leaves and which one it is. ` +
             `The ${first.departs} ${first.kind}${first.line ? ` (${first.line})` : ""}` +
             `${first.towards ? ` towards ${first.towards}` : ""} from ${first.from}, arriving ${first.arrives} at ${first.to}. ` +
             `${minsUntil !== null && minsUntil > 0 && minsUntil < 90 ? `That is ${minsUntil} minutes away. ` : ""}` +
-            `Whole trip ${leg.duration?.text || ""}.` +
+            `Whole trip ${durationText || ""}.` +
             `${fare ? ` Fare about ${fare.text}.` : " Do not mention the fare — Google did not give one."}` +
             ` Never state a platform number; it was not provided.`
           : `Summarise this walk/drive for Shaun in ONE friendly spoken sentence (mention the time and roughly what to do first). ` +
-            `${leg.duration?.text || ""}, ${leg.distance?.text || ""}. First moves: ${firstFew}` }],
+            `${durationText || ""}, ${distanceText || ""}. First moves: ${firstFew}` }],
       });
       if (g.status === 200) {
         const j = JSON.parse(g.text);
         spoken = (j.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
       }
     } catch {}
-
-    // Fall back to a real sentence with the times in it, rather than a generic
-    // one — if the model call fails he still needs to know when it leaves.
     const plainFallback = first
       ? `The ${first.departs}${first.line ? ` ${first.line}` : ""}${first.towards ? ` towards ${first.towards}` : ""}` +
         ` from ${first.from}, in at ${first.arrives}.` +
         (minsUntil !== null && minsUntil > 0 && minsUntil < 90 ? ` That's ${minsUntil} minutes away.` : "")
-      : `It's ${leg.duration?.text || "a short trip"} — I'll guide you.`;
-
+      : `It's ${durationText || "a short trip"} — I'll guide you.`;
     res.json({
-      summary: route.summary || "",
-      spoken: spoken || plainFallback,
-      distanceText: leg.distance?.text || "",
-      durationText: leg.duration?.text || "",
-      departs: first ? first.departs : "",
-      arrives: first ? first.arrives : "",
-      minsUntil,
-      rides,
-      fare,
-      // Said plainly so the app never has to guess why a fare is absent.
+      summary, spoken: spoken || plainFallback,
+      distanceText, durationText,
+      departs: first ? first.departs : "", arrives: first ? first.arrives : "",
+      minsUntil, rides, fare,
       fareNote: fare ? "" : "no fare from Google for this network",
       steps,
     });
@@ -2104,12 +2086,294 @@ app.post("/directions", requireAuth, async (req, res) => {
   }
 });
 
-// --- Places / points of interest: Google Places (Nearby + Text search) ---
-// Body: { lat, lng, query? , type? , radius? }
-//   query  -> text search ("ramen", "pharmacy open now")
-//   type   -> Places type filter ("restaurant","atm","hospital"...)
-//   radius -> meters (default 1500)
-// Returns: { places: [{ name, address, lat, lng, rating, openNow, types, placeId }] }
+/* --- 🗣️ SHARED CONVERSATION ENGINE (build 159) -----------------------------
+ * ONE slot-filling brain every conversational skill plugs into, so the
+ * "ask smart questions → fill what's needed → act → log → learn" loop is
+ * built once, not re-written per skill.
+ *
+ * HYBRID design: each skill declares its REQUIRED slots (guaranteed to be
+ * asked) and OPTIONAL ones. The brain phrases questions naturally, skips
+ * anything it can pull from memory/profile, and may ask a smart follow-up the
+ * fixed list didn't anticipate. Predictable where it must be, intelligent
+ * where it helps.
+ *
+ * The engine NEVER acts. It returns {phase:"ask", question} or {phase:"ready",
+ * args} with every required slot filled — the APP calls that skill's existing
+ * function with those args. So the engine needn't know how any skill works;
+ * adding a skill is a recipe, not code.
+ * ------------------------------------------------------------------------ */
+const SKILL_RECIPES = {
+  getthere:  { need: ["destination", "timing"], opt: [], intro: "planning a public-transport journey" },
+  findfood:  { need: ["craving"], opt: ["budget"], intro: "finding food to order" },
+  orderfood: { need: ["what"], opt: ["where"], intro: "ordering food for delivery" },
+  booktable: { need: ["what", "when", "people"], opt: [], intro: "booking a table" },
+  tripplan:  { need: ["destination", "days"], opt: ["budget", "interests"], intro: "planning a multi-day trip" },
+  planday:   { need: ["goal"], opt: ["city", "budget"], intro: "planning your day" },
+  stay:      { need: ["area"], opt: ["what"], intro: "finding a place to stay" },
+  findstay:  { need: ["where"], opt: ["from", "to", "people"], intro: "finding accommodation to book" },
+  thingstobook: { need: ["where"], opt: ["what"], intro: "finding tours and activities to book" },
+  packlist:  { need: ["destination"], opt: ["days", "month"], intro: "building a packing list" },
+  activities:{ need: ["city"], opt: ["interests"], intro: "finding things to do" },
+  esim:      { need: ["country"], opt: [], intro: "finding a data/eSIM option" },
+  ride:      { need: ["destination"], opt: [], intro: "getting you a ride" },
+};
+
+const SLOT_HINTS = {
+  destination: "where he's going (a place name or address)",
+  timing: "when he needs to arrive OR whether to leave now — for an airport run, his flight time and whether it's domestic or international",
+  craving: "what food he's after",
+  what: "what specifically (dish, cuisine, or the kind of place/tour)",
+  where: "which town, area, or country",
+  when: "the date and time",
+  people: "how many people",
+  budget: "his rough budget (skip if he doesn't care)",
+  days: "how many days",
+  interests: "what he's into (skip if not relevant)",
+  goal: "what he wants out of the day",
+  city: "which city or area",
+  area: "which area or neighbourhood",
+  from: "check-in date",
+  to: "check-out date",
+  month: "which month he's travelling",
+  country: "which country",
+};
+
+app.post("/ask", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { skill, history, seed } = req.body || {};
+  const recipe = SKILL_RECIPES[skill];
+  if (!recipe) return res.status(400).json({ error: "unknown_skill", spoken: "I'm not set up to plan that one conversationally yet." });
+
+  const turns = Array.isArray(history) ? history.slice(-10) : [];
+  const prof = profileOf(uid) || {};
+  const seedText = typeof seed === "string" ? seed : "";
+  const past = recallFor(uid, `${skill} ${seedText}`, 4).map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+
+  const known = [
+    prof.city ? `He's based near ${prof.city}.` : "",
+    prof.country ? `He's currently in ${prof.country}.` : "",
+    prof.localCurrency ? `Local currency is ${prof.localCurrency}; his home currency is AUD.` : "",
+  ].filter(Boolean).join(" ");
+
+  const needList = recipe.need.map(s => `"${s}" (${SLOT_HINTS[s] || s}) — REQUIRED`).join("\n");
+  const optList = recipe.opt.map(s => `"${s}" (${SLOT_HINTS[s] || s}) — optional`).join("\n");
+
+  const sys =
+    `You are Vision, ${prof.name || "Shaun"}'s warm travel companion, ${recipe.intro} through his glasses by voice. ` +
+    "Collect what you need to act, asking ONE natural question at a time. " +
+    "Do NOT ask for anything he's already told you, anything given as known context, or anything you can reasonably infer. " +
+    "Optional slots: only ask if it would genuinely improve the result, and never more than once. " +
+    "The moment you have every REQUIRED slot, stop asking and return ready. " +
+    "Be adaptive — if the situation needs a smart follow-up the list didn't cover, ask it." +
+    NO_INVENT + SPOKEN_PLAIN;
+
+  const ctx =
+    `Skill: ${skill}.\nRequired slots:\n${needList}\n${optList ? `Optional slots:\n${optList}\n` : ""}` +
+    (known ? `\nKnown context (use, don't ask): ${known}` : "") +
+    (past ? `\nRelevant memory: ${past}` : "") +
+    (seedText ? `\nHe opened with: "${seedText}"` : "") +
+    `\n\nConversation so far:\n` +
+    (turns.length ? turns.map(t => `${t.who === "me" ? "Shaun" : "Vision"}: ${t.text}`).join("\n") : "(nothing yet)") +
+    `\n\nReply as compact JSON ONLY (no markdown):\n` +
+    `{"ready": true|false, ` +
+    `"question": "the ONE next question, warm and spoken — empty if ready", ` +
+    `"args": { each slot you've resolved, by its exact name above }, ` +
+    `"spoken": "if ready, one warm line telling him what you're about to do"}`;
+
+  try {
+    const g = await callClaude({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 300,
+      system: sys,
+      messages: [{ role: "user", content: ctx }],
+    });
+    if (g.status !== 200) return res.status(200).json({ fallback: true, spoken: "I lost my thread there — say that again?" });
+    const raw = (JSON.parse(g.text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { ready: false, question: raw }; }
+
+    const args = p.args || {};
+    const haveAll = recipe.need.every(s => args[s] != null && String(args[s]).trim() !== "");
+    if (!p.ready || !haveAll) {
+      const gap = recipe.need.find(s => args[s] == null || String(args[s]).trim() === "");
+      const q = p.question || (gap ? `What ${gap === "timing" ? "time do you need to be there" : gap}?` : "Tell me a bit more?");
+      return res.json({ phase: "ask", skill, question: q, spoken: q, args });
+    }
+
+    try {
+      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+      mem.push({ t: `ask/${skill}: ${Object.entries(args).map(([k, v]) => `${k}=${v}`).join(", ")}`, at: Date.now(), origin: "tool" });
+      while (mem.length > 400) mem.shift();
+      saveStore();
+    } catch {}
+
+    return res.json({ phase: "ready", skill, args, spoken: p.spoken || "On it." });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Something tangled up there — give me another go?" });
+  }
+});
+
+// --- 🧭 GET ME THERE: the adaptive, conversational journey concierge ---------
+// Not a route lookup — a back-and-forth that changes with WHY you're going.
+// Airport → asks the flight, checks it, works backwards through customs/security
+// buffers. Event/dinner → asks the booking time, arrives on time with a buffer.
+// General → leave-now or arrive-by. Full multi-turn until it's nailed, then a
+// complete spoken report + hands to Maps, and LOGS the trip so next time it
+// leads with your usual (auto-learning).
+//
+// Body: { destination, originLat, originLng, history:[{who,text}], answer, reset }
+//   Client re-sends the whole `history` each turn (stateless brain).
+// Returns one of:
+//   { phase:"ask", question, spoken, mode }                     — needs an answer
+//   { phase:"plan", spoken, report{...}, mapsDest, mode, leaveBy } — ready, open Maps
+//   { fallback:true, spoken }                                    — soft failure
+//
+// Airport buffers (his stated defaults): international 3h, domestic 1.5h before.
+const AIRPORT_BUFFER = { international: 180, domestic: 90 }; // minutes before departure
+
+function tripTypeOf(dest, history) {
+  const d = (dest || "").toLowerCase();
+  const all = (history || []).map(h => h.text).join(" ").toLowerCase() + " " + d;
+  if (/airport|terminal|flight|departures|check.?in/.test(all)) return "airport";
+  if (/dinner|reservation|booking|restaurant|table at|meet|meeting|show|concert|movie|game|match|appointment|wedding|party|event/.test(all)) return "event";
+  return "general";
+}
+
+app.post("/getthere", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { destination, originLat, originLng, history, reset } = req.body || {};
+  if (!destination) return res.status(400).json({ error: "destination required" });
+  const mode = "transit"; // this tile is trains & buses; driving handled by Navigate
+
+  STORE.trips = STORE.trips || {};
+  const turns = Array.isArray(history) ? history.slice(-8) : [];
+  const type = tripTypeOf(destination, turns);
+
+  // What Vision already knows, so it doesn't ask what it can look up.
+  const prof = profileOf(uid) || {};
+  const past = recallFor(uid, `trip to ${destination}`, 5).map(m => `${when(m.at)}: ${m.t}`).join(" | ");
+  const learned = (STORE.trips[uid] || []).filter(t => (t.dest || "").toLowerCase() === destination.toLowerCase()).slice(-3);
+  const usual = learned.length ? learned[learned.length - 1] : null;
+
+  // Airport mode can enrich itself from a saved flight before it even asks.
+  let flightNote = "";
+  if (type === "airport" && FLIGHT_KEY) {
+    const savedIata = prof.flightIata || (turns.map(t => (t.text.match(/\b([A-Z]{2}\d{2,4})\b/) || [])[1]).filter(Boolean)[0]);
+    if (savedIata) {
+      try {
+        const av = await aviationFetch({ access_key: FLIGHT_KEY, flight_iata: savedIata });
+        const f = (av.json?.data || [])[0];
+        if (f?.departure?.scheduled) {
+          flightNote = `Saved flight ${savedIata} departs ${new Date(f.departure.scheduled).toLocaleString("en-AU")} from ${f.departure.airport || "the airport"}.`;
+        }
+      } catch {}
+    }
+  }
+
+  // The brain decides: ask the next sharp question, OR (if it has enough) say
+  // "ready" with the departure target. It never guesses a flight time or a
+  // reservation it wasn't told; if unknown, it asks.
+  const sys =
+    "You are Vision, Shaun's travel concierge, planning ONE public-transport journey through his glasses, by voice. " +
+    "Be adaptive: the questions depend on WHY he's going.\n" +
+    "- AIRPORT: you must know his flight's departure time and whether it's international or domestic. " +
+    `Then he must be AT the airport ${AIRPORT_BUFFER.international} min before an international flight or ${AIRPORT_BUFFER.domestic} min before a domestic one (his rule). ` +
+    "If he has a checked bag or it's peak hour, mention it adds time. Work out the LATEST he can arrive at the airport, then he'll get the train that lands before it.\n" +
+    "- EVENT/DINNER: you must know the time he needs to be there. Add a sensible 10-15 min arrival buffer.\n" +
+    "- GENERAL: ask whether he wants to leave now or arrive by a certain time.\n" +
+    "Ask ONE question at a time. Keep asking until you have a concrete TARGET ARRIVAL TIME (clock time today/tomorrow). " +
+    "Don't re-ask what he's already told you or what's given below. When — and only when — you have a firm target arrival time, stop asking." +
+    NO_INVENT + SPOKEN_PLAIN;
+
+  const ctx =
+    `Destination: ${destination}. Trip type: ${type}.` +
+    (flightNote ? `\n${flightNote}` : "") +
+    (usual ? `\nHis usual for this trip: ${usual.note || ""}${usual.leaveBy ? ` (last time he left by ${usual.leaveBy})` : ""}.` : "") +
+    (past ? `\nRelevant memory: ${past}` : "") +
+    (prof.city ? `\nHe's based near ${prof.city}.` : "") +
+    `\n\nConversation so far:\n` +
+    (turns.length ? turns.map(t => `${t.who === "me" ? "Shaun" : "Vision"}: ${t.text}`).join("\n") : "(nothing yet — this is the first turn)") +
+    `\n\nReply as compact JSON ONLY (no markdown):\n` +
+    `{"ready": true|false, ` +
+    `"question": "the ONE next question to ask, spoken and warm — empty if ready", ` +
+    `"targetArrival": "ISO 8601 clock time he must ARRIVE by, or empty if not ready", ` +
+    `"advice": "short spoken advice for this trip type — check-in/security reminder for airport, buffer note for events — or empty", ` +
+    `"why": "one short clause explaining the timing, e.g. so you clear security in time"}`;
+
+  try {
+    const g = await callClaude({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 300,
+      system: sys,
+      messages: [{ role: "user", content: ctx }],
+    });
+    if (g.status !== 200) return res.status(200).json({ fallback: true, spoken: "I lost my train of thought — say that again?" });
+    const raw = (JSON.parse(g.text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { ready: false, question: raw }; }
+
+    // STILL ASKING ------------------------------------------------------------
+    if (!p.ready || !p.targetArrival) {
+      return res.json({
+        phase: "ask",
+        mode: type,
+        question: p.question || "When do you need to be there?",
+        spoken: p.question || "When do you need to be there?",
+        advice: p.advice || "",
+      });
+    }
+
+    // READY — now do the real route maths against the target arrival time. -----
+    // We need to leave such that we ARRIVE by targetArrival. Google transit
+    // supports arrival_time, but our shared fetchRoute uses departure_time, so
+    // we ask for "now" first to get trip duration, then compute leave-by.
+    if (originLat == null || originLng == null) {
+      return res.json({ phase: "ask", mode: type, question: "I need your location to time this — allow location and tell me again?", spoken: "I need your location to time this." });
+    }
+    const target = new Date(p.targetArrival);
+    const rr = await fetchRoute({ originLat, originLng, destination, mode, departAt: Date.now() });
+    if (!rr.ok) {
+      return res.status(200).json({ fallback: true, spoken: "I couldn't find a train route there just now — want me to open Maps so you can check?", mapsDest: destination, mode });
+    }
+    const r = rr.route;
+    const durMin = Math.round((r.durationValue || 0) / 60) || 30;
+    const leaveBy = new Date(target.getTime() - durMin * 60000);
+    const leaveByTxt = leaveBy.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+    const targetTxt = target.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+
+    // Build the full spoken report.
+    const parts = [];
+    parts.push(`To be there by ${targetTxt}, leave by about ${leaveByTxt} — it's roughly a ${r.durationText || durMin + " min"} trip.`);
+    if (r.first) parts.push(`Catch the ${r.first.departs} ${r.first.kind}${r.first.line ? ` (${r.first.line})` : ""}${r.first.towards ? ` towards ${r.first.towards}` : ""} from ${r.first.from}.`);
+    if (r.fare) parts.push(`Fare's about ${r.fare.text}.`);
+    else if (r.rides.length) parts.push(`No fare from Google for this network — sort it at the gate.`);
+    if (p.advice) parts.push(p.advice);
+    if (p.why) parts.push(p.why.charAt(0).toUpperCase() + p.why.slice(1) + ".");
+    const spoken = parts.join(" ");
+
+    // LOG THE TRIP — durable memory + a learned pattern for next time.
+    const tripLog = { dest: destination, type, at: Date.now(), target: p.targetArrival, leaveBy: leaveByTxt, note: `${type} trip to ${destination}, target ${targetTxt}` };
+    STORE.trips[uid] = STORE.trips[uid] || [];
+    STORE.trips[uid].push(tripLog);
+    while (STORE.trips[uid].length > 40) STORE.trips[uid].shift();
+    const mem = STORE.mem[uid] = STORE.mem[uid] || [];
+    mem.push({ t: `getthere: ${type} trip to ${destination} — needed to arrive ${targetTxt}, left by ${leaveByTxt}`, at: Date.now(), origin: "tool" });
+    while (mem.length > 400) mem.shift();
+    saveStore();
+
+    return res.json({
+      phase: "plan",
+      mode: type,
+      spoken,
+      report: {
+        targetArrival: targetTxt, leaveBy: leaveByTxt,
+        durationText: r.durationText, fare: r.fare, first: r.first,
+        rides: r.rides, steps: r.steps.slice(0, 6), advice: p.advice || "", why: p.why || "",
+      },
+      mapsDest: destination, leaveBy: leaveByTxt,
+    });
+  } catch (e) {
+    res.status(200).json({ fallback: true, spoken: "Something tangled up planning that — give me another go?" });
+  }
+});
 // AviationStack free tier rejects HTTPS (paid feature) — try https first,
 // fall back to plain http so a valid free key still works.
 async function aviationFetch(params) {
@@ -4150,7 +4414,7 @@ app.post("/recover", requireAuth, (req, res) => {
                      "budgets", "lastDistil", "spend", "smsHold", "smsSeen", "recovery",
                      "calPrefs", "calCache", "calSeen", "calHold", "calToday", "calPending", "jobs",
                      "convoLive", "convoLangs", "phrases",
-                     "scenes", "timelines", "dismissed", "followLog"];
+                     "scenes", "timelines", "dismissed", "followLog", "trips"];
     let moved = 0;
     for (const b of buckets) {
       if (STORE[b] && STORE[b][target] !== undefined) {
@@ -6854,7 +7118,7 @@ app.post("/native/hello", requireAuth, (req, res) => {
     // Bump when the client contract changes in a way Swift must handle.
     contract: 1,
     brain: {
-      version: "139",
+      version: "159",
       // Every model-backed endpoint returns `spoken`. This is the promise the
       // whole thin-connector design rests on, stated explicitly so a client
       // can rely on it rather than inferring it.

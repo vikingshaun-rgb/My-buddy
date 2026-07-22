@@ -986,14 +986,14 @@
   <div class="grid">
     <div class="tile" onclick="navigateTo()"><span class="badge live">live</span><div class="ic">🧭</div><h3>Navigate</h3><p>Spoken turn-by-turn</p></div>
     <div class="tile" onclick="savedPlaces()"><span class="badge live">live</span><div class="ic">📍</div><h3>Saved places</h3><p>Home, gym, hotel…</p></div>
-    <div class="tile" onclick="transitTo()"><span class="badge live">live</span><div class="ic">🚆</div><h3>Trains &amp; buses</h3><p>Public transport route</p></div>
+    <div class="tile" onclick="getThere()"><span class="badge live">live</span><div class="ic">🚆</div><h3>Trains &amp; buses</h3><p>I'll time it &amp; get you there</p></div>
     <div class="tile" onclick="findNearby()"><span class="badge live">live</span><div class="ic">📍</div><h3>Nearby</h3><p id="nearbySub">Ask Vision for a rec</p></div>
-    <div class="tile" onclick="rememberSpot()"><span class="badge live">live</span><div class="ic">📌</div><h3>Remember this spot</h3><p>Parked car, hotel, that stall</p></div>
+    <div class="tile" onclick="markSpot()"><span class="badge live">live</span><div class="ic">📌</div><h3>My spots</h3><p>One tap marks here · walk back anytime</p></div>
     <div class="tile" onclick="weatherHere()"><span class="badge live">live</span><div class="ic">🌦️</div><h3>Weather</h3><p id="wxSub">Tap for conditions</p></div>
-    <div class="tile" onclick="markSpot()"><span class="badge live">live</span><div class="ic">🅿️</div><h3>Mark a spot</h3><p>Walk-back pin for later</p></div>
+    <div class="tile" onclick="spotsSheet()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>See all spots</h3><p>Pick one · rename · delete old</p></div>
     <div class="tile" onclick="getUnlost()"><span class="badge live">live</span><div class="ic">🧵</div><h3>Get me un-lost</h3><p>Walk me back to my spot</p></div>
-    <div class="tile" onclick="planDay()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my day</h3><p>Vision builds an itinerary</p></div>
-    <div class="tile" onclick="findFood()"><span class="badge live">live</span><div class="ic">🍔</div><h3>Find food</h3><p>Order via Grab</p></div>
+    <div class="tile" onclick="runSkill('planday')"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my day</h3><p>Vision builds an itinerary</p></div>
+    <div class="tile" onclick="runSkill('findfood')"><span class="badge live">live</span><div class="ic">🍔</div><h3>Find food</h3><p>Order via Grab</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Travel Safe</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -1011,13 +1011,13 @@
   <div class="group" onclick="toggleCat(this)"><h2>Plan &amp; book</h2><div class="rule"></div><span class="chev">▾</span></div>
   <div class="grid">
     <div class="tile" onclick="findFlights()"><span class="badge live">live</span><div class="ic">✈️</div><h3>Find flights</h3><p>Fares + Vision's tips</p></div>
-    <div class="tile" onclick="findStay()"><span class="badge live">live</span><div class="ic">🏨</div><h3>Find a stay</h3><p>Rated picks + book</p></div>
-    <div class="tile" onclick="thingsToDo()"><span class="badge live">live</span><div class="ic">🎟️</div><h3>Things to do</h3><p>Live local ideas</p></div>
-    <div class="tile" onclick="planTrip()"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my trip</h3><p>Day-by-day, saved</p></div>
+    <div class="tile" onclick="runSkill('stay')"><span class="badge live">live</span><div class="ic">🏨</div><h3>Find a stay</h3><p>Rated picks + book</p></div>
+    <div class="tile" onclick="runSkill('activities')"><span class="badge live">live</span><div class="ic">🎟️</div><h3>Things to do</h3><p>Live local ideas</p></div>
+    <div class="tile" onclick="runSkill('tripplan')"><span class="badge live">live</span><div class="ic">🗺️</div><h3>Plan my trip</h3><p>Day-by-day, saved</p></div>
     <div class="tile" onclick="tripDay()"><span class="badge live">live</span><div class="ic">📅</div><h3>My trip plan</h3><p>What's on each day</p></div>
-    <div class="tile" onclick="packList()"><span class="badge live">live</span><div class="ic">🎒</div><h3>Packing list</h3><p>Climate-smart</p></div>
+    <div class="tile" onclick="runSkill('packlist')"><span class="badge live">live</span><div class="ic">🎒</div><h3>Packing list</h3><p>Climate-smart</p></div>
     <div class="tile" onclick="tripBudget()"><span class="badge live">live</span><div class="ic">💵</div><h3>Trip budget</h3><p>What it'll cost</p></div>
-    <div class="tile" onclick="esimInfo()"><span class="badge live">live</span><div class="ic">📶</div><h3>Data &amp; eSIM</h3><p>Get connected</p></div>
+    <div class="tile" onclick="runSkill('esim')"><span class="badge live">live</span><div class="ic">📶</div><h3>Data &amp; eSIM</h3><p>Get connected</p></div>
   </div>
 
   <div class="group" onclick="toggleCat(this)"><h2>Money</h2><div class="rule"></div><span class="chev">▾</span></div>
@@ -4587,24 +4587,16 @@
   function spotsGet(){ try{return JSON.parse(localStorage.getItem('buddy_spots')||'[]');}catch{return[];} }
   function spotsSave(a){ localStorage.setItem('buddy_spots',JSON.stringify(a.slice(0,20))); }
   function rememberSpot(preset){
-    if(!navigator.geolocation){ say('Location unavailable.'); return; }
-    const label=preset||prompt("Label this spot (e.g. 'parked car', 'hotel')","parked car");
-    if(!label) return;
-    navigator.geolocation.getCurrentPosition(pos=>{
-      const a=spotsGet(); a.unshift({label:String(label).trim(),lat:pos.coords.latitude,lng:pos.coords.longitude,at:Date.now()}); spotsSave(a);
-      openChat(); addMsg('me','📌 Remember: '+label);
-      const line=`Pinned "${label}". Say "take me back to ${label}" anytime.`;
-      addMsg('buddy',line); say(line); brain.lastTopic='spots';
-    }, ()=>{ say('I need location access to pin this spot.'); });
+    if(preset){ saveSpotHere(preset); return; }
+    pickSpotName();
   }
   function backToSpot(label){
     const a=spotsGet();
-    if(!a.length){ say("No saved spots yet — tap Remember this spot first."); return; }
+    if(!a.length){ say("No saved spots yet — tap 📌 My spots to mark one."); return; }
     let s=null;
     if(label){ const l=String(label).toLowerCase(); s=a.find(x=>x.label.toLowerCase().includes(l))||a.find(x=>l.includes(x.label.toLowerCase()))||null; }
-    if(!s) s=a[0];
-    openChat(); addMsg('me','📌 Back to: '+s.label);
-    navigateWith(`${s.lat},${s.lng}`,travelModeGet());
+    if(!s) s=a[0];   // default = most recent
+    walkBackTo(s);
   }
 
   // ---- 📖 PHRASEBOOK: your go-to phrases, spoken in the local language ----
@@ -4945,41 +4937,198 @@
     say("Answering calls needs the native app or a forwarding number — for now I can place calls and texts for you.");
   }
 
-  function markSpot(){
+  // ---- SPOTS, unified (build 159 rebuild) -----------------------------------
+  // Was two tiles writing two stores: markSpot()->buddy_spot (single slot, no
+  // name, overwritten every time) and rememberSpot()->buddy_spots (a real
+  // labelled list). getUnlost only read the dumb one, so a "remembered" spot
+  // was invisible to walk-back. Now ONE store (buddy_spots), one system:
+  // named spots, a pick-list you choose from, delete, clear-all, and a smart
+  // default (most-recent). buddy_spot (singular) is retired; migrated on load.
+  (function migrateOldSpot(){
+    try{
+      const old=localStorage.getItem('buddy_spot');
+      if(old){
+        const s=JSON.parse(old); const a=spotsGet();
+        if(s&&s.lat!=null&&!a.some(x=>x.lat===s.lat&&x.lng===s.lng)){
+          a.unshift({label:s.label||'last spot',lat:s.lat,lng:s.lng,at:s.at||Date.now()});
+          spotsSave(a);
+        }
+        localStorage.removeItem('buddy_spot');
+      }
+    }catch(e){}
+  })();
+
+  function spotAge(ts){
+    const m=Math.round((Date.now()-ts)/60000);
+    if(m<1) return 'just now';
+    if(m<60) return m+' min ago';
+    const h=Math.round(m/60); if(h<24) return h+'h ago';
+    const d=Math.round(h/24); return d+(d===1?' day ago':' days ago');
+  }
+  function spotDistance(s){
+    const d = (typeof metresTo==='function') ? metresTo(s.lat,s.lng) : null;
+    if(d==null) return '';
+    return d<1000 ? d+'m away' : (d/1000).toFixed(1)+'km away';
+  }
+  // Save at the current position under a label; used by auto-mark, chip-pick, voice.
+  // quick=true means it was a one-tap auto-mark, so offer a rename / see-all line.
+  function saveSpotHere(label,quick){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     say('Marking this spot…');
     navigator.geolocation.getCurrentPosition(pos=>{
-      const spot={lat:pos.coords.latitude,lng:pos.coords.longitude,at:Date.now()};
-      localStorage.setItem('buddy_spot',JSON.stringify(spot));
-      toast('📍 Spot saved — tap again to walk back');
-      say("Got it, I'll remember this spot. Tap again anytime to walk back.");
+      const a=spotsGet();
+      const spot={label:String(label||'a spot').trim(),lat:pos.coords.latitude,lng:pos.coords.longitude,at:Date.now()};
+      a.unshift(spot); spotsSave(a);
+      localStorage.setItem('buddy_lastspotname',spot.label);   // reuse next time
+      toast('📍 Saved: '+spot.label);
+      say(quick ? `Marked your ${spot.label}.` : `Marked "${spot.label}". Tap 📌 My spots to walk back anytime.`);
+      brain.lastTopic='spots';
+      // DURABLE BRAIN MEMORY — the phone list (buddy_spots) is instant + offline,
+      // but resets on a new phone and the brain can't recall it by name/place/time.
+      // So also write a memory line into the same pool /recall searches, tagged
+      // with where he was, so "where did I park the scooter in Hanoi" works months
+      // later. Fire-and-forget: never block the mark on the network.
+      try{
+        const place = localStorage.getItem('buddy_city') || localStorage.getItem('buddy_country') || '';
+        const memLine = `spot: ${spot.label}${place?' near '+place:''} (lat ${pos.coords.latitude.toFixed(5)}, lng ${pos.coords.longitude.toFixed(5)})`;
+        api('/recall',{action:'save',text:memLine}).catch(()=>{});
+      }catch(e){}
+      // After a one-tap auto-mark, a quiet escape hatch: rename, or open the list.
+      if(quick){
+        openChat();
+        const el=addMsg('buddy',`📌 Marked your ${spot.label} — tap to rename or see all spots`);
+        el.style.cssText+=';cursor:pointer;opacity:.85;font-size:13px';
+        el.onclick=()=>{
+          const t=prompt("Rename this spot", spot.label);
+          if(t&&t.trim()){ const arr=spotsGet(); if(arr[0]){ arr[0].label=t.trim(); spotsSave(arr); localStorage.setItem('buddy_lastspotname',t.trim()); toast('Renamed to "'+t.trim()+'"'); } }
+          spotsSheet();
+        };
+      }
     }, ()=>say('Location permission needed.'));
   }
 
-  // ---- Get me un-lost: walk back to the saved spot with spoken directions ----
+  // ONE-TAP AUTO-MARK. Tap = marks here under your last-used name (scooter,
+  // hotel, car…), speaks, saves to the list + brain memory. No menu. A small
+  // "name it / see all" line lets you rename or pick an older one when you have
+  // a moment. First time ever (no last name), asks once with the chips.
+  function markSpot(){
+    const last=localStorage.getItem('buddy_lastspotname');
+    if(!last){ pickSpotName(); return; }   // first ever: name it once
+    saveSpotHere(last, true);              // true = offer rename + list after
+  }
+  function pickSpotName(){
+    const chips=[['🛵','scooter'],['🚗','car'],['🏨','hotel'],['🍜','that stall'],['🏖️','beach'],['✏️','type my own']];
+    const ov=document.createElement('div');
+    ov.className='spotov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(6,8,20,.86);backdrop-filter:blur(6px);display:flex;flex-direction:column;justify-content:flex-end';
+    ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+    const card=document.createElement('div');
+    card.style.cssText='background:#0e1330;border-top-left-radius:22px;border-top-right-radius:22px;padding:20px 18px 30px;box-shadow:0 -8px 40px rgba(0,0,0,.5)';
+    card.innerHTML='<h3 style="margin:0 0 4px;color:#fff;font-size:19px">Mark this spot as…</h3><p style="margin:0 0 16px;color:#9aa3c7;font-size:13px">One tap and I\u2019ll remember where you are.</p>';
+    const grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px';
+    chips.forEach(([ic,name])=>{
+      const b=document.createElement('button');
+      b.style.cssText='background:#161c42;border:1px solid #263168;color:#fff;border-radius:14px;padding:16px 10px;font-size:15px;text-align:left;cursor:pointer';
+      b.innerHTML=`<span style="font-size:22px;margin-right:8px">${ic}</span>${name==='type my own'?'Type my own':name}`;
+      b.onclick=()=>{
+        ov.remove();
+        if(name==='type my own'){ const t=prompt("Label this spot",""); if(t) saveSpotHere(t); }
+        else saveSpotHere(name);
+      };
+      grid.appendChild(b);
+    });
+    card.appendChild(grid);
+    ov.appendChild(card); document.body.appendChild(ov);
+  }
+
+  // The pick-list: choose a spot to walk back to, delete old ones, clear all,
+  // or mark a new one. This is the Google-Maps-pin-picker he asked for.
+  function spotsSheet(){
+    const a=spotsGet();
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(6,8,20,.86);backdrop-filter:blur(6px);display:flex;flex-direction:column;justify-content:flex-end';
+    ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+    const card=document.createElement('div');
+    card.style.cssText='background:#0e1330;border-top-left-radius:22px;border-top-right-radius:22px;padding:18px 16px 26px;max-height:78vh;overflow-y:auto;box-shadow:0 -8px 40px rgba(0,0,0,.5)';
+    const head=document.createElement('div');
+    head.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px';
+    head.innerHTML='<h3 style="margin:0;color:#fff;font-size:19px">📌 My spots</h3>';
+    const addBtn=document.createElement('button');
+    addBtn.textContent='+ Mark here';
+    addBtn.style.cssText='background:#f0a91e;color:#1a1000;border:0;border-radius:12px;padding:9px 14px;font-weight:700;font-size:14px;cursor:pointer';
+    addBtn.onclick=()=>{ ov.remove(); pickSpotName(); };
+    head.appendChild(addBtn);
+    card.appendChild(head);
+
+    if(!a.length){
+      const p=document.createElement('p'); p.style.cssText='color:#9aa3c7;font-size:14px;text-align:center;padding:24px 0';
+      p.textContent='No saved spots yet — tap + Mark here.';
+      card.appendChild(p);
+    } else {
+      a.forEach((s,idx)=>{
+        const row=document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;gap:10px;background:#161c42;border:1px solid #263168;border-radius:14px;padding:13px;margin-bottom:9px';
+        const meta=[spotAge(s.at), spotDistance(s)].filter(Boolean).join(' · ');
+        const info=document.createElement('div');
+        info.style.cssText='flex:1;cursor:pointer;min-width:0';
+        info.innerHTML=`<div style="color:#fff;font-size:16px;font-weight:600">${idx===0?'⭐ ':''}${s.label||'a spot'}</div><div style="color:#8b93bd;font-size:12px;margin-top:2px">${meta}</div>`;
+        info.onclick=()=>{ ov.remove(); walkBackTo(s); };
+        const del=document.createElement('button');
+        del.innerHTML='🗑️'; del.style.cssText='background:transparent;border:0;font-size:19px;cursor:pointer;padding:6px;opacity:.7';
+        del.onclick=(e)=>{ e.stopPropagation(); const arr=spotsGet().filter(x=>!(x.lat===s.lat&&x.lng===s.lng&&x.at===s.at)); spotsSave(arr); ov.remove(); toast('Removed "'+(s.label||'spot')+'"'); if(arr.length) spotsSheet(); };
+        row.appendChild(info); row.appendChild(del);
+        card.appendChild(row);
+      });
+      const clr=document.createElement('button');
+      clr.textContent='Clear all spots';
+      clr.style.cssText='width:100%;background:transparent;border:1px solid #3a2436;color:#e07a7a;border-radius:12px;padding:11px;font-size:14px;cursor:pointer;margin-top:6px';
+      clr.onclick=()=>{ if(confirm('Clear all saved spots?')){ spotsSave([]); ov.remove(); toast('All spots cleared'); } };
+      card.appendChild(clr);
+    }
+    ov.appendChild(card); document.body.appendChild(ov);
+  }
+
+  // Walk back to a specific spot: spoken line + straight to Maps turn-by-turn.
+  function walkBackTo(s){
+    openChat(); addMsg('me','📌 Back to: '+(s.label||'my spot'));
+    const dist=spotDistance(s);
+    const line=`Taking you back to ${s.label||'your spot'}${dist?', '+dist:''}.`;
+    addMsg('buddy',line); say(line);
+    openMaps(`${s.lat},${s.lng}`,'walking');
+  }
+
+  // Get me un-lost: walk back to your MOST-RECENT spot with no menu (the smart
+  // default for when you're actually lost), plus a tap to pick a different one.
   function getUnlost(){
-    const raw=localStorage.getItem('buddy_spot');
-    if(!raw){ say("No spot saved yet — tap Mark a spot first when you're somewhere you'll want to return to."); return; }
-    const spot=JSON.parse(raw);
+    const a=spotsGet();
+    if(!a.length){ say("No spot saved yet — tap 📌 My spots to mark one when you're somewhere you'll want to return to."); return; }
+    const spot=a[0];
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     say('Finding your way back…');
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{
-        const {status,data}=await api('/unlost',{fromLat:pos.coords.latitude,fromLng:pos.coords.longitude,toLat:spot.lat,toLng:spot.lng,label:'your saved spot'});
-        if(status===501){ say(data.spoken||"Add a Google Maps key and I can walk you back."); return; }
-        openChat(); addMsg('me','🧵 Get me back to my spot');
-        const line=data.spoken||"Head roughly toward your spot and I'll retry.";
-        addMsg('buddy',line); say(line);
-        // Hand straight to Google Maps with turn-by-turn voice. Reading eight
-        // steps aloud to someone who is lost is the worst version of this —
-        // he needs a blue line and a voice, not a list to memorise.
-        const nav=addMsg('buddy','🧭 Tap for turn-by-turn back');
+        const {status,data}=await api('/unlost',{fromLat:pos.coords.latitude,fromLng:pos.coords.longitude,toLat:spot.lat,toLng:spot.lng,label:spot.label||'your saved spot'});
+        openChat(); addMsg('me','🧵 Get me back to '+(spot.label||'my spot'));
+        if(status===501){ say(data.spoken||"Add a Google Maps key and I can walk you back."); }
+        else {
+          const line=data.spoken||`Heading back to ${spot.label||'your spot'}.`;
+          addMsg('buddy',line); say(line);
+        }
+        // Hand straight to Google Maps with turn-by-turn voice — a lost person
+        // needs a blue line and a voice, not eight steps to memorise.
+        const nav=addMsg('buddy',`🧭 Tap for turn-by-turn back to ${spot.label||'your spot'}`);
         nav.style.cssText+=';cursor:pointer;font-weight:700';
         nav.onclick=()=>{ say('Taking you back.'); openMaps(`${spot.lat},${spot.lng}`,'walking'); };
         if(localStorage.buddy_automaps==='on'){ setTimeout(()=>openMaps(`${spot.lat},${spot.lng}`,'walking'), 900); }
-        // The written steps stay as a fallback for when there's no signal to
-        // load Maps — collapsed, not the main event.
-        if(data.steps&&data.steps.length){
+        // Not the right spot? pick another.
+        if(a.length>1){
+          const pick=addMsg('buddy','📌 Back to a different spot?');
+          pick.style.cssText+=';cursor:pointer;opacity:.7';
+          pick.onclick=()=>spotsSheet();
+        }
+        // Written steps as a no-signal fallback, collapsed.
+        if(data&&data.steps&&data.steps.length){
           const more=addMsg('buddy','📄 Or read the steps');
           more.style.cssText+=';cursor:pointer;opacity:.7';
           more.onclick=()=>{ data.steps.slice(0,8).forEach((s,i)=>addMsg('buddy',(i+1)+'. '+s)); more.remove(); };
@@ -5420,7 +5569,7 @@
         avoid: g('buddy_avoid'),
         flight: j('buddy_flight',null),
         spendToday: todaySpend, spendTotal: total, spendCount: spend.length,
-        spots: j('buddy_spots',[]).map(s=>s.label).filter(Boolean).slice(-8),
+        spots: j('buddy_spots',[]).slice(0,8).map(s=>({label:s.label,ago:Math.round((Date.now()-(s.at||Date.now()))/60000)+'m'})).filter(x=>x.label),
         phrases: j('buddy_phrases',[]).length,
         paired: !!g('buddy_paircode'),
         profile: g('buddy_profile'),
@@ -7096,6 +7245,13 @@
     if(!text) return;
     if(!cfg.url||!cfg.tok){ closeChat(); openSettings(); return; }
     box.value='';
+    // GET ME THERE: if the journey concierge is mid-conversation waiting for an
+    // answer, this typed line IS the answer — route it there, not to chat.
+    if(typeof window._getthereReplyHook==='function'){
+      const hook=window._getthereReplyHook; window._getthereReplyHook=null;
+      hook(text);
+      return;
+    }
     addMsg('me', text);
     chatHistory.push({role:'user', content:text});
     // Voice preference: "always open maps" / "stop opening maps automatically"
@@ -8108,6 +8264,148 @@
     if(!dest) return;
     const key=dest.trim().toLowerCase();
     navigateWith(saved[key]||dest, 'transit');
+  }
+
+  // ---- SHARED CONVERSATION ENGINE (build 159) --------------------------------
+  // Drives /ask (slot-filling brain) for ANY conversational skill, then hands
+  // the filled args to that skill's existing action function. Built once —
+  // every skill below is a one-line entry in SKILL_ACTIONS, not a rebuild.
+  const SKILL_ACTIONS = {
+    getthere:   (a)=>{ /* getthere has its own richer flow */ return getThere(); },
+    findfood:   (a)=>findFoodWith(a.craving||''),
+    orderfood:  (a)=>vendorHandoff('order',{where:a.where,what:a.what}),
+    booktable:  (a)=>askThenBook(a),
+    tripplan:   (a)=>planTrip(a),
+    planday:    (a)=>planDay(a),
+    stay:       (a)=>findStay(a),
+    findstay:   (a)=>vendorHandoff('stay',{where:a.where,from:a.from,to:a.to,people:a.people}),
+    thingstobook:(a)=>vendorHandoff('doing',{where:a.where,what:a.what}),
+    packlist:   (a)=>packList(a),
+    activities: (a)=>thingsToDo(a),
+    esim:       (a)=>esimInfo(a),
+    ride:       (a)=>rideHandoff(a.destination||'', a.lat, a.lng),
+  };
+  const _askHist = {};   // per-skill conversation history
+  async function runSkill(skill, seed){
+    if(!SKILL_ACTIONS[skill]){ say("I can't plan that one conversationally yet."); return; }
+    _askHist[skill] = [];
+    openChat();
+    await askTurn(skill, seed||'', '');
+  }
+  async function askTurn(skill, seed, answer){
+    if(answer){ _askHist[skill].push({who:'me', text:answer}); addMsg('me', answer); }
+    const think = addMsg('buddy','…','think');
+    let data;
+    try{
+      const r = await api('/ask', { skill, seed, history:_askHist[skill] });
+      data = r.data || {};
+    }catch(e){ think.remove(); say("Something glitched — try again?"); return; }
+    think.remove();
+
+    if(data.fallback){ const l=data.spoken||"Say that again?"; addMsg('buddy',l); say(l); return; }
+
+    if(data.phase==='ask'){
+      const q = data.question || data.spoken || "Tell me a bit more?";
+      addMsg('buddy', q); say(q);
+      _askHist[skill].push({who:'buddy', text:q});
+      offerVoiceReply(reply => askTurn(skill, seed, reply));
+      return;
+    }
+
+    if(data.phase==='ready'){
+      if(data.spoken){ addMsg('buddy', data.spoken); say(data.spoken); }
+      // Hand the filled args to the skill's real action function.
+      try{ await SKILL_ACTIONS[skill](data.args||{}); }
+      catch(e){ say("I had what I needed but tripped doing it — try once more?"); }
+      _askHist[skill] = [];
+      return;
+    }
+  }
+
+  // ---- GET ME THERE (build 159): adaptive conversational journey concierge ----
+  // Drives /getthere. Full back-and-forth by voice: it asks the smart questions
+  // for WHY you're going (flight time for airport, reservation time for dinner),
+  // works the timing backwards, then gives the full report AND auto-opens Maps.
+  // Logged server-side and auto-learned so next time it leads with your usual.
+  let _getthereHist = [];
+  async function getThere(){
+    const dest = await pickPlace('Where are you heading?');
+    if(!dest) return;
+    _getthereHist = [];
+    openChat();
+    addMsg('me','🧭 Get me to: '+dest);
+    await getthereTurn(dest, '');
+  }
+  // One turn of the conversation. answer = what Shaun just replied (empty on the first).
+  async function getthereTurn(dest, answer){
+    if(answer){ _getthereHist.push({who:'me', text:answer}); addMsg('me', answer); }
+    const think = addMsg('buddy','…','think');
+    const fix = await placeFix();
+    let data;
+    try{
+      const r = await api('/getthere', {
+        destination: dest,
+        originLat: fix?fix.lat:null, originLng: fix?fix.lng:null,
+        history: _getthereHist,
+      });
+      data = r.data || {};
+    }catch(e){ think.remove(); say("Something glitched planning that — try again?"); return; }
+    think.remove();
+
+    if(data.fallback){
+      const line = data.spoken || "I couldn't work that out — want me to just open Maps?";
+      addMsg('buddy', line); say(line);
+      if(data.mapsDest){ const el=addMsg('buddy','🗺️ Open in Maps'); el.style.cssText+=';cursor:pointer;font-weight:700'; el.onclick=()=>openMaps(data.mapsDest,'transit'); }
+      return;
+    }
+
+    // STILL ASKING — show the question, remember it, offer a voice reply.
+    if(data.phase === 'ask'){
+      const q = data.question || data.spoken || "When do you need to be there?";
+      addMsg('buddy', q); say(q);
+      _getthereHist.push({who:'buddy', text:q});
+      offerVoiceReply(reply => getthereTurn(dest, reply));
+      return;
+    }
+
+    // READY — full spoken report + auto-open Maps.
+    if(data.phase === 'plan'){
+      const line = data.spoken || "Here's your run.";
+      addMsg('buddy', line); say(line);
+      const rep = data.report || {};
+      if(rep.leaveBy) addMsg('buddy', `⏰ Leave by about ${rep.leaveBy}${rep.targetArrival?` to be there by ${rep.targetArrival}`:''}.`).style.fontWeight='600';
+      if(rep.first) addMsg('buddy', `🚆 ${rep.first.departs} ${rep.first.kind}${rep.first.line?` (${rep.first.line})`:''}${rep.first.towards?` towards ${rep.first.towards}`:''} from ${rep.first.from}`);
+      if(rep.fare) addMsg('buddy', `💰 About ${rep.fare.text}`).style.opacity='.85';
+      if(rep.advice) addMsg('buddy', `💡 ${rep.advice}`).style.opacity='.9';
+      // Auto-open Maps for turn-by-turn transit — the "all auto" he asked for.
+      const go = addMsg('buddy','🗺️ Opening Google Maps for turn-by-turn…');
+      go.style.cssText+=';cursor:pointer;font-weight:700';
+      go.onclick=()=>openMaps(data.mapsDest||dest,'transit');
+      setTimeout(()=>openMaps(data.mapsDest||dest,'transit'), 1400);
+      _getthereHist = [];
+      return;
+    }
+  }
+
+  // A reusable "tap to reply by voice, or type" affordance inside the chat.
+  // Used by the getthere conversation so the whole back-and-forth is hands-free.
+  function offerVoiceReply(onReply){
+    const wrap = addMsg('buddy','🎤 Tap to answer by voice — or type below');
+    wrap.style.cssText+=';cursor:pointer;background:rgba(245,166,35,.14);border:1px solid rgba(245,166,35,.4);font-weight:600';
+    let used=false;
+    const fire=(text)=>{ if(used||!text||!text.trim()) return; used=true; onReply(text.trim()); };
+    wrap.onclick=()=>{
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      if(!SR){ wrap.textContent='Voice not available — type your answer in the chat box'; return; }
+      wrap.textContent='🎙️ Listening…';
+      try{ const r=new SR(); r.lang='en-AU'; r.interimResults=false;
+        r.onresult=e=>{ fire(e.results[0][0].transcript); };
+        r.onerror=()=>{ wrap.textContent='🎤 Tap to answer by voice — or type below'; };
+        r.start();
+      }catch(e){ wrap.textContent='Mic failed — type instead'; }
+    };
+    // Also let the next thing typed into the chat box be the answer.
+    window._getthereReplyHook = fire;
   }
 
   function navigateWith(dest, mode, autoOpen, said){
