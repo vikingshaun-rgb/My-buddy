@@ -274,7 +274,7 @@ function rememberBrief(uid, b) { if (typeof b === "string" && b.trim()) { STORE.
 function briefOf(uid) { return STORE.briefs[uid] || null; }
 
 app.get("/state", requireAuth, (req, res) => { const uid = uidOf(req); res.json({ flags: flagsOf(uid), brief: briefOf(uid), today: todayShape(uid), recentDays: daySummaryBrief(uid, 3), upcoming: upcomingBrief(uid), pending: pendingBrief(uid), patterns: patternScan(uid),
-    onThisDay: onThisDay(uid), texts: ((STORE.smsHold || {})[uid] || []) }); });
+    onThisDay: onThisDay(uid), texts: ((STORE.smsHold || {})[uid] || []), voicemails: ((STORE.vmHold || {})[uid] || []) }); });
 app.post("/state", requireAuth, (req, res) => {
   const uid = uidOf(req);
   const f = (req.body || {}).flags || {}; const cur = flagsOf(uid);
@@ -296,7 +296,7 @@ app.post("/profile", requireAuth, (req, res) => {
 app.post("/memory", requireAuth, (req, res) => {
   const uid = uidOf(req); const { action, text } = req.body || {};
   const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-  if (action === "add" && text) { mem.push({ t: String(text).slice(0, 500), at: Date.now() }); while (mem.length > 400) mem.shift(); saveStore(); return res.json({ ok: true, count: mem.length }); }
+  if (action === "add" && text) { remember(uid, String(text).slice(0, 500), { kind: "note" }); return res.json({ ok: true, count: (STORE.mem[uid] || []).length }); }
   if (action === "search" && text) { const q = String(text).toLowerCase(); return res.json({ hits: mem.filter(m => m.t.toLowerCase().includes(q)).slice(-8) }); }
   if (action === "forget" && text) { const q = String(text).toLowerCase(); const before = mem.length; STORE.mem[uid] = mem.filter(m => !m.t.toLowerCase().includes(q)); saveStore(); return res.json({ removed: before - STORE.mem[uid].length }); }
   if (action === "all") return res.json({ profile: profileOf(uid), count: mem.length, recent: mem.slice(-12) });
@@ -647,6 +647,13 @@ app.post("/vision", requireAuth, async (req, res) => {
     }
     const json = JSON.parse(text);
     const answer = (json.content || []).filter(x => x.type === "text").map(x => x.text).join(" ").trim();
+    // What he SAW is an ambient occurrence — but only worth remembering when he
+    // actively asked about it (an intentional look), not passive narration. The
+    // gate judges salience and novelty; a wall or a repeated scene evaporates.
+    if (answer && b.question) {
+      const place = b.location?.city || "";
+      consider(uidOf(req), { kind: "saw", text: `saw${place ? ` in ${place}` : ""}: ${answer.slice(0, 140)}`, occurred: true, place: place || undefined, coords: (b.lat != null ? { lat: b.lat, lng: b.lng } : undefined) });
+    }
     res.json({ answer: answer || "Hmm, I couldn't quite tell — want to try again?" });
   } catch (e) {
     res.status(200).json({ fallback: true, answer: "My eyes glitched for a sec — give it another go." });
@@ -734,6 +741,11 @@ app.post("/scamcheck", requireAuth, async (req, res) => {
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
     catch { p = { verdict: "unsure", spoken: raw, fairRange: "" }; }
     res.json({ verdict: p.verdict || "unsure", spoken: p.spoken || raw, fairRange: p.fairRange || "" });
+    // A scam he was warned off is durable safety knowledge (twin of /allergy) —
+    // only when the verdict actually flags risk, not for a clean "fair price".
+    if (/scam|overpriced|avoid|rip|caution/i.test(String(p.verdict || "") + " " + String(p.spoken || ""))) {
+      consider(uidOf(req), { kind: "scam", text: `scam risk flagged: ${item}${country ? ` in ${country}` : ""}${p.fairRange ? ` (fair ~${p.fairRange})` : ""}`, consequence: true, occurred: true });
+    }
   } catch (e) {
     res.status(200).json({ fallback: true, spoken: "Price-check hiccup — give it another go." });
   }
@@ -779,6 +791,10 @@ app.post("/allergy", requireAuth, async (req, res) => {
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
     catch { p = { risk: "unsure", spoken: raw, askVendor: "" }; }
     res.json({ risk: p.risk || "unsure", spoken: p.spoken || raw, askVendor: p.askVendor || "" });
+    // The DURABLE fact isn't this dish — it's what he avoids. A safety
+    // restriction is high-consequence and should persist (and can reach core via
+    // reinforcement if it recurs). The per-dish verdict stays transient.
+    consider(uidOf(req), { kind: "avoids", text: `avoids: ${avoidList}${country ? ` (checking food in ${country})` : ""}`, consequence: true, occurred: true });
   } catch (e) {
     res.status(200).json({ fallback: true, risk: "unsure", spoken: "Dietary-check hiccup — when unsure, confirm with the vendor before eating." });
   }
@@ -1003,6 +1019,9 @@ app.post("/landmark", requireAuth, async (req, res) => {
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
     catch { p = { name: "", spoken: raw, tip: "" }; }
     res.json({ name: p.name || "", spoken: p.spoken || raw, tip: p.tip || "" });
+    // He stood at a landmark and asked about it — a real occurrence, place-anchored
+    // (twin of an intentional /vision look). The gate dedups repeat visits.
+    if (p.name) consider(uidOf(req), { kind: "saw", text: `stood at ${p.name}${country ? `, ${country}` : ""}`, occurred: true, place: p.name });
   } catch (e) {
     res.status(200).json({ fallback: true, spoken: "Landmark look-up hiccup — try again." });
   }
@@ -1348,6 +1367,27 @@ app.post("/journal", requireAuth, async (req, res) => {
 });
 
 // --- Arrival Autopilot: one command when Shaun lands — detect country, set up, brief him ---
+// Lightweight "where am I right now" — reverse-geocode ONLY, no model, no
+// briefing. The app calls this to keep buddy_city fresh as he moves through Asia,
+// so every tile reading his location (search hints, moment stamps) gets the real
+// place instead of a stale profile city. Cheap enough to call on open + on move.
+app.post("/whereami", requireAuth, async (req, res) => {
+  const { lat, lng } = req.body || {};
+  if (lat == null || lng == null) return res.json({ ok: false, reason: "no coords" });
+  if (!GMAPS_KEY) return res.json({ ok: false, reason: "no geocoder" });
+  try {
+    const gu = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    gu.searchParams.set("latlng", `${lat},${lng}`);
+    gu.searchParams.set("key", GMAPS_KEY);
+    const gr = await fetch(gu); const gd = await gr.json();
+    const comps = gd.results?.[0]?.address_components || [];
+    const country = comps.find(c => c.types.includes("country"))?.long_name || "";
+    const city = (comps.find(c => c.types.includes("locality")) || comps.find(c => c.types.includes("administrative_area_level_1")))?.long_name || "";
+    if (!city && !country) return res.json({ ok: false, reason: "no match" });
+    res.json({ ok: true, city, country });
+  } catch (e) { res.json({ ok: false, reason: "geocode failed" }); }
+});
+
 app.post("/arrival", requireAuth, async (req, res) => {
   const { lat, lng, country: manualCountry } = req.body || {};
   let country = manualCountry || "", city = "";
@@ -1387,8 +1427,7 @@ app.post("/arrival", requireAuth, async (req, res) => {
         String(m.t).toLowerCase().includes(String(country).toLowerCase()) &&
         (Date.now() - (m.at || 0)) < 12 * 3600000);   // don't re-log the same landing
       if (!already) {
-        mem.push({ t: `arrived in ${city ? city + ", " : ""}${country}${p.currency ? ` (currency ${p.currency})` : ""}${p.scam ? ` — watch for: ${String(p.scam).slice(0, 90)}` : ""}`, at: Date.now() });
-        while (mem.length > 400) mem.shift();
+        remember(uid, `arrived in ${city ? city + ", " : ""}${country}${p.currency ? ` (currency ${p.currency})` : ""}${p.scam ? ` — watch for: ${String(p.scam).slice(0, 90)}` : ""}`, { kind: "arrival" });
       }
       // Remember where he is so the country-aware bits (Grab region, scam
       // norms, etiquette) stop guessing.
@@ -1936,6 +1975,7 @@ app.post("/chat", requireAuth, async (req, res) => {
       procedures: procedureBrief(uidOf(req)),
       expiry: expiryBrief(uidOf(req)),
       texts: textsBrief(uidOf(req)),
+      voicemails: voicemailBrief(uidOf(req)),
       recentDays: daySummaryBrief(uidOf(req), 2),
       upcoming: upcomingBrief(uidOf(req)),
       pending: pendingBrief(uidOf(req)),
@@ -2124,6 +2164,9 @@ app.post("/directions", requireAuth, async (req, res) => {
         ` from ${first.from}, in at ${first.arrives}.` +
         (minsUntil !== null && minsUntil > 0 && minsUntil < 90 ? ` That's ${minsUntil} minutes away.` : "")
       : `It's ${durationText || "a short trip"} — I'll guide you.`;
+    // Where he's heading — a place signal. Not a confirmed arrival, so light; the
+    // gate dedups repeats (the daily commute won't spam) and fades the trivial.
+    consider(uidOf(req), { kind: "went", text: `headed to ${destination}`, occurred: true, place: String(destination).slice(0, 60), plan: true });
     res.json({
       summary, spoken: spoken || plainFallback,
       distanceText, durationText,
@@ -2254,8 +2297,7 @@ app.post("/ask", requireAuth, async (req, res) => {
 
     try {
       const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-      mem.push({ t: `ask/${skill}: ${Object.entries(args).map(([k, v]) => `${k}=${v}`).join(", ")}`, at: Date.now(), origin: "tool" });
-      while (mem.length > 400) mem.shift();
+      remember(uid, `ask/${skill}: ${Object.entries(args).map(([k, v]) => `${k}=${v}`).join(", ")}`, { kind: "ask", origin: "tool" });
       saveStore();
     } catch {}
 
@@ -2413,8 +2455,7 @@ app.post("/getthere", requireAuth, async (req, res) => {
     STORE.trips[uid].push(tripLog);
     while (STORE.trips[uid].length > 40) STORE.trips[uid].shift();
     const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-    mem.push({ t: `getthere: ${type} trip to ${destination} — needed to arrive ${targetTxt}, left by ${leaveByTxt}`, at: Date.now(), origin: "tool" });
-    while (mem.length > 400) mem.shift();
+    remember(uid, `getthere: ${type} trip to ${destination} — needed to arrive ${targetTxt}, left by ${leaveByTxt}`, { kind: "trip", origin: "tool" });
     saveStore();
 
     return res.json({
@@ -3630,14 +3671,16 @@ app.post("/receipt", requireAuth, async (req, res) => {
 // Body: { action:"save", text } | { action:"search", query }
 const _notes = [];
 app.post("/recall", requireAuth, async (req, res) => {
-  const { action, text, query } = req.body || {};
+  const { action, text, query, lat, lng } = req.body || {};
   try {
     const uid = uidOf(req);
     const mem = STORE.mem[uid] = STORE.mem[uid] || [];
     if (action === "save") {
       if (!text) return res.status(400).json({ error: "text required" });
-      mem.push({ t: text, at: Date.now() });          // durable store now, not _notes
-      while (mem.length > 400) mem.shift();
+      // Accept structured coords when present (a saved spot) so recall can
+      // navigate back to it, not just read the numbers out of the text.
+      const coords = (lat != null) ? { lat, lng } : undefined;
+      remember(uid, text, { kind: "note", coords });
       saveStore();
       return res.json({ ok: true, saved: text });
     }
@@ -4144,6 +4187,89 @@ function whenPhrase(ts) {
   if (days < 7) return `${d.toLocaleDateString("en-AU", { weekday: "long" })} at ${time}`;
   return `${d.toLocaleDateString("en-AU", { weekday: "short", month: "short", day: "numeric" })} at ${time}`;
 }
+/* --- 🧠 remember(): the ONE way anything logs to memory (build 159) ---------
+ * Every skill logs through this instead of hand-rolling mem.push + cap + save.
+ * Change how memory works (tagging, cap, weighting) HERE and all callers inherit
+ * it. opts.kind categorises the line (job, spend, moment, conversation, etc.)
+ * so recall and future rollups can filter; opts.weight biases recall ranking;
+ * opts.at overrides the timestamp (for back-dated day summaries); opts.origin
+ * marks tool-written lines. Returns the stored entry.
+ * Rule (locked 2026-07-22): brain capabilities are shared helpers, never per-tile.
+ */
+function remember(uid, text, opts = {}) {
+  if (!uid || !text || !String(text).trim()) return null;
+  STORE.mem[uid] = STORE.mem[uid] || [];
+  const mem = STORE.mem[uid];
+  const entry = { t: String(text).slice(0, 500), at: opts.at || Date.now() };
+  if (opts.kind) entry.kind = opts.kind;
+  if (opts.weight != null) entry.weight = opts.weight;
+  if (opts.origin) entry.origin = opts.origin;
+  if (opts.coords && opts.coords.lat != null) entry.coords = { lat: opts.coords.lat, lng: opts.coords.lng };
+  mem.push(entry);
+  while (mem.length > 400) mem.shift();
+  if (opts.save !== false) saveStore();
+  return entry;
+}
+
+/* --- 🚦 consider(): the salience gate (build 159) ---------------------------
+ * The human-memory judge. Ambient streams (what he SAW through the glasses, what
+ * he SAID, where he WENT) flow through here instead of straight into memory —
+ * because logging every glance and every "what's the weather" would bury the
+ * memories that matter. This decides: is this worth keeping, and how strongly?
+ *
+ * It scores like survivalScore already thinks (which is human-shaped):
+ *  - OCCURRENCE (he did/saw/went) → real memory. Full weight.
+ *  - VERDICT / reaction → highest. How he FELT outlives what he did.
+ *  - PERSON / PLACE / PLAN / CONSEQUENCE present → salient, keep.
+ *  - SUGGESTION (Vision proposed, he hasn't acted) → provisional, low weight,
+ *    left to decay unless a later occurrence promotes it. Logging suggestions
+ *    as fact would poison the recall that feeds prediction — the brain must
+ *    learn from what he DID, not what it guessed.
+ *  - NOVELTY → a first-time thing is worth more than the hundredth identical one
+ *    (dedup against recent memory so "same scene" / repeated asks fade).
+ *  - Otherwise → evaporates (returns null, nothing stored).
+ *
+ * event = { kind, text, occurred?:bool, verdict?:bool, person?, place?, plan?,
+ *           consequence?, at?, coords? }
+ * Returns the stored entry or null (didn't clear the bar).
+ */
+const CONSIDER_STOP = /\b(weather|time|what time|how do you say|translate|thanks|thank you|hello|hi|test|ok|okay)\b/i;
+function consider(uid, event = {}) {
+  const text = String(event.text || "").trim();
+  if (!text || text.length < 4) return null;
+
+  // Suggestions Vision made are NOT occurrences — hold them faintly, never as fact.
+  if (event.suggestion && !event.occurred) return null;   // decays unheard unless acted on later
+
+  let score = 0;
+  // Base salience by nature of the event
+  if (event.verdict) score += 55;                 // a reaction — the most durable human memory
+  if (event.occurred) score += 25;                // it actually happened
+  if (event.consequence) score += 30;             // money, safety, a commitment
+  if (event.person) score += 20;                  // people are memorable
+  if (event.place) score += 15;                   // grounded in a place
+  if (event.plan) score += 20;                    // future intent is durable
+  // Trivia filter — ambient chatter that reveals nothing durable
+  if (CONSIDER_STOP.test(text) && !event.occurred && !event.person) return null;
+
+  // Novelty: don't re-log something near-identical seen in the last day.
+  const mem = STORE.mem[uid] || [];
+  const dayAgo = Date.now() - 86400000;
+  const words = text.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 4).slice(0, 6);
+  const echoes = mem.filter(m => (m.at || 0) > dayAgo &&
+    words.length && words.filter(w => String(m.t || "").toLowerCase().includes(w)).length >= Math.min(3, words.length)).length;
+  if (echoes >= 1 && !event.verdict && !event.consequence) return null;  // already have today's version
+
+  // Below the bar → let it evaporate, like a glance you don't recall by dinner.
+  // A bare occurrence with nothing else (no place, person, consequence, plan,
+  // verdict) is a "saw a wall" — real but not worth keeping. Needs a companion.
+  const hasAnchor = event.verdict || event.consequence || event.person || event.place || event.plan;
+  if (!hasAnchor && score < 40) return null;
+  if (score < 20) return null;
+
+  // Clear → store with a weight proportional to salience (feeds survivalScore's tiers).
+  return remember(uid, text, { kind: event.kind || "ambient", weight: score, at: event.at, coords: event.coords });
+}
 function recallFor(uid, text, limit) {
   const mem = STORE.mem[uid] || [];
   if (!mem.length) return [];
@@ -4399,10 +4525,10 @@ async function learnProcedure(uid) {
     let added = 0;
     for (const proc of found) {
       if (!mem.some(m => String(m.t).startsWith("howto: ") && m.t.toLowerCase().includes(String(proc).toLowerCase().slice(0, 20)))) {
-        mem.push({ t: `howto: ${proc}`, at: Date.now() }); added++;
+        remember(uid, `howto: ${proc}`, { kind: "howto", save: false }); added++;
       }
     }
-    if (added) { while (mem.length > 400) mem.shift(); saveStore(); }
+    if (added) saveStore();
     dlog(uid, "memory", `procedures learned: ${added}`, found.slice(0, 3));
     return { learned: found, added };
   } catch { return { skipped: "parse_failed" }; }
@@ -4486,7 +4612,7 @@ app.post("/recover", requireAuth, (req, res) => {
     // Move every per-user collection across to the new device id.
     const buckets = ["profiles", "briefs", "flags", "mem", "watchers", "results", "seen",
                      "convos", "bookings", "docs", "pending", "bugs", "daySummaries",
-                     "budgets", "lastDistil", "spend", "smsHold", "smsSeen", "recovery",
+                     "budgets", "lastDistil", "spend", "smsHold", "smsSeen", "vmHold", "vmSeen", "conductorMute", "recovery",
                      "calPrefs", "calCache", "calSeen", "calHold", "calToday", "calPending", "jobs",
                      "convoLive", "convoLangs", "phrases",
                      "scenes", "timelines", "dismissed", "followLog", "trips"];
@@ -4636,8 +4762,7 @@ app.post("/verdict", requireAuth, async (req, res) => {
   const line = sentiment === "good" ? `verdict: LOVED ${about} — "${t.slice(0, 60)}"`
              : sentiment === "bad"  ? `verdict: DISLIKED ${about} — "${t.slice(0, 60)}" (do not suggest again)`
              : `verdict: mixed on ${about}`;
-  mem.push({ t: line, at: Date.now() });
-  while (mem.length > 400) mem.shift();
+  remember(uid, line, { kind: "verdict" });
   saveStore();
   dlog(uid, "memory", `verdict ${sentiment}: ${about}`.slice(0, 60));
   res.json({ noted: true, sentiment, about });
@@ -4765,6 +4890,10 @@ function survivalScore(m, all) {
   if (isCore(m)) return 1e6;
   const t = String(m.t || "").toLowerCase();
   let s = 0;
+  // Baseline salience from the gate: ambient events (vision/chat/nav) don't match
+  // the prefix rules below, so without this they'd score ~0 and prune instantly.
+  // consider() already judged how salient they were — honour it as the floor.
+  if (typeof m.weight === "number") s += m.weight;
   // things he chose to keep
   if (/^howto: /.test(t)) s += 60;        // process knowledge is the hardest to relearn
   if (/^verdict: /.test(t)) s += 55;      // how he FELT outlives what he did
@@ -4838,7 +4967,7 @@ async function distil(uid) {
   } catch {}
   for (const f of promoted) {
     if (!mem.some(m => isCore(m) && m.t.toLowerCase().includes(String(f).toLowerCase().slice(0, 25)))) {
-      mem.push({ t: CORE_PREFIX + f, at: Date.now() });
+      remember(uid, CORE_PREFIX + f, { kind: "core", save: false });
     }
   }
 
@@ -5148,8 +5277,7 @@ app.post("/pending", requireAuth, async (req, res) => {
       // A completed flow is a fact worth keeping — it teaches the brain what he
       // actually follows through on.
       const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-      mem.push({ t: `${p.state === "done" ? "completed" : "abandoned"}: ${p.kind} ${p.what || ""}${detail ? ` — ${detail}` : ""}`, at: Date.now() });
-      while (mem.length > 400) mem.shift();
+      remember(uid, `${p.state === "done" ? "completed" : "abandoned"}: ${p.kind} ${p.what || ""}${detail ? ` — ${detail}` : ""}`, { kind: "procedure" });
       saveStore();
     }
     return res.json({ ok: true, pending: p || null });
@@ -5251,8 +5379,7 @@ app.post("/convomemory", requireAuth, async (req, res) => {
       // also into the shared pool so ALL skills can recall it
       const mem = STORE.mem[uid] = STORE.mem[uid] || [];
       const commits = (p.commitments || []).map(c => `${c.what}: ${c.detail}`).join("; ");
-      mem.push({ t: `conversation with ${rec.tag}${place ? ` at ${place}` : ""}: ${p.summary}${commits ? ` — agreed: ${commits}` : ""}`, at: Date.now() });
-      while (mem.length > 400) mem.shift();
+      remember(uid, `conversation with ${rec.tag}${place ? ` at ${place}` : ""}: ${p.summary}${commits ? ` — agreed: ${commits}` : ""}`, { kind: "conversation" });
       saveStore();
       return res.json({ ok: true, ...rec });
     } catch { return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "distil_failed" }); }
@@ -5278,8 +5405,7 @@ app.post("/bookings", requireAuth, (req, res) => {
     const b = { id: "b" + Date.now(), at: Date.now(), ...booking };
     list.push(b); while (list.length > 80) list.shift();
     const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-    mem.push({ t: `booking: ${b.type || "reservation"} ${b.what || ""} ${b.when || ""}${b.ref ? ` ref ${b.ref}` : ""}`, at: Date.now() });
-    while (mem.length > 400) mem.shift();
+    remember(uid, `booking: ${b.type || "reservation"} ${b.what || ""} ${b.when || ""}${b.ref ? ` ref ${b.ref}` : ""}`, { kind: "booking" });
     saveStore();
     return res.json({ ok: true, booking: b });
   }
@@ -5316,8 +5442,7 @@ app.post("/docs", requireAuth, (req, res) => {
     if (v) {
       const mem = STORE.mem[uid] = STORE.mem[uid] || [];
       if (!mem.some(m => String(m.t).startsWith(`document on file: ${field}`))) {
-        mem.push({ t: `document on file: ${field} — ask for my documents to see it`, at: Date.now() });
-        while (mem.length > 400) mem.shift();
+        remember(uid, `document on file: ${field} — ask for my documents to see it`, { kind: "document" });
       }
     }
     saveStore(); return res.json({ ok: true });
@@ -5448,8 +5573,7 @@ app.post("/day", requireAuth, async (req, res) => {
             while (keys.length > 120) delete STORE.daySummaries[uid][keys.shift()];
             const already = mem.some(m => String(m.t).startsWith(`day ${dayKey}:`));
             if (!already) {
-              mem.push({ t: `day ${dayKey}: ${summary}`, at: end.getTime() });
-              while (mem.length > 400) mem.shift();
+              remember(uid, `day ${dayKey}: ${summary}`, { kind: "day", at: end.getTime() });
             }
             saveStore();
           }
@@ -5570,8 +5694,7 @@ app.post("/lifelog", requireAuth, async (req, res) => {
   if (last && String(last.t).startsWith("log:") && String(last.t).includes(out.place || "~~") && !out.saw) {
     last.at = Date.now();
   } else {
-    mem.push({ t: line + (together ? ` (with ${together})` : ""), at: Date.now() });
-    while (mem.length > 400) mem.shift();
+    remember(uid, line + (together ? ` (with ${together})` : ""), { kind: "lifelog" });
   }
   // Shared layer: moments they were both present for.
   if (together) {
@@ -5587,11 +5710,19 @@ app.post("/lifelog", requireAuth, async (req, res) => {
 
 // Shared-layer read: what the two of them did together.
 app.post("/shared", requireAuth, (req, res) => {
-  const { roomCode, action, index } = req.body || {};
+  const { roomCode, action, index, at } = req.body || {};
   STORE.shared = STORE.shared || {};
   const sh = STORE.shared[roomCode] || [];
-  if (action === "remove" && index != null) {
-    sh.splice(index, 1); saveStore(); return res.json({ ok: true, count: sh.length });
+  if (action === "remove") {
+    // Match by stable timestamp — the app shows a sliced view, so a positional
+    // index from the display would delete the wrong (older) moment. Fall back to
+    // index only for an old app build mid-deploy.
+    if (at != null) {
+      const i = sh.findIndex(m => m.at === at);
+      if (i !== -1) { sh.splice(i, 1); saveStore(); return res.json({ ok: true, count: sh.length }); }
+      return res.json({ ok: false, count: sh.length, note: "not found" });
+    }
+    if (index != null) { sh.splice(index, 1); saveStore(); return res.json({ ok: true, count: sh.length }); }
   }
   res.json({ shared: sh.slice(-20), count: sh.length });
 });
@@ -5601,7 +5732,7 @@ app.post("/shared", requireAuth, (req, res) => {
 // never stored — the text is the artefact. Timestamped, place-stamped, saved
 // to the same pool every skill recalls from.
 app.post("/moment", requireAuth, async (req, res) => {
-  const { frames, place, country, note } = req.body || {};
+  const { frames, place, country, note, lat, lng } = req.body || {};
   if (!Array.isArray(frames) || !frames.length) return res.status(400).json({ error: "frames required" });
   const uid = uidOf(req);
   const content = [];
@@ -5639,10 +5770,15 @@ app.post("/moment", requireAuth, async (req, res) => {
       p = { headline: "Moment", account: raw.slice(0, 400), tags: [], worth_keeping: raw.length > 40 };
     }
     if (p.worth_keeping !== false) {
-      const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-      mem.push({ t: `moment${place ? ` at ${place}` : ""}: ${p.headline} — ${p.account}${p.tags ? ` [${p.tags.join(", ")}]` : ""}`, at: Date.now() });
-      while (mem.length > 400) mem.shift();
-      saveStore();
+      // Route through the salience gate as a real placed occurrence — attaches
+      // live coords so recall can bring him back to the exact stall/spot, not the
+      // stale profile city. A captured moment he chose to make IS worth keeping.
+      const coords = (lat != null) ? { lat, lng } : undefined;
+      consider(uid, {
+        kind: "moment",
+        text: `moment${place ? ` at ${place}` : ""}: ${p.headline} — ${p.account}${p.tags && p.tags.length ? ` [${p.tags.join(", ")}]` : ""}`,
+        occurred: true, place: place || undefined, coords,
+      }) || remember(uid, `moment${place ? ` at ${place}` : ""}: ${p.headline} — ${p.account}`, { kind: "moment" });
     }
     res.json({ ...p, saved: p.worth_keeping !== false });
   } catch { res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "analyse_failed" }); }
@@ -5771,8 +5907,7 @@ app.post("/watchers", requireAuth, async (req, res) => {
       list.push(w); saveStore();
       if (w.type === "reminder") {   // recallable later: "what did I need at the market?"
         const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-        mem.push({ t: `reminder: ${w.args?.what || w.label}${w.args?.place ? ` (at ${w.args.place})` : ""}`, at: Date.now() });
-        while (mem.length > 400) mem.shift(); saveStore();
+        remember(uid, `reminder: ${w.args?.what || w.label}${w.args?.place ? ` (at ${w.args.place})` : ""}`, { kind: "reminder" });
       }
       // run it once right away so there's a result today, not tomorrow
       runWatcher(uid, w).catch(() => {});
@@ -5812,9 +5947,9 @@ async function checkTexts(uid) {
     if (fresh.length) {
       const mem = STORE.mem[uid] = STORE.mem[uid] || [];
       for (const f of fresh) {
-        mem.push({ t: `text from ${f.number}: ${f.text.slice(0, 160)}`, at: f.at || Date.now() });
+        remember(uid, `text from ${f.number}: ${f.text.slice(0, 160)}`, { kind: "text", at: f.at || Date.now(), save: false });
       }
-      while (mem.length > 400) mem.shift();
+      saveStore();
       STORE.smsHold = STORE.smsHold || {};
       STORE.smsHold[uid] = fresh.slice(0, 5);
       saveStore();
@@ -5834,7 +5969,192 @@ app.post("/texts/check", requireAuth, async (req, res) => {
   const uid = uidOf(req);
   const r = await checkTexts(uid);
   if ((req.body || {}).action === "clear") { STORE.smsHold = STORE.smsHold || {}; STORE.smsHold[uid] = []; STORE.smsSeen = STORE.smsSeen || {}; STORE.smsSeen[uid] = Date.now(); saveStore(); }
-  res.json({ ...r, held: ((STORE.smsHold || {})[uid] || []) });
+  res.json({ ...r, held: ((STORE.smsHold || {})[uid] || []), muted: isMuted(uid) });
+});
+
+/* --- VOICEMAIL (TelTel voicemail-to-email) ----------------------------------
+ * TelTel emails each voicemail to his iCloud inbox: sender display "Voicemail",
+ * subject "New Voicemail in VoIP VOICEMAIL From: <number>", and — crucially —
+ * the TRANSCRIPT is already in the body (TelTel transcribes it), followed by
+ * Time:/Duration:/Mailbox:/Regards. So we just read the transcript; no audio
+ * transcription needed. Same watch-and-hold shape as checkTexts.
+ */
+const VM_SUBJECT_RE = /voicemail/i;
+function voicemailNumberFrom(subject = "") {
+  const m = String(subject).match(/from[:\s]+(\+?[\d ]{6,15})/i);
+  return m ? m[1].replace(/\s/g, "") : "";
+}
+// TIGHT match — his iCloud inbox also gets NORMAL email, so a subject merely
+// containing "voicemail" (a person's reply, a newsletter tip, another service)
+// must NOT be read out as a voicemail. Require the real TelTel signature:
+// subject "New Voicemail in VoIP" AND "From: <number>", or the TelTel body.
+function isTelTelVoicemail(subj = "", fromName = "", body = "") {
+  const s = String(subj);
+  const teltelSubject = /new voicemail in voip/i.test(s) && /from[:\s]+\+?[\d ]{6,}/i.test(s);
+  const teltelBody = /voip voicemail/i.test(body) && /teltel/i.test(body);
+  return teltelSubject || teltelBody;
+}
+function voicemailTranscript(body = "") {
+  // The body starts "From: <number>" then the transcript, then Time:/Duration:/
+  // Mailbox:/Regards. Cut everything from the Time: line onward, drop the From: line.
+  return String(body)
+    .replace(/^\s*from:\s*\+?[\d ]+/i, "")
+    .replace(/\btime:\s*\d[\s\S]*/i, "")          // Time:/Duration:/Mailbox:/Regards footer
+    .replace(/this email was sent by[\s\S]*/i, "")
+    .replace(/\s+/g, " ").trim();
+}
+async function checkVoicemail(uid) {
+  if (!mailReady()) return { messages: [], unread: 0 };
+  try {
+    const seen = (STORE.vmSeen || {})[uid] || 0;
+    const out = await withInbox(async (client) => {
+      const items = [];
+      const all = await client.search({ since: new Date(Date.now() - 3 * 864e5) });
+      for await (const msg of client.fetch(all.slice(-40).reverse(), { envelope: true, internalDate: true, source: true })) {
+        const subj = msg.envelope?.subject || "";
+        const fromName = msg.envelope?.from?.[0]?.name || "";
+        const plain = extractPlainText(msg.source?.toString("utf8") || "");
+        // Only REAL TelTel voicemail emails — normal mail mentioning "voicemail" is skipped.
+        if (!isTelTelVoicemail(subj, fromName, plain)) continue;
+        const num = voicemailNumberFrom(subj);
+        const at = msg.internalDate ? new Date(msg.internalDate).getTime() : 0;
+        const transcript = voicemailTranscript(plain);
+        if (transcript) items.push({ number: num || "unknown", transcript: transcript.slice(0, 500), at, isNew: at > seen });
+        if (items.length >= 10) break;
+      }
+      return items;
+    });
+    const fresh = (out || []).filter(m => m.isNew);
+    // A voicemail is a real occurrence with a person + consequence (someone needs
+    // a callback) — log it through the salience gate so it survives and is recallable.
+    if (fresh.length) {
+      for (const f of fresh) {
+        consider(uid, { kind: "voicemail", text: `voicemail from ${f.number}: ${f.transcript.slice(0, 160)}`, occurred: true, person: f.number !== "unknown", consequence: true, at: f.at || Date.now() });
+      }
+      STORE.vmHold = STORE.vmHold || {};
+      STORE.vmHold[uid] = fresh.slice(0, 5);
+      saveStore();
+      dlog(uid, "services", `${fresh.length} new voicemail${fresh.length === 1 ? "" : "s"}`);
+    }
+    return { messages: out || [], unread: fresh.length };
+  } catch (e) { return { messages: [], unread: 0, error: String(e.message || e).slice(0, 80) }; }
+}
+// Waiting voicemails lead the brief alongside texts — someone's waiting on a callback.
+function voicemailBrief(uid) {
+  const held = (STORE.vmHold || {})[uid] || [];
+  if (!held.length) return "";
+  return `UNHEARD VOICEMAILS — mention these, they may need a callback: ` +
+    held.map(v => `${v.number}: "${v.transcript.slice(0, 110)}"`).join(" | ");
+}
+
+/* --- 🎼 THE CONDUCTOR (build 159) -------------------------------------------
+ * The fusion layer. Everything above builds ingredients (calendar, jobs, texts,
+ * voicemails, memory, weather, situation). The conductor is the only thing that
+ * COMPOSES several of them into ONE human briefing for a moment — instead of him
+ * tapping four tiles. It READS the shared briefs; it does NOT reach into any tile.
+ *
+ * moment: "morning" (day ahead, fused with where he is) | "here" (surroundings /
+ * what he needs to know right now) | "evening" (what happened, what's still open).
+ *
+ * It gathers the briefs relevant to the moment, hands them to the model with a
+ * fusion prompt, and returns { spoken, parts }. The CALLER decides whether Vision
+ * is allowed to say it (that's the attention engine's job) — the conductor only
+ * composes. Returns { spoken:"" } when there's genuinely nothing worth saying.
+ */
+function gatherBriefs(uid, moment, coords) {
+  const safe = (fn) => { try { const v = fn(); return (typeof v === "string" && v.trim()) ? v.trim() : ""; } catch { return ""; } };
+  const parts = {};
+  // Always useful anchors.
+  parts.now = safe(() => nowLine(uid, coords));
+  parts.core = safe(() => coreBrief(uid));
+  // Time-sensitive things that matter at ANY moment — someone waiting on him.
+  parts.texts = safe(() => textsBrief(uid));
+  parts.voicemails = safe(() => voicemailBrief(uid));
+  if (moment === "morning") {
+    parts.calendar = safe(() => calendarBrief(uid));
+    parts.jobs = safe(() => jobBrief(uid));
+    parts.upcoming = safe(() => upcomingBrief(uid));
+    parts.expiry = safe(() => expiryBrief(uid));      // visas/SIM/docs about to lapse
+    parts.pending = safe(() => pendingBrief(uid));    // promises he hasn't closed
+  } else if (moment === "here") {
+    parts.calendar = safe(() => calendarBrief(uid));
+    parts.jobs = safe(() => jobBrief(uid));
+    parts.recall = safe(() => recallBrief(uid, "where I am right now, this place, nearby"));
+  } else if (moment === "evening") {
+    parts.today = safe(() => daySummaryBrief(uid, 1));
+    parts.pending = safe(() => pendingBrief(uid));
+    parts.upcoming = safe(() => upcomingBrief(uid));
+    parts.verdicts = safe(() => verdictBrief(uid));
+  }
+  return parts;
+}
+async function composeBriefing(uid, { moment = "morning", coords } = {}) {
+  const parts = gatherBriefs(uid, moment, coords);
+  // Nothing time-sensitive AND nothing scheduled → don't manufacture a briefing.
+  const substantive = Object.entries(parts).filter(([k, v]) => v && k !== "now" && k !== "core");
+  if (!substantive.length) return { spoken: "", parts, empty: true };
+
+  const framing = {
+    morning: "It's the start of his day. Give him a short, natural spoken briefing of what matters today — lead with anything time-sensitive (a text or voicemail waiting, an early job, a clash), then the shape of the day. He's travelling and working, so weave in where he is when it's relevant.",
+    here: "He wants to know about where he is right now — his surroundings and anything he needs to operate here. Fuse what you know: where he is, what's on today, anything he's flagged about this place. Keep it to what's genuinely useful right now.",
+    evening: "It's the end of his day. Give him a short spoken wind-down: what got done, anything still open (a promise he made, a callback owed), and what tomorrow holds. Warm, brief, not a report.",
+  }[moment] || "Give him a short, natural spoken briefing of what matters.";
+
+  const context = Object.entries(parts).filter(([, v]) => v).map(([k, v]) => `[${k}] ${v}`).join("\n");
+  const body = {
+    model: "claude-sonnet-4-6",
+    max_tokens: 400,
+    system: "You are Vision, Shaun's AI companion in his glasses. You are the ONE voice that pulls together everything he'd otherwise check separately, into a single natural spoken briefing. " + framing +
+      " Speak it the way a sharp, calm friend would — one flowing spoken passage, no lists, no headers, no preamble. Only include what's actually here; never invent events, times, or places not in the context. If two things connect (a voicemail from the same customer as a job), say so. Keep it under 60 words unless there's genuinely more he needs." + NO_INVENT_STRICT + SPOKEN_PLAIN +
+      "\n\n" + nowLine(uid, coords),
+    messages: [{ role: "user", content: `Here's what's on Shaun's plate right now:\n\n${context}\n\nGive him the briefing.` }],
+  };
+  try {
+    const { status, text: out } = await callClaude(body);
+    if (status !== 200) return { spoken: "", parts, error: "model" };
+    const spoken = (JSON.parse(out).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    return { spoken, parts };
+  } catch (e) { return { spoken: "", parts, error: String(e.message || e).slice(0, 80) }; }
+}
+app.post("/voicemail/check", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const r = await checkVoicemail(uid);
+  if ((req.body || {}).action === "clear") { STORE.vmHold = STORE.vmHold || {}; STORE.vmHold[uid] = []; STORE.vmSeen = STORE.vmSeen || {}; STORE.vmSeen[uid] = Date.now(); saveStore(); }
+  res.json({ ...r, held: ((STORE.vmHold || {})[uid] || []), muted: isMuted(uid) });
+});
+
+// The conductor, on demand. "brief me" (morning), "what's here" (here),
+// "how'd today go" (evening). He PULLS the fusion — always allowed, no gating.
+app.post("/brief", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const b = req.body || {};
+  const moment = ["morning", "here", "evening"].includes(b.moment) ? b.moment : "morning";
+  const coords = (b.lat != null) ? { lat: b.lat, lng: b.lng } : undefined;
+  const r = await composeBriefing(uid, { moment, coords });
+  if (r.empty) return res.json({ spoken: moment === "evening" ? "Quiet day — nothing outstanding." : "Nothing pressing right now — you're clear.", empty: true });
+  res.json({ spoken: r.spoken || "I couldn't pull that together just now — try again in a moment.", moment });
+});
+
+// The volume knob HE holds. "stop"/"quiet" = mute proactive until lifted (-1).
+// "later"/"not now" = hold for a while (default 2h). "go on"/"resume" = lift.
+// Muting only silences PROACTIVE speech — collection keeps running (checkTexts,
+// checkVoicemail, watchers) so nothing is lost; he can still PULL /brief anytime.
+// Is proactive speech currently silenced by HIS choice? (arrival announcements
+// check this so "stop"/"later" quiets texts/voicemail read-aloud too — the item
+// still SHOWS silently, nothing lost, it just doesn't speak.)
+function isMuted(uid) {
+  const m = (STORE.conductorMute || {})[uid] || 0;
+  return m === -1 || (m > Date.now());
+}
+app.post("/conductor", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const b = req.body || {};
+  STORE.conductorMute = STORE.conductorMute || {};
+  if (b.action === "stop") { STORE.conductorMute[uid] = -1; saveStore(); return res.json({ spoken: "Righto — I'll go quiet. I'll keep everything and you can say 'brief me' whenever.", state: "muted" }); }
+  if (b.action === "later") { const mins = Math.min(Math.max(Number(b.minutes) || 120, 5), 720); STORE.conductorMute[uid] = Date.now() + mins * 60000; saveStore(); return res.json({ spoken: `No worries — I'll hold onto it and bring it up later.`, state: "held", until: STORE.conductorMute[uid] }); }
+  if (b.action === "resume" || b.action === "lift") { STORE.conductorMute[uid] = 0; saveStore(); return res.json({ spoken: "Back with you.", state: "active" }); }
+  const m = STORE.conductorMute[uid] || 0;
+  res.json({ state: m === -1 ? "muted" : (m > Date.now() ? "held" : "active"), until: m > 0 ? m : undefined });
 });
 
 /* --- WATCHERS (batch 132 audit) ---------------------------------------------
@@ -5979,7 +6299,7 @@ const OFFSET = { watchers: 0, texts: 37000, calendar: 71000, distil: 113000 };
 
 // text sitting unseen for an hour is useless. Cheap: one IMAP call, no model.
 setTimeout(() => setInterval(() => once("texts", async () => {
-  for (const uid of Object.keys(STORE.profiles || { "shaun-default": 1 })) await checkTexts(uid).catch(() => {});
+  for (const uid of Object.keys(STORE.profiles || { "shaun-default": 1 })) { await checkTexts(uid).catch(() => {}); await checkVoicemail(uid).catch(() => {}); }
 }), 240000), OFFSET.texts);
 setTimeout(() => { for (const [uid, list] of Object.entries(STORE.watchers)) for (const w of list) runWatcher(uid, w).catch(() => {}); }, 60000);
 
@@ -6333,9 +6653,7 @@ app.post("/calendar/tick/confirm", requireAuth, async (req, res) => {
   }
 
   // Ticking something off says he actually does the thing — worth remembering.
-  const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-  for (const t of done) { mem.push({ t: `ticked off: ${t}`, at: Date.now() }); }
-  while (mem.length > 400) mem.shift();
+  for (const t of done) { remember(uid, `ticked off: ${t}`, { kind: "task", save: false }); }
 
   STORE.calPending[uid] = null;
   saveStore();
@@ -6485,8 +6803,7 @@ app.post("/job/report", requireAuth, async (req, res) => {
 
     // Into the shared pool so recall works months later, by number or name.
     const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-    mem.push({ t: `job ${jobNo}${rec.customer ? ` (${rec.customer})` : ""}: ${report.replace(/\n/g, " ").slice(0, 300)}`, at: Date.now() });
-    while (mem.length > 400) mem.shift();
+    remember(uid, `job ${jobNo}${rec.customer ? ` (${rec.customer})` : ""}: ${report.replace(/\n/g, " ").slice(0, 300)}`, { kind: "job" });
     saveStore();
 
     dlog(uid, "memory", `job report written for ${jobNo}`);
@@ -6538,8 +6855,7 @@ app.post("/job/capture", requireAuth, async (req, res) => {
     trimJobs(uid);
 
     const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-    mem.push({ t: `job ${jobNo}${rec.customer ? ` — ${rec.customer}` : ""}${rec.phone ? ` (${rec.phone})` : ""}: ${(rec.problem || "").slice(0, 200)}`, at: Date.now() });
-    while (mem.length > 400) mem.shift();
+    remember(uid, `job ${jobNo}${rec.customer ? ` — ${rec.customer}` : ""}${rec.phone ? ` (${rec.phone})` : ""}: ${(rec.problem || "").slice(0, 200)}`, { kind: "job" });
     saveStore();
 
     dlog(uid, "memory", `job ${jobNo} captured from screenshot`);
@@ -6866,8 +7182,7 @@ app.post("/converse/save", requireAuth, async (req, res) => {
 
   // Into the shared pool so every other skill can recall it too.
   const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-  mem.push({ t: `conversation${tag ? ` with ${tag}` : ""}: ${summary || transcript.slice(0, 240)}`, at: Date.now() });
-  while (mem.length > 400) mem.shift();
+  remember(uid, `conversation${tag ? ` with ${tag}` : ""}: ${summary || transcript.slice(0, 240)}`, { kind: "conversation" });
 
   STORE.convoLive[uid] = null;
   saveStore();
@@ -7602,8 +7917,7 @@ app.post("/scene/capture", requireAuth, async (req, res) => {
 
     // Into the shared pool so recall by symptom works months later.
     const mem = STORE.mem[uid] = STORE.mem[uid] || [];
-    mem.push({ t: `scene at ${place}: ${scene.summary}${scene.indicators.length ? ` — showing ${scene.indicators.slice(0, 3).join(", ")}` : ""}`, at: Date.now() });
-    while (mem.length > 400) mem.shift();
+    remember(uid, `scene at ${place}: ${scene.summary}${scene.indicators.length ? ` — showing ${scene.indicators.slice(0, 3).join(", ")}` : ""}`, { kind: "scene" });
     saveStore();
     dlog(uid, "memory", `scene recorded at ${place}`);
 
@@ -7940,6 +8254,12 @@ function situation(uid) {
   const now = Date.now();
   const prof = profileOf(uid) || {};
   const s = { busy: false, why: "", quietUntil: 0 };
+
+  // HE set the volume. A manual "stop/quiet" or "not now" overrides everything —
+  // his instruction beats any automatic guess about whether it's a good moment.
+  const mute = (STORE.conductorMute || {})[uid] || 0;
+  if (mute === -1) return { busy: true, why: "he asked for quiet", quietUntil: -1, muted: true };  // -1 = until he lifts it
+  if (mute && now < mute) return { busy: true, why: "he said not right now", quietUntil: mute, muted: true };
 
   // Mid-conversation with someone. The worst possible moment to interrupt —
   // he's talking to a human and Vision is in his ear.

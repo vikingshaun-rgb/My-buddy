@@ -3005,19 +3005,65 @@
         if(!document.hidden && localStorage.buddy_planresume) setTimeout(resumePlan, 1000);
         // Coming back to the app is exactly when to check for texts.
         if(!document.hidden) setTimeout(()=>{
+          refreshCity();   // keep his location fresh first — everything downstream reads buddy_city
+          // Leg 2 of a smart-chained nav: he went to fetch the scooter, now offer
+          // the ride onward to wherever he was actually headed (home or anywhere).
+          (function(){
+            let pend=null;
+            try{ pend=JSON.parse(localStorage.getItem('buddy_pendingnav')||'null'); }catch(e){}
+            if(pend && pend.dest){
+              localStorage.removeItem('buddy_pendingnav'); localStorage.removeItem('buddy_pendinghome');
+              openChat();
+              const el=addMsg('buddy',`🛵 Got your scooter? Tap to ride on to ${pend.label||'your destination'}.`);
+              el.style.cssText+=';cursor:pointer;font-weight:700'; el.classList.add('flash');
+              el.onclick=()=>{ say(`Riding you to ${pend.label||'your destination'}.`); openMaps(pend.dest, pend.mode||travelModeGet()); };
+              say(`Got your scooter? Say \u201cnavigate\u201d again and I'll ride you to ${pend.label||'your destination'}.`);
+            }
+          })();
           api('/texts/check',{}).then(({data})=>{
             if(data&&data.unread>0){
-              chimeNews(); openChat();
+              if(!data.muted)chimeNews(); openChat();
               const el=addMsg('buddy',`💬 ${data.unread} new text${data.unread===1?'':'s'}`);
               el.classList.add('flash');
               (data.held||[]).slice(0,3).forEach(t=>{
                 const m=addMsg('buddy',`From ${t.number}: ${t.text}`);
                 m.style.cursor='pointer'; m.onclick=()=>replyText(t.number);
               });
-              if(data.held&&data.held[0]) say(`New text from ${data.held[0].number}. ${data.held[0].text}`);
+              if(data.held&&data.held[0]&&!data.muted) say(`New text from ${data.held[0].number}. ${data.held[0].text}`);
               api('/texts/check',{action:'clear'}).catch(()=>{});
             }
           }).catch(()=>{});
+          // Voicemails too — TelTel emails the transcript, so Vision can read it out.
+          api('/voicemail/check',{}).then(({data})=>{
+            if(data&&data.unread>0){
+              if(!data.muted)chimeNews(); openChat();
+              const el=addMsg('buddy',`📞 ${data.unread} new voicemail${data.unread===1?'':'s'}`);
+              el.classList.add('flash');
+              (data.held||[]).slice(0,3).forEach(v=>{
+                const m=addMsg('buddy',`🎙️ ${v.number}: "${v.transcript}"`);
+                if(v.number&&v.number!=='unknown'){ m.style.cursor='pointer'; m.onclick=async()=>{ const n=String(v.number).replace(/[^\d+]/g,''); if(n.replace(/\D/g,'').length>=3 && await askYesNo(`Call ${v.number} back?`,{highStakes:true})) window.location.href='tel:'+n; }; }
+              });
+              const v0=data.held&&data.held[0];
+              if(v0&&!data.muted) say(`New voicemail from ${v0.number}. ${v0.transcript}`);
+              api('/voicemail/check',{action:'clear'}).catch(()=>{});
+            }
+          }).catch(()=>{});
+          // PROACTIVE conductor: if he's been away a good while and isn't muted,
+          // gently OFFER a fused "while you were away" briefing — don't force it.
+          try{
+            const lastSeen=Number(localStorage.getItem('buddy_lastseen')||0);
+            const awayMins=lastSeen?Math.round((Date.now()-lastSeen)/60000):0;
+            if(awayMins>=90){
+              api('/conductor',{}).then(({data})=>{
+                if(data&&data.state==='active'){   // respect stop/later — never override the knob
+                  const el=addMsg('buddy','☀️ Want a quick catch-up on what matters? Tap or say "brief me".');
+                  el.style.cssText+=';cursor:pointer;font-weight:600'; el.classList.add('flash');
+                  el.onclick=()=>briefMe('morning');
+                }
+              }).catch(()=>{});
+            }
+          }catch(e){}
+          try{ localStorage.setItem('buddy_lastseen',String(Date.now())); }catch(e){}
         }, 1500);
       });
       if('IntersectionObserver' in window){
@@ -3344,6 +3390,30 @@
   // the bias radius is 30km. Falls back to his saved city so a denied
   // permission still beats searching the entire planet.
   let _fix=null, _fixAt=0;
+  // Keep buddy_city fresh from live GPS as he moves through new places — so every
+  // tile that reads his location (search hints, moment stamps) uses where he
+  // ACTUALLY is, not a stale profile city. Only geocodes when he's moved a
+  // meaningful distance since the last refresh (cheap, quiet, no chat noise).
+  let _lastCityFix=null;
+  async function refreshCity(){
+    try{
+      // If he manually set a city recently (planning ahead for somewhere he's not
+      // yet), respect it — don't stomp it with GPS truth for a couple of hours.
+      const manualAt=Number(localStorage.getItem('buddy_city_manual')||0);
+      if(manualAt && Date.now()-manualAt < 2*3600*1000) return;
+      const fix=await placeFix(); if(!fix) return;
+      if(_lastCityFix){
+        const dLat=(fix.lat-_lastCityFix.lat)*111, dLng=(fix.lng-_lastCityFix.lng)*111*Math.cos(fix.lat*Math.PI/180);
+        if(Math.sqrt(dLat*dLat+dLng*dLng)<3) return;   // still within ~3km of last geocode
+      }
+      const {data}=await api('/whereami',{lat:fix.lat,lng:fix.lng});
+      if(data&&data.ok){
+        _lastCityFix={lat:fix.lat,lng:fix.lng};
+        if(data.city) localStorage.setItem('buddy_city',data.city);
+        if(data.country) localStorage.setItem('buddy_country',data.country);
+      }
+    }catch(e){}
+  }
   function placeFix(){
     return new Promise(resolve=>{
       if(_fix && Date.now()-_fixAt < 120000){ resolve(_fix); return; }
@@ -3561,7 +3631,7 @@
       data.shared.slice(-8).forEach((sm,i)=>{
         const el=addMsg('buddy',`💞 ${new Date(sm.at).toLocaleDateString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'})}: ${String(sm.t).replace(/^log:\s*/,'')} · tap to remove`);
         el.style.cursor='pointer';
-        el.onclick=async()=>{ if(await askYesNo('Remove this from your shared moments?')){ await api('/shared',{roomCode:code,action:'remove',index:i}); el.textContent='✓ removed'; } };
+        el.onclick=async()=>{ if(await askYesNo('Remove this from your shared moments?')){ await api('/shared',{roomCode:code,action:'remove',at:sm.at}); el.textContent='✓ removed'; } };
       });
       say(`${data.count} shared moments — the recent ones are on screen.`);
     }catch(e){ addMsg('buddy','Shared moments unreachable.'); }
@@ -3601,9 +3671,14 @@
     try{ stream.getTracks().forEach(x=>x.stop()); }catch(e){}
     releaseAwakeSafe(); capturing=false; orbActivity(null);
     if(!frames.length){ settle(t,"Couldn't get a clear view — try again?"); return; }
+    // Stamp the moment with LIVE position, not the saved city — he's travelling
+    // Asia, new places daily, so a stale profile city would mislabel where a stall
+    // or spot actually was. The brain uses the coords to place it on recall.
+    const fix=await placeFix();
     try{
       const {ok,data}=await api('/moment',{frames,note:note||'',
-        place:localStorage.getItem('buddy_city')||'', country:localStorage.getItem('buddy_country')||''});
+        place:localStorage.getItem('buddy_city')||'', country:localStorage.getItem('buddy_country')||'',
+        lat:fix?fix.lat:undefined, lng:fix?fix.lng:undefined});
       if(!ok||!data.account){ settle(t,"Couldn't make sense of that moment — try again?"); return; }
       settle(t,`📓 ${data.headline}`);
       const el=addMsg('buddy',data.account); el.classList.add('flash');
@@ -4414,10 +4489,10 @@
               : `${p.name} is about ${dist} ${p.bearing||''} of you${age.text?' ('+age.text+')':''}.`;
             addMsg('buddy',line); say(line);
             if(p.lat!=null){ const m=addMsg('buddy','📍 Tap to open in Maps'); m.style.cursor='pointer';
-              m.onclick=()=>openMaps(`${p.lat},${p.lng}`); }
+              m.onclick=()=>openMaps(`${p.lat},${p.lng}`,travelModeGet()); }
           } else if(p.lat!=null){
             addMsg('buddy',`${p.name}'s last spot${age.text?' ('+age.text+')':''}:`); const m=addMsg('buddy','📍 Open in Maps'); m.style.cursor='pointer';
-            m.onclick=()=>openMaps(`${p.lat},${p.lng}`);
+            m.onclick=()=>openMaps(`${p.lat},${p.lng}`,travelModeGet());
           } else addMsg('buddy',`${p.name} is linked but hasn't shared a location yet.`);
         });
         (data.messages||[]).slice(0,3).forEach(msg=>{ if(msg.by!==myName()) addMsg('buddy',`🗨️ ${msg.by}: ${msg.text}`); });
@@ -4442,7 +4517,7 @@
       addMsg('buddy','📌 '+line);
       const go=addMsg('buddy','🧭 Tap to navigate there');
       go.style.cssText+=';cursor:pointer;font-weight:700';
-      go.onclick=()=>{ say(`Heading to ${p.label}.`); openMaps(`${p.lat},${p.lng}`); };
+      go.onclick=()=>{ navToPartner(p.lat, p.lng, p.at, p.label); };
       try{ chimeNews(); }catch(e){}
       say(line+' Tap to navigate.');
       if(fresh.length>1) addMsg('buddy',`…and ${fresh.length-1} more pin${fresh.length>2?'s':''}.`).style.opacity='.8';
@@ -4675,7 +4750,7 @@
   function spotsGet(){ try{return JSON.parse(localStorage.getItem('buddy_spots')||'[]');}catch{return[];} }
   function spotsSave(a){ localStorage.setItem('buddy_spots',JSON.stringify(a.slice(0,20))); }
   function rememberSpot(preset){
-    if(preset){ saveSpotHere(preset); return; }
+    if(preset){ voiceSaveSpot(preset); return; }   // canonical hands-free save (live GPS + navigable coords + spoken confirm)
     pickSpotName();
   }
   function backToSpot(label){
@@ -4880,7 +4955,7 @@
   async function planTogether(){
     const code=pairCode();
     const city=await askText("Which city/area for your day together?", localStorage.getItem('buddy_city')||'')||'';
-    if(city) localStorage.setItem('buddy_city',city);
+    if(city){ localStorage.setItem('buddy_city',city); localStorage.setItem('buddy_city_manual',String(Date.now())); }
     const goal=await askText("What do you both want? (e.g. food + markets, relaxed, sightseeing)","explore together")||'explore';
     openChat(); addMsg('me',`🗺️ Plan our day in ${city||'here'} — ${goal}`);
     const t=addMsg('buddy','Planning your day together…','think');
@@ -4908,7 +4983,7 @@
       if(!msgs.length && !pins.length){ addMsg('buddy','Nothing new from your partner yet.'); return; }
       msgs.slice(0,5).forEach(m=>addMsg('buddy',`🗨️ ${m.by}: ${m.text}`));
       pins.slice(0,5).forEach(p=>{ const el=addMsg('buddy',`📌 ${p.by} shared: ${p.label} — tap for Maps`); el.style.cursor='pointer';
-        el.onclick=()=>openMaps(`${p.lat},${p.lng}`); });
+        el.onclick=()=>navToPartner(p.lat,p.lng,p.at,p.label); });
       if(msgs[0]) say(`${msgs[0].by} says: ${msgs[0].text}`);
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't check right now."; }
   }
@@ -4990,9 +5065,11 @@
     const a=contactsGet();
     const raw=await askText(a.length?`Number to call — or type a saved name (${a.map(c=>c.name).join(', ')}):`:"Number to call? (with country code for intl)")||'';
     if(!raw) return;
-    const hit=a.find(c=>c.name.toLowerCase()===raw.trim().toLowerCase());
+    const q=raw.trim().toLowerCase();
+    const hit=a.find(c=>c.name.toLowerCase()===q) || a.find(c=>c.name.toLowerCase().includes(q));
     const num=(hit?hit.num:raw).replace(/[^\d+]/g,'');
-    if(!num) return;
+    if(!num){ say(`I couldn't find a contact or number matching "${raw.trim()}".`); return; }
+    if(!await askYesNo(hit?`Call ${hit.name} on ${num}?`:`Call ${num}?`,{highStakes:true})){ say('Okay, cancelled.'); return; }
     say(hit?`Calling ${hit.name}…`:'Calling…'); window.location.href='tel:'+num;
   }
   async function faceTimeSomeone(){
@@ -5008,7 +5085,9 @@
     const num=(hit?hit.num:raw).replace(/[^\d+]/g,''); if(!num) return;
     const msg=await askText("Message? (optional)")||'';
     say('Opening Messages…');
-    window.location.href='sms:'+num+(msg?('&body='+encodeURIComponent(msg)):'');
+    // iOS expects &body=, Android ?body=; include both for best-effort prefill.
+    // (iOS only reliably prefills when a thread to the number already exists.)
+    window.location.href='sms:'+num+(msg?('?&body='+encodeURIComponent(msg)):'');
   }
   // Emergency: dial local emergency number (from survival pack if cached)
   async function callEmergency(){
@@ -5016,6 +5095,7 @@
     try{ num=(JSON.parse(localStorage.getItem('buddy_survival')||'{}').emergency||'').replace(/[^\d+]/g,''); }catch(e){}
     if(!num){ num=(await askText("Local emergency number? (I'll remember it via Survival pack)")||'').replace(/[^\d+]/g,''); }
     if(!num){ say("Set up your Survival pack so I know the local emergency number."); return; }
+    if(num.replace(/\D/g,'').length<3){ say(`That doesn't look like a valid emergency number. Set the right one in your Survival pack.`); return; }
     if(await askYesNo(`Call emergency services on ${num}?`,{highStakes:true})){ window.location.href='tel:'+num; }
   }
   // Answering calls = native only. Explain honestly when asked.
@@ -5079,7 +5159,7 @@
       try{
         const place = localStorage.getItem('buddy_city') || localStorage.getItem('buddy_country') || '';
         const memLine = `spot: ${spot.label}${place?' near '+place:''} (lat ${pos.coords.latitude.toFixed(5)}, lng ${pos.coords.longitude.toFixed(5)})`;
-        api('/recall',{action:'save',text:memLine}).catch(()=>{});
+        api('/recall',{action:'save',text:memLine,lat:pos.coords.latitude,lng:pos.coords.longitude}).catch(()=>{});
       }catch(e){}
       // After a one-tap auto-mark, a quiet escape hatch: rename, or open the list.
       if(quick){
@@ -5183,11 +5263,112 @@
     const dist=spotDistance(s);
     const line=`Taking you back to ${s.label||'your spot'}${dist?', '+dist:''}.`;
     addMsg('buddy',line); say(line);
-    openMaps(`${s.lat},${s.lng}`,'walking');
+    openMaps(`${s.lat},${s.lng}`, travelModeGet());   // his mode (scooter→driving), not always walking
   }
 
   // Get me un-lost: walk back to your MOST-RECENT spot with no menu (the smart
   // default for when you're actually lost), plus a tap to pick a different one.
+  // ── FULLY HANDS-FREE SPOT SAVE + RECALL (scooter, helmet on, no phone) ──
+  // Save by voice: grabs live GPS, saves under the spoken name, confirms aloud.
+  function voiceSaveSpot(name){
+    const label=(name||'').trim() || localStorage.getItem('buddy_lastspotname') || 'this spot';
+    if(!navigator.geolocation){ say('I need location to mark a spot, and it looks off right now.'); return; }
+    say(`Marking ${label}…`);
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const a=spotsGet();
+      const spot={label:label,lat:pos.coords.latitude,lng:pos.coords.longitude,at:Date.now()};
+      a.unshift(spot); spotsSave(a);
+      localStorage.setItem('buddy_lastspotname',label);
+      say(`Got it — ${label} is marked. Just say "take me back to ${label}" whenever.`);
+      // Durable, navigable memory too (coords so recall can route back).
+      try{
+        const place=localStorage.getItem('buddy_city')||localStorage.getItem('buddy_country')||'';
+        api('/recall',{action:'save',text:`spot: ${label}${place?' near '+place:''} (lat ${pos.coords.latitude.toFixed(5)}, lng ${pos.coords.longitude.toFixed(5)})`,lat:pos.coords.latitude,lng:pos.coords.longitude}).catch(()=>{});
+      }catch(e){}
+    },()=>{ say("I couldn't get a GPS fix to mark the spot — try again in a sec."); },{enableHighAccuracy:true,timeout:6000,maximumAge:0});
+  }
+  // Recall by voice: find the named spot (or most recent), then AUTO-LAUNCH
+  // turn-by-turn navigation — no tap, no list. Delegates to the canonical
+  // backToSpot so the classifier path and the fast-path regexes are ONE path.
+  function spotMatches(name){
+    const q=(name||'').replace(/^(my |the )+/i,'').trim().toLowerCase();
+    if(!q) return false;
+    return spotsGet().some(s=>(s.label||'').toLowerCase().includes(q));
+  }
+  function voiceRecallSpot(name){
+    const a=spotsGet();
+    if(!a.length){ say("You haven't marked any spots yet. Say \u201cmark my scooter\u201d when you park and I'll remember it."); return; }
+    backToSpot(name||'');   // canonical recall+auto-nav (now uses travel mode)
+  }
+
+  // ── HOME/HOTEL BASE ──────────────────────────────────────────────────────
+  // His trip base (hotel/stay). Stored as a saved SPOT named "home" so it flows
+  // through the same recall+nav machinery. Set hands-free by voice.
+  function setHomeBase(){
+    if(!navigator.geolocation){ say("I need location to mark your place, and it looks off right now."); return; }
+    say('Marking this as your home base…');
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const a=spotsGet().filter(s=>(s.label||'').toLowerCase()!=='home');   // one home at a time
+      a.unshift({label:'home',lat:pos.coords.latitude,lng:pos.coords.longitude,at:Date.now()});
+      spotsSave(a);
+      say('Done — this is your home base now. Just say "navigate home" any time and I\u2019ll bring you back.');
+      try{
+        const place=localStorage.getItem('buddy_city')||'';
+        api('/recall',{action:'save',text:`home base${place?' in '+place:''} (lat ${pos.coords.latitude.toFixed(5)}, lng ${pos.coords.longitude.toFixed(5)})`,lat:pos.coords.latitude,lng:pos.coords.longitude}).catch(()=>{});
+      }catch(e){}
+    },()=>{ say("Couldn't get a GPS fix to mark home — try again in a sec."); },{enableHighAccuracy:true,timeout:6000,maximumAge:0});
+  }
+
+  // Navigate home — with the SMART chain he asked for: if he came by scooter
+  // (a "scooter" spot is saved) and home is a drive away, the honest reality is
+  // he must reach the scooter FIRST. So offer the two legs instead of routing
+  // him walking to a scooter he then can't use. If no scooter saved, just go.
+  function homeSpot(){ return spotsGet().find(s=>(s.label||'').toLowerCase()==='home') || null; }
+  function scooterSpot(){ return spotsGet().find(s=>/scooter|bike|moto/.test((s.label||'').toLowerCase())) || null; }
+  function haversineM(a,b){
+    const R=6371000, toR=x=>x*Math.PI/180;
+    const dLat=toR(b.lat-a.lat), dLng=toR(b.lng-a.lng);
+    const s=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLng/2)**2;
+    return 2*R*Math.asin(Math.sqrt(s));
+  }
+  // ── smartNav: the SHARED context-aware navigation brain ──────────────────
+  // Every "take me somewhere" runs through here. Its job is the human logistics
+  // question: given HOW he got here, what does reaching the destination actually
+  // involve? Today's rule: if he rides (mode=driving) and his scooter is parked
+  // away from him, reaching a drive-away destination means fetching the scooter
+  // FIRST — so it walks him to the scooter, then rides him on. On foot / at the
+  // scooter / no scooter → straight there. Extend here for future chains (e.g.
+  // "you're at a bar, you shouldn't ride" etc.) so ALL nav benefits, not one tile.
+  // dest = "lat,lng" string or a place string; onward(mode) fires the real leg.
+  function smartNav(destCoordStr, destLabel, mode, onward){
+    const go=()=>{ if(onward){ onward(mode); } else { say(`Heading to ${destLabel||'it'}.`); openMaps(destCoordStr, mode); } };
+    const scoot=scooterSpot();
+    // Only chain when he's riding, has a scooter parked, and GPS is available.
+    if(!(scoot && mode==='driving' && navigator.geolocation)){ go(); return; }
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const me={lat:pos.coords.latitude,lng:pos.coords.longitude};
+      const toScoot=haversineM(me,scoot);
+      if(toScoot>120){
+        // He must reach the scooter first. Leg 1 on foot; leg 2 queued for return.
+        openChat();
+        const d=toScoot>1000?(toScoot/1000).toFixed(1)+' km':Math.round(toScoot)+' m';
+        const line=`Your scooter's about ${d} away — I'll walk you to it first, then ride you on to ${destLabel||'there'}. Starting with the scooter.`;
+        addMsg('buddy','🛵→📍 '+line); say(line);
+        openMaps(`${scoot.lat},${scoot.lng}`,'walking');
+        // Remember the onward destination so leg 2 can fire on return.
+        try{ localStorage.setItem('buddy_pendingnav', JSON.stringify({dest:destCoordStr, label:destLabel||'', mode})); }catch(e){}
+        localStorage.removeItem('buddy_pendinghome');  // superseded by the general one
+        return;
+      }
+      go();   // scooter's right here → straight there
+    },()=>go(),{enableHighAccuracy:false,timeout:4000,maximumAge:60000});
+  }
+
+  function navHome(){
+    const home=homeSpot();
+    if(!home){ say("You haven't set a home base yet. When you're at your hotel, say \u201cthis is my hotel\u201d and I'll remember it."); return; }
+    smartNav(`${home.lat},${home.lng}`, 'home', travelModeGet(), (mode)=>{ say('Heading home.'); openMaps(`${home.lat},${home.lng}`, mode); });
+  }
   function getUnlost(){
     const a=spotsGet();
     if(!a.length){ say("No spot saved yet — tap 📌 My spots to mark one when you're somewhere you'll want to return to."); return; }
@@ -5372,6 +5553,24 @@
     }catch(e){ t.classList.remove('think'); t.textContent="Couldn't read your itinerary right now."; }
   }
 
+  // ---- THE CONDUCTOR (build 159): pull a fused briefing on demand ----
+  // "brief me" (morning), "what's here" (here), "how'd today go" (evening).
+  // Reads the shared brain server-side and speaks ONE fused passage — the thing
+  // he'd otherwise get by tapping four tiles.
+  async function briefMe(moment){
+    moment = ['morning','here','evening'].includes(moment) ? moment : 'morning';
+    const label = moment==='here' ? '📍 What do I need to know here?' : moment==='evening' ? '🌙 How did today go?' : '🌅 Brief me';
+    openChat(); addMsg('me',label);
+    const t=addMsg('buddy','Pulling it together…','think');
+    const fix=await placeFix();
+    try{
+      const {status,data}=await api('/brief',{moment, lat:fix?fix.lat:undefined, lng:fix?fix.lng:undefined});
+      t.classList.remove('think');
+      if(status!==200||!data){ t.textContent="Couldn't pull that together — is the brain deployed?"; return; }
+      t.textContent=data.spoken; say(data.spoken);
+    }catch(e){ t.classList.remove('think'); t.textContent="Couldn't reach the brain just now."; }
+  }
+
   // ---- ENHANCEMENT 2: End-of-day debrief ----
   async function dayDebrief(){
     openChat(); addMsg('me','🌙 Wrap up my day');
@@ -5443,7 +5642,7 @@
   // ---- Plan my day: agentic itinerary builder ----
   async function planDay(){
     const city=await askText("Which city/area?", localStorage.getItem('buddy_city')||'')||'';
-    if(city) localStorage.setItem('buddy_city',city);
+    if(city){ localStorage.setItem('buddy_city',city); localStorage.setItem('buddy_city_manual',String(Date.now())); }
     const goal=await askText("What's the vibe? (e.g. food + temples, chilled, nightlife)","explore the highlights")||'explore';
     const budget=await askText("Budget for the day? (number, optional)","")||'';
     const currency=await askText("Currency? (optional)", localStorage.getItem('buddy_currency')||'')||'';
@@ -7468,18 +7667,67 @@
     if(/^(set|change) (my )?budget$/i.test(text)){ setBudget(); return; }
     if(/^(my )?recovery code$/i.test(text)){ recoveryCode(); return; }
     if(/^(email|send) (me )?(that|this|the details|it)( to me)?$/i.test(text)){ sendHandover(''); return; }
+    // The volume knob HE holds over the conductor.
+    if(/^(?:stop|quiet|go quiet|be quiet|shush|hush|do not disturb|dnd|silence)(?: mode)?$/i.test(text)){
+      api('/conductor',{action:'stop'}).then(({data})=>{ const m=(data&&data.spoken)||"I'll go quiet."; openChat(); addMsg('buddy',m); say(m); }).catch(()=>{}); return;
+    }
+    if(/^(?:later|not (?:now|right now)|hold (?:that|it|on)|tell me later|remind me later|in a bit)$/i.test(text)){
+      api('/conductor',{action:'later'}).then(({data})=>{ const m=(data&&data.spoken)||"I'll hold onto it."; openChat(); addMsg('buddy',m); say(m); }).catch(()=>{}); return;
+    }
+    if(/^(?:resume|go on|carry on|you can talk|back on|unmute|lift quiet|i'?m back|okay go)$/i.test(text)){
+      api('/conductor',{action:'resume'}).then(({data})=>{ const m=(data&&data.spoken)||"Back with you."; openChat(); addMsg('buddy',m); say(m); }).catch(()=>{}); return;
+    }
+    // ── HOME / HOTEL BASE (set + navigate, with scooter chaining) ──
+    // Set base: "this is my hotel", "set home here", "remember my hotel"
+    if(/^(?:this is (?:my )?(?:home|hotel|our (?:place|hotel|stay))|set (?:my )?(?:home|hotel|base)(?: here)?|remember (?:my |our )?(?:home|hotel|stay)|mark (?:my )?(?:home|hotel) here)$/i.test(text)){ setHomeBase(); return; }
+    // Navigate home: "navigate home", "take me home", "take me to the hotel", "back to the hotel"
+    if(/^(?:navigate|take me|go|get me|directions?|head|walk me|ride me)?\s*(?:home|to (?:my |the |our )?(?:home|hotel|place|stay)|back to (?:my |the |our )?(?:home|hotel|place|stay))$/i.test(text)){ navHome(); return; }
+    // ── HANDS-FREE SPOT SAVE + RECALL (scooter: helmet on, no phone) ──
+    let mSpot;
+    // Specific shortcuts FIRST (before the greedy generic save/recall).
+    if(/^(?:remember where i parked|where i parked|mark where i parked|save my parking|save where i parked)$/i.test(text)){ voiceSaveSpot('scooter'); return; }
+    if(/^(?:get me un-?lost|i'?m lost|take me back|where'?s my scooter|where is my scooter|where did i park)$/i.test(text)){ voiceRecallSpot(''); return; }
+    // "where's my X" / "where is my X" → recall named spot ONLY if one exists
+    // (otherwise let it fall through to normal search — don't hijack "where's a pharmacy").
+    if(mSpot=text.match(/^where(?:'?s| is| are)(?: my| the)? (.{2,40})$/i)){
+      if(spotMatches(mSpot[1])){ voiceRecallSpot(mSpot[1].trim()); return; }
+    }
+    // Recall: "take me back to my scooter", "navigate to the hotel", "find my X"
+    if(mSpot=text.match(/^(?:take me back to|get me back to|back to|navigate to|find)(?: my| the)? (.{2,40})$/i)){
+      if(spotMatches(mSpot[1])){ voiceRecallSpot(mSpot[1].trim()); return; }
+      // "navigate to <place that isn't a saved spot>" is a real nav request — let it flow on.
+    }
+    // Save: "mark my scooter", "mark this spot as X", "save this as X"
+    if(mSpot=text.match(/^(?:mark|save|remember)(?: this| the| my)?(?: spot| place| location)?(?: as | called |[:\-] ?| )(.{1,40})$/i)){
+      const raw=(mSpot[1]||'').replace(/^(here|this|my |the )+/i,'').replace(/\bas\b.*/i,'').trim();
+      voiceSaveSpot(raw); return;
+    }
+    // The conductor, by voice — pull a fused briefing for the moment.
+    if(/^(?:brief me|catch me up|what'?s (?:the )?(?:latest|up|going on)|my briefing|sit ?rep|fill me in)$/i.test(text)){ briefMe('morning'); return; }
+    if(/^(?:what(?:'?s| do i need to know)?(?: about)? here|where am i|what'?s around(?: here)?|brief me on (?:here|this place|my surroundings))$/i.test(text)){ briefMe('here'); return; }
+    if(/^(?:how(?:'?d| did) today go|wrap up(?: my day)?|end of day|evening brief|how was (?:my|the) day)$/i.test(text)){ briefMe('evening'); return; }
     // Texting by voice — the whole point when the glasses are on.
+    // Hands-free fast-path: a trailing "send"/"send it"/"send now"/"go" means
+    // he's confirming in the same breath (driving/scooter) — strip it and fire.
+    const trailingSend=(s)=>{
+      if(!s) return {msg:s, confirmed:false};
+      const m=s.match(/^(.*?)[\s,.]+(?:send(?: it| now| that)?|go)\s*$/i);
+      return m && m[1].trim() ? {msg:m[1].trim(), confirmed:true} : {msg:s, confirmed:false};
+    };
     if(m51=text.match(/^(?:reply|respond|text back|answer)(?: to)?(?: the)? (?:that|them|him|her|it|last(?: one)?)(?:[:,]?\s+(.+))?$/i)){
-      replyText(lastTexts&&lastTexts[0]?lastTexts[0].number:null, m51[1]?m51[1].trim():null); return;
+      const ts=trailingSend(m51[1]?m51[1].trim():null);
+      replyText(lastTexts&&lastTexts[0]?lastTexts[0].number:null, ts.msg, ts.confirmed); return;
     }
     if(m51=text.match(/^(?:text|sms|message) (\+?\d[\d ]{5,})(?:[:,]?\s+(.+))?$/i)){
-      replyText(m51[1].replace(/[^\d+]/g,''), m51[2]?m51[2].trim():null); return;
+      const ts=trailingSend(m51[2]?m51[2].trim():null);
+      replyText(m51[1].replace(/[^\d+]/g,''), ts.msg, ts.confirmed); return;
     }
     if(m51=text.match(/^(?:text|sms|message) (\w{2,20})[:,]?\s+(.+)$/i)){
       // A name — look it up in saved contacts, else ask who.
       let num=null;
       try{ const c=JSON.parse(localStorage.getItem('buddy_contacts')||'{}'); num=c[m51[1].toLowerCase()]||null; }catch(e){}
-      replyText(num, m51[2].trim()); return;
+      const ts=trailingSend(m51[2].trim());
+      replyText(num, ts.msg, ts.confirmed); return;
     }
     if(/^(recover|restore) (my )?(memory|profile|account)$/i.test(text)){ recoverProfile(); return; }
     if(/^(run lean|save money|cheaper mode)$/i.test(text)){
@@ -8181,6 +8429,27 @@
     window.location.href=`https://maps.apple.com/?daddr=${d}&dirflg=${f}`;
   }
 
+  // Navigate to a partner's shared position — carries the STALENESS warning into
+  // the Maps handoff (Maps shows a confident pin with no age cue, so if her fix
+  // is old he'd ride to an empty corner). Speaks the "she may have moved" caution
+  // for a stale fix, then hands off with his current travel mode (scooter→driving,
+  // not the walking default). One shared helper so every partner-pin tap behaves
+  // the same. at = when she shared (ms); label optional.
+  function navToPartner(lat, lng, at, label){
+    const mins = at ? Math.round((Date.now() - at) / 60000) : null;
+    const stale = mins == null || mins > 15;   // same 15-min threshold whereIsPartner uses
+    const where = label ? ` to ${label}` : '';
+    if (stale && mins != null) {
+      const ago = mins < 60 ? `${mins} minutes ago` : `${Math.round(mins/60)} hours ago`;
+      say(`Heading${where} — but heads up, that's her spot from ${ago}, she may have moved. I'll take you to where she was.`);
+    } else if (stale) {
+      say(`Heading${where} — that's her last shared spot, she may have moved since.`);
+    } else {
+      say(`Heading${where}.`);
+    }
+    openMaps(`${lat},${lng}`, travelModeGet());   // his mode, not the walking default
+  }
+
   /* --- AUTO-NAVIGATE (batch 153) --------------------------------------------
    * "I'm jumping on my scooter, can you take me to my gym" should just go.
    * No mode picker, no confirm card, no "Open turn-by-turn" to tap. He is
@@ -8512,6 +8781,14 @@
 
   function navigateWith(dest, mode, autoOpen, said){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
+    // SMART CHAIN (shared, ONE implementation in smartNav): before routing, check
+    // if he needs to fetch his scooter first. Guarded so it runs once — the onward
+    // leg re-enters with _chained=true. Applies to EVERY destination, not just home.
+    const m0 = (mode||travelModeGet());
+    if(!navigateWith._chained && scooterSpot() && /driv/.test(m0)){
+      smartNav(dest, dest, m0, ()=>{ navigateWith._chained=true; navigateWith(dest,mode,autoOpen,said); navigateWith._chained=false; });
+      return;
+    }
     // AUTO-HANDOVER: hand straight to Maps without a tap when asked ("in maps")
     // or when the always-on preference is set by voice ("always open maps").
     const auto = !!autoOpen || localStorage.buddy_automaps==='on';
@@ -8675,7 +8952,7 @@
   // Batch 107: replying by voice. The old flow used two typed prompts, which is
   // the wrong shape when you're wearing glasses. Now: tap who, speak the reply,
   // confirm before it goes — because an SMS can't be unsent.
-  async function replyText(preNumber, preMessage){
+  async function replyText(preNumber, preMessage, preConfirmed){
     if(!lastTexts.length){
       const {status,data}=await api('/sms/recent').catch(()=>({status:0,data:{}}));
       if(status===501){ const m="Texts aren't set up yet — add your iCloud details in Service keys."; addMsg('buddy',m); say(m); return; }
@@ -8692,6 +8969,10 @@
       if(!number) return;
     }
     let message=preMessage;
+    // If the message wasn't supplied up-front (came in the same breath as "…send"),
+    // it must be collected interactively — in which case the "send" confirmation
+    // no longer applies to THIS message, so fall back to read-back-and-wait.
+    if(!preMessage) preConfirmed=false;
     if(!message){
       message=await new Promise(resolve=>{
         openChat();
@@ -8713,7 +8994,7 @@
         const typ=document.createElement('div');
         typ.style.cssText='margin-top:6px;padding:10px;text-align:center;opacity:.6;font-size:14px;cursor:pointer';
         typ.textContent='⌨️ type it instead';
-        typ.onclick=()=>{ const v=prompt(`Your text to ${number}:`,''); if(v) resolve(v.trim()); };
+        typ.onclick=async()=>{ const v=await askText(`Your text to ${number}:`,''); if(v) resolve(v.trim()); };
         el.appendChild(mic); el.appendChild(typ); scrollChat();
       });
     }
@@ -8722,6 +9003,30 @@
     openChat();
     const confirm_=addMsg('buddy',`To ${number}:\n"${message}"`);
     confirm_.classList.add('flash');
+    // Shared send — used by the tap path AND the hands-free "…send" fast-path.
+    const doSend=async()=>{
+      confirm_.textContent=`Sending to ${number}…`;
+      try{
+        const {status,data}=await api('/sms/send',{number,message});
+        if(status===200&&data.ok){
+          confirm_.textContent=`✅ Sent to ${number}`;
+          say('Sent.');
+          api('/memory',{action:'add',text:`texted ${number}: ${message.slice(0,80)}`}).catch(()=>{});
+        } else if(status===501) confirm_.textContent="Texts aren't set up in the backend yet.";
+        else confirm_.textContent="Couldn't send — try again.";
+      }catch(e){ confirm_.textContent="Couldn't send — try again."; }
+      scrollChat();
+    };
+    // HANDS-FREE FAST-PATH (driving / scooter): he already said "…send", so the
+    // word IS the confirmation. Read it back once for safety, then fire — no
+    // second tap, no waiting. Still reads back so a misheard text is catchable
+    // in the half-second before it goes.
+    if(preConfirmed){
+      say(`Sending to ${number}. ${message}.`);
+      await doSend();
+      scrollChat();
+      return;
+    }
     say(`To ${number}. ${message}. Send it?`);
     [['✅ Send it','go'],['✏️ Say it again','redo'],['✖️ Cancel','no']].forEach(([label,act])=>{
       const b=document.createElement('div');
@@ -8730,17 +9035,7 @@
       b.onclick=async()=>{
         if(act==='no'){ confirm_.textContent='✖️ Not sent.'; return; }
         if(act==='redo'){ confirm_.textContent='Righto — try again.'; return replyText(number); }
-        confirm_.textContent=`Sending to ${number}…`;
-        try{
-          const {status,data}=await api('/sms/send',{number,message});
-          if(status===200&&data.ok){
-            confirm_.textContent=`✅ Sent to ${number}`;
-            say('Sent.');
-            api('/memory',{action:'add',text:`texted ${number}: ${message.slice(0,80)}`}).catch(()=>{});
-          } else if(status===501) confirm_.textContent="Texts aren't set up in the backend yet.";
-          else confirm_.textContent="Couldn't send — try again.";
-        }catch(e){ confirm_.textContent="Couldn't send — try again."; }
-        scrollChat();
+        await doSend();
       };
       confirm_.appendChild(b);
     });
