@@ -1418,7 +1418,7 @@
         const dueTxt=r.due? new Date(r.due).toLocaleString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'}) : (w.place?('at '+w.place):'no time set');
         const el=addMsg('buddy',`⏰ ${w.what||r.label} — ${dueTxt} · tap to remove`);
         el.style.cursor='pointer';
-        el.onclick=async()=>{ if(confirm('Remove: '+(w.what||r.label)+'?')){ await api('/watchers',{action:'remove',id:r.id}); el.textContent='✓ removed'; } };
+        el.onclick=async()=>{ if(await askYesNo('Remove: '+(w.what||r.label)+'?')){ await api('/watchers',{action:'remove',id:r.id}); el.textContent='✓ removed'; } };
       });
       say(`${rem.length} reminder${rem.length>1?'s':''} — they're on screen.`);
     }catch(e){ addMsg('buddy','Reminders unreachable — is the brain deployed?'); }
@@ -1447,7 +1447,7 @@
       if(!data.watchers||!data.watchers.length){ const m='No watchers yet. Try: "watch flights Brisbane to Bali under 300 dollars".'; addMsg('buddy',m); say(m); return; }
       data.watchers.forEach(w=>{ const el=addMsg('buddy','🔭 '+w.label+' — tap to remove');
         el.style.cursor='pointer';
-        el.onclick=async()=>{ if(confirm('Remove watcher: '+w.label+'?')){ await api('/watchers',{action:'remove',id:w.id}); el.style.opacity='.4'; el.textContent='✓ removed — '+w.label; } }; });
+        el.onclick=async()=>{ if(await askYesNo('Remove watcher: '+w.label+'?')){ await api('/watchers',{action:'remove',id:w.id}); el.style.opacity='.4'; el.textContent='✓ removed — '+w.label; } }; });
       (data.results||[]).slice(-3).forEach(r=>addMsg('buddy','• '+r.spoken));
       say(`${data.watchers.length} watcher${data.watchers.length>1?'s':''} running — they're on screen.`);
     }catch(e){ addMsg('buddy','Watchers unreachable — is the brain deployed?'); }
@@ -1525,11 +1525,11 @@
       const icons={places:'📍',moments:'🎬',photos:'🖼️',spend:'💰',reminders:'⏰',conversations:'💬'};
       Object.entries(data.grouped||{}).forEach(([cat,items])=>{
         const el=addMsg('buddy',`${icons[cat]||'•'} ${cat.toUpperCase()} (${items.length}) · tap to expand`);
-        el.style.cursor='pointer'; let open=false;
+        el.style.cursor='pointer'; let open=false; let rows=[];
         el.onclick=()=>{
-          if(open){ el.nextSibling&&el.nextSibling.remove&&null; return; }
+          if(open){ rows.forEach(r=>r.remove()); rows=[]; open=false; return; }
           open=true;
-          items.slice(-10).forEach(it=>addMsg('buddy',`   ${new Date(it.at).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})} — ${String(it.t).replace(/^(log:|moment|saw:|read:|receipt:|reminder:)\s*/,'')}`));
+          rows=items.slice(-10).map(it=>addMsg('buddy',`   ${new Date(it.at).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})} — ${String(it.t).replace(/^(log:|moment|saw:|read:|receipt:|reminder:)\s*/,'')}`));
           scrollChat();
         };
       });
@@ -1736,7 +1736,7 @@
         const el=addMsg('buddy',`📅 ${f.label} — tap to set`);
         el.style.cursor='pointer';
         el.onclick=async()=>{
-          const v=prompt(`${f.label} expiry date (YYYY-MM-DD):`,'');
+          const v=await askText(`${f.label} expiry date (YYYY-MM-DD):`,'');
           if(!v) return;
           await api('/docs',{action:'set',field:f.id,value:v});
           el.textContent=`✅ ${f.label}: ${v}`;
@@ -1760,7 +1760,7 @@
         p.forEach(x=>{
           const el=addMsg('buddy','· '+x.t);
           el.style.cursor='pointer';
-          el.onclick=async()=>{ if(!confirm(`Forget this?\n\n"${x.t}"`)) return;
+          el.onclick=async()=>{ if(!await askYesNo(`Forget this?\n\n"${x.t}"`)) return;
             await api('/procedures',{action:'forget',text:x.t.slice(0,25)});
             el.style.opacity='.4'; el.textContent='✓ forgotten — '+x.t; };
         });
@@ -1797,7 +1797,7 @@
     }catch(e){ addMsg('buddy','Recovery unreachable — is the brain deployed?'); }
   }
   async function recoverProfile(){
-    const code=prompt('Recovery code from your old phone:\n\n(three parts, like amber-compass-42)','');
+    const code=await askText('Recovery code from your old phone:\n\n(three parts, like amber-compass-42)','');
     if(!code) return;
     openChat(); addMsg('me','🔑 Recover '+code);
     const t=addMsg('buddy','Looking that up…','think');
@@ -1880,7 +1880,7 @@
           b.parentElement.textContent='🔋 Running lean — fast model, fewer background checks, less capture.';
           say('Running lean.');
         } else if(act==='raise'){
-          const v=prompt('Monthly budget in US dollars:', String(data.spend.budget||10));
+          const v=await askText('Monthly budget in US dollars:', String(data.spend.budget||10));
           if(v){ await api('/budget',{action:'set',monthlyUSD:Number(v)}); b.parentElement.textContent=`💳 Budget set to $${Number(v)}.`; refreshGauges(); }
         } else { b.parentElement.textContent='👍 Righto — I\'ll keep an eye on it.'; }
       };
@@ -1911,7 +1911,7 @@
   }
   async function setBudget(){
     const cur=await api('/budget',{}).then(r=>r.data&&r.data.monthlyUSD).catch(()=>null);
-    const v=prompt('What should Vision cost you per month, in US dollars?\n\n(Most days run to a few cents — $5-10 is generous.)', String(cur||10));
+    const v=await askText('What should Vision cost you per month, in US dollars?\n\n(Most days run to a few cents — $5-10 is generous.)', String(cur||10));
     if(v===null) return;
     await api('/budget',{action:'set',monthlyUSD:Number(v)||0});
     const m=Number(v)?`Budget set to $${Number(v)} a month. I'll warn you at halfway.`:'Budget cleared.';
@@ -2104,7 +2104,7 @@
                             : status==='fail'?`❌ ${t.name} — logged as broken`
                             : `⏭️ ${t.name} — skipped`;
               if(status==='fail'){
-                const why=prompt(`What went wrong with "${t.name}"?`,'');
+                const why=await askText(`What went wrong with "${t.name}"?`,'');
                 if(why!==null) await logBug(`[${t.name}] ${why||'no detail given'}`);
               }
             };
@@ -2176,7 +2176,7 @@
           const el=addMsg('buddy','• '+f);
           el.style.cursor='pointer';
           el.onclick=async()=>{
-            if(!confirm(`Forget this?\n\n"${f}"`)) return;
+            if(!await askYesNo(`Forget this?\n\n"${f}"`)) return;
             const {data:r}=await api('/distil',{action:'forget',fact:f.slice(0,30)});
             el.style.opacity='.4'; el.textContent='✓ forgotten — '+f;
           };
@@ -2208,7 +2208,7 @@
   const BUILD_VERSION='159';
   async function logBug(report){
     if(!report){
-      report=prompt("What went wrong? (say it plainly — I'll capture the rest)",'');
+      report=await askText("What went wrong? (say it plainly — I'll capture the rest)",'');
       if(!report) return;
     }
     openChat(); addMsg('me','🐞 '+report);
@@ -2258,7 +2258,7 @@
         const icon = b.verdict==='known-limit'?'ℹ️' : b.verdict==='likely-bug'?'🐞' : '❓';
         const el=addMsg('buddy',`${icon} ${new Date(b.at).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}: ${b.report}${b.forClaude?`\n   → ${b.forClaude}`:''}\n   tap to mark fixed`);
         el.style.cursor='pointer';
-        el.onclick=async()=>{ if(confirm('Mark as fixed?')){ await api('/bug',{action:'close',id:b.id}); el.style.opacity='.4'; el.textContent='✓ fixed — '+b.report; } };
+        el.onclick=async()=>{ if(await askYesNo('Mark as fixed?')){ await api('/bug',{action:'close',id:b.id}); el.style.opacity='.4'; el.textContent='✓ fixed — '+b.report; } };
       });
       const copy=addMsg('buddy','📋 Copy all for Claude'); copy.style.cursor='pointer';
       copy.style.cssText+='background:rgba(245,166,35,.18);border:1px solid rgba(245,166,35,.4);font-weight:600';
@@ -2482,7 +2482,7 @@
     }
     let detail='';
     if(outcome==='done'){
-      const ref=prompt('Any reference or confirmation number? (leave blank to skip)','');
+      const ref=await askText('Any reference or confirmation number? (leave blank to skip)','');
       if(ref) detail=ref;
     }
     if(rowEl) rowEl.textContent = outcome==='done' ? '✅ Noted — nice one.' : '✖️ Fair enough, dropped it.';
@@ -2615,7 +2615,7 @@
         list.forEach(b=>{
           const el=addMsg('buddy',`🎫 ${b.type||'Booking'}: ${b.what||''}\n${b.when||''}${b.ref?`\nRef: ${b.ref}`:''}${b.notes?`\n${b.notes}`:''} · tap to remove`);
           el.style.cursor='pointer';
-          el.onclick=async()=>{ if(confirm('Remove this booking?')){ await api('/bookings',{action:'remove',id:b.id}); el.textContent='✓ removed'; } };
+          el.onclick=async()=>{ if(await askYesNo('Remove this booking?')){ await api('/bookings',{action:'remove',id:b.id}); el.textContent='✓ removed'; } };
         });
         say(`${list.length} booking${list.length===1?'':'s'} saved.`);
       }
@@ -2630,10 +2630,10 @@
       {label:'🍽️ Restaurant',value:'Restaurant'},{label:'🎫 Tour or ticket',value:'Ticket'},
       {label:'🚕 Transfer',value:'Transfer'}]);
     if(!type) return;
-    const what=prompt(`${type} — what is it? (e.g. "Brisbane to Denpasar", "Villa Ubud")`,''); if(!what) return;
-    const when=prompt('When? (e.g. "12 Sep 9:40am")','')||'';
-    const ref=prompt('Booking reference (optional)','')||'';
-    const notes=prompt('Anything else worth remembering? (seat, terminal, contact)','')||'';
+    const what=await askText(`${type} — what is it? (e.g. "Brisbane to Denpasar", "Villa Ubud")`,''); if(!what) return;
+    const when=await askText('When? (e.g. "12 Sep 9:40am")','')||'';
+    const ref=await askText('Booking reference (optional)','')||'';
+    const notes=await askText('Anything else worth remembering? (seat, terminal, contact)','')||'';
     const {ok,data}=await api('/bookings',{action:'add',booking:{type,what,when,ref,notes}});
     const m=ok?`🎫 Saved: ${type} — ${what}${ref?` (${ref})`:''}`:"Couldn't save that.";
     addMsg('buddy',m); say(ok?'Booking saved.':'That didn\'t save.'); scrollChat();
@@ -2652,7 +2652,7 @@
         const el=addMsg('buddy',`${has?'✅':'⚪'} ${LABELS[f]||f}${has?`: ${d[f]}`:' — tap to add'}`);
         el.style.cursor='pointer';
         el.onclick=async()=>{
-          const v=prompt(`${LABELS[f]||f}:`, d[f]||'');
+          const v=await askText(`${LABELS[f]||f}:`, d[f]||'');
           if(v==null) return;
           await api('/docs',{action:'set',field:f,value:v});
           el.textContent = v ? `✅ ${LABELS[f]||f}: ${v}` : `⚪ ${LABELS[f]||f} — tap to add`;
@@ -2679,7 +2679,7 @@
             ...(f.set?[{label:'🧪  Test it',value:'test'},{label:'🗑️  Clear it',value:'clear'}]:[]),
           ], {allowSpeech:false, allowType:false});
           if(v==='set'){
-            const key=prompt(`${f.label}\n\nGet it from: ${f.where}\n\nPaste the key:`,'');
+            const key=await askText(`${f.label}\n\nGet it from: ${f.where}\n\nPaste the key:`,'');
             if(key==null) return;
             const r=await api('/keys',{action:'set',id:f.id,value:key});
             addMsg('buddy', r.data && r.data.set ? `✅ ${f.label} saved — testing…` : `🗑️ ${f.label} cleared.`);
@@ -3212,6 +3212,7 @@
       q.style.cssText='font-size:17px;font-weight:700;margin-bottom:14px';
       q.textContent=question; sheet.appendChild(q);
       const done=(v)=>{ back.style.opacity='0'; sheet.style.transform='translateY(110%)'; setTimeout(()=>{ back.remove(); sheet.remove(); },280); resolve(v); };
+      if(opts.onOpen) try{ opts.onOpen(()=>done(null)); }catch(e){}
       (options||[]).forEach(o=>{
         const label=typeof o==='string'? o : o.label;
         const value=typeof o==='string'? o : (o.value!=null?o.value:o.label);
@@ -3249,8 +3250,95 @@
       requestAnimationFrame(()=>{ back.style.opacity='1'; sheet.style.transform='none'; });
     });
   }
-  // 🔤 ADDRESS PICKER: two letters and it suggests. Saved places first, then
-  // live Google suggestions biased to where you are.
+
+  // ---- NATIVE-READY INPUT (build 159) ----------------------------------------
+  // Drop-in replacements for the browser's prompt()/confirm() blocking dialogs,
+  // which don't exist on native and can't be answered by voice. Same return
+  // shapes so call sites just gain `await`: askText → string|null (like prompt),
+  // askYesNo → true|false (like confirm). Both speak the question and accept a
+  // spoken answer, so every converted flow works hands-free on the glasses.
+  function askText(question, opts){
+    opts=opts||{};
+    try{ if(question) say(String(question).split('\n')[0]); }catch(e){}
+    return new Promise(resolve=>{
+      const back=document.createElement('div');
+      back.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1200;opacity:0;transition:opacity .2s';
+      const sheet=document.createElement('div');
+      sheet.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:1201;background:#111733;border-top:1px solid rgba(255,255,255,.14);border-radius:20px 20px 0 0;padding:20px 18px 30px;transform:translateY(110%);transition:transform .28s cubic-bezier(.2,.8,.2,1);max-height:80vh;overflow-y:auto';
+      const q=document.createElement('div');
+      q.style.cssText='font-size:17px;font-weight:700;margin-bottom:12px;white-space:pre-wrap'; q.textContent=question||'';
+      const inp=document.createElement(opts.multiline?'textarea':'input');
+      if(!opts.multiline) inp.type='text';
+      inp.placeholder=opts.placeholder||'Type or say your answer…';
+      if(opts.default!=null) inp.value=opts.default;
+      inp.style.cssText='width:100%;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.07);color:inherit;font-size:16px;margin-bottom:10px'+(opts.multiline?';min-height:88px;resize:vertical':'');
+      const done=(v)=>{ back.style.opacity='0'; sheet.style.transform='translateY(110%)'; setTimeout(()=>{ back.remove(); sheet.remove(); },280); resolve(v); };
+      const submit=()=>{ const v=(inp.value||'').trim(); done(v===''?(opts.default!=null?String(opts.default):''):v); };
+      if(!opts.multiline){ inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } }); }
+      const go=document.createElement('div');
+      go.style.cssText='padding:14px;border-radius:12px;background:#F5A623;color:#1a1a2e;font-weight:700;text-align:center;font-size:16px;cursor:pointer;margin-bottom:8px';
+      go.textContent=opts.okLabel||'Done'; go.onclick=submit;
+      const mic=document.createElement('div');
+      mic.style.cssText='padding:13px;border-radius:12px;background:rgba(245,166,35,.16);border:1px solid rgba(245,166,35,.4);font-weight:600;text-align:center;cursor:pointer;margin-bottom:8px';
+      mic.textContent='🎤 Say it instead';
+      mic.onclick=()=>{
+        const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+        if(!SR){ mic.textContent='Voice not available — type instead'; return; }
+        mic.textContent='🎙️ Listening…';
+        try{ const r=new SR(); r.lang='en-AU'; r.interimResults=false;
+          r.onresult=e=>{ inp.value=e.results[0][0].transcript.trim(); mic.textContent='🎤 Say it instead'; };
+          r.onerror=()=>{ mic.textContent='Didn\'t catch that — tap to retry'; }; r.start();
+        }catch(e){ mic.textContent='Mic failed — type instead'; }
+      };
+      const cancel=document.createElement('div');
+      cancel.style.cssText='padding:12px;text-align:center;opacity:.5;font-size:14px;cursor:pointer';
+      cancel.textContent='Cancel'; cancel.onclick=()=>done(null);
+      sheet.appendChild(q); sheet.appendChild(inp); sheet.appendChild(go);
+      if(opts.allowSpeech!==false) sheet.appendChild(mic);
+      sheet.appendChild(cancel);
+      back.onclick=()=>done(null);
+      document.body.appendChild(back); document.body.appendChild(sheet);
+      requestAnimationFrame(()=>{ back.style.opacity='1'; sheet.style.transform='none'; setTimeout(()=>{try{inp.focus();}catch(e){}},320); });
+    });
+  }
+  // Yes/No — returns true|false like confirm(). Speaks the question, tap or say.
+  // ---- Discreet tap-to-answer (glasses gesture, native-ready) --------------
+  // Native maps arm gestures → window.visionAnswer('yes'|'no'|'cancel'):
+  //   double-tap = yes · triple-tap = no · long-press = cancel.
+  // All the answer logic lives HERE (one place), so native only has to detect
+  // the physical gesture and call one function — every yes/no in the app that
+  // flows through askYesNo becomes tap-answerable for free.
+  //
+  // SAFETY: silent tap-answer is DISABLED when opts.highStakes is set (calls,
+  // sending messages, spending, deleting, emergency) — a stray double-tap must
+  // never place a call or send anything. Those still require voice / on-screen.
+  let _pendingAnswer=null;   // {resolve, allowTap, dismiss} while a question is open
+  window.visionAnswer=function(ans){
+    if(!_pendingAnswer) return false;                 // nothing waiting → ignore
+    if((ans==='yes'||ans==='no') && !_pendingAnswer.allowTap) return false; // high-stakes: taps can't confirm
+    const p=_pendingAnswer; _pendingAnswer=null;
+    try{ p.dismiss&&p.dismiss(); }catch(e){}           // close the on-screen sheet so it doesn't linger
+    // Eyes-free confirmation tone (rising=yes like mic-open, low double=no, soft fall=cancel).
+    try{ if(ans==='yes') tone&&tone(660,90); else if(ans==='no'){ tone&&tone(300,70); setTimeout(()=>tone&&tone(300,70),110); } else tone&&tone(240,120); }catch(e){}
+    p.resolve(ans==='yes' ? true : ans==='no' ? false : null);
+    return true;
+  };
+
+  async function askYesNo(question, opts){
+    opts=opts||{};
+    const allowTap=!opts.highStakes;   // low-stakes questions accept the discreet gesture
+    // Race the on-screen/voice picker against a native tap answer.
+    let _dismiss=null;
+    const tap=new Promise(res=>{ _pendingAnswer={resolve:res, allowTap, dismiss:()=>{ _dismiss&&_dismiss(); }}; });
+    const picked=pick(question, [
+      {label: opts.yes||'✓ Yes', value:'__yes__'},
+      {label: opts.no||'✗ No', value:'__no__'},
+    ], {allowSpeech:true, speechMap:{yes:'__yes__', no:'__no__'}, onOpen:(d)=>{ _dismiss=d; }}).then(v=>v==='__yes__');
+    const v=await Promise.race([tap, picked]);
+    _pendingAnswer=null;               // whichever won, the question is closed
+    return v===true;                   // tap-cancel (null) and 'no' both → false
+  }
+
   // A location fix for search biasing. Cached for two minutes because the
   // picker fires on every keystroke, and being a block out is irrelevant when
   // the bias radius is 30km. Falls back to his saved city so a denied
@@ -3473,7 +3561,7 @@
       data.shared.slice(-8).forEach((sm,i)=>{
         const el=addMsg('buddy',`💞 ${new Date(sm.at).toLocaleDateString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'})}: ${String(sm.t).replace(/^log:\s*/,'')} · tap to remove`);
         el.style.cursor='pointer';
-        el.onclick=async()=>{ if(confirm('Remove this from your shared moments?')){ await api('/shared',{roomCode:code,action:'remove',index:i}); el.textContent='✓ removed'; } };
+        el.onclick=async()=>{ if(await askYesNo('Remove this from your shared moments?')){ await api('/shared',{roomCode:code,action:'remove',index:i}); el.textContent='✓ removed'; } };
       });
       say(`${data.count} shared moments — the recent ones are on screen.`);
     }catch(e){ addMsg('buddy','Shared moments unreachable.'); }
@@ -3748,7 +3836,7 @@
   // summarises, speaks, and remembers it. Manual version of the future Safari
   // extension.
   async function readPage(url){
-    if(!url){ url=prompt('Paste the link to read:'); }
+    if(!url){ url=await askText('Paste the link to read:'); }
     if(!url) return;
     openChat(); addMsg('me','🔗 '+url.slice(0,80));
     const t=addMsg('buddy','Reading the page…','think');
@@ -3824,8 +3912,8 @@
   // ---- Recall: save short notes (per-device) + ask Vision to find them ----
   function getNotes(){ try{return JSON.parse(localStorage.getItem('buddy_notes')||'[]')}catch(e){return[]} }
   function saveNotes(a){ localStorage.setItem('buddy_notes', JSON.stringify(a.slice(-100))); }
-  function recallNote(){
-    const choice=prompt("Type a note to REMEMBER it, or start with '?' to ASK.\n(e.g. \"passport in the blue bag\"  or  \"? where's my passport\")");
+  async function recallNote(){
+    const choice=await askText("Type a note to REMEMBER it, or start with '?' to ASK.\n(e.g. \"passport in the blue bag\"  or  \"? where's my passport\")");
     if(!choice) return;
     if(choice.trim().startsWith('?')){
       const q=choice.replace(/^\?/,'').trim();
@@ -3955,7 +4043,7 @@
   function chimeListen(){ const w=_w(); tone(w.root*0.8,.07,0,.05); tone(w.root*1.06,.09,.06,.05); }
   function chimeStop(){   const w=_w(); tone(w.root*1.06,.07,0,.045); tone(w.root*0.73,.09,.06,.045); }
   let voiceUnlocked=false;
-  function unlockVoice(){
+  async function unlockVoice(){
     if(voiceUnlocked) return; voiceUnlocked=true;
     try{ const u=new SpeechSynthesisUtterance(' '); u.volume=0; speechSynthesis.speak(u); }catch(e){}
     // Auto-arm hands-free on the first tap. iOS forbids a zero-tap mic start, so
@@ -3970,7 +4058,7 @@
     }
     // First run: learn who this is (profiles — Jess gets her own Vision).
     if(!localStorage.buddy_myname){
-      const nm=prompt("G'day! I'm Vision — what should I call you?","");
+      const nm=await askText("G'day! I'm Vision — what should I call you?","");
       if(nm&&nm.trim()){ localStorage.buddy_myname=nm.trim(); api('/profile',{name:nm.trim()}).catch(()=>{}); }
     }
     const MYNAME=localStorage.buddy_myname||'Shaun';
@@ -4186,7 +4274,7 @@
   async function liveTranslate(){
     const lang=await pickLanguage('Translate into which language?');
     if(!lang) return;
-    const text=prompt("What should I translate?");
+    const text=await askText("What should I translate?");
     if(!text) return;
     openChat(); addMsg('me',`💬 “${text}” → ${lang}`);
     const t=addMsg('buddy','Translating…','think');
@@ -4201,8 +4289,8 @@
   // ---- Music & Calls modules are defined further below ----
 
   // ---- Grab: deep-link to the app (ride or food) ----
-  function openGrab(){
-    const what=prompt("Grab a ride or food? Type a destination (ride) or leave blank to just open Grab","")||'';
+  async function openGrab(){
+    const what=await askText("Grab a ride or food? Type a destination (ride) or leave blank to just open Grab","")||'';
     // Grab has no public consumer API — best we can do is deep-link/open the app or site.
     let url='https://grab.onelink.me/2695613898'; // Grab universal open link
     if(what){ url='https://www.grab.com/'; toast('Opening Grab — set your destination in the app'); }
@@ -4211,9 +4299,9 @@
   }
 
   // ---- WhatsApp: start a message (deep-link only; iOS can't read/reply hands-free) ----
-  function openWhatsApp(){
-    const num=prompt("Phone number to message? (with country code, digits only — or leave blank to just open WhatsApp)","")||'';
-    const msg=prompt("Message to pre-fill? (optional)","")||'';
+  async function openWhatsApp(){
+    const num=await askText("Phone number to message? (with country code, digits only — or leave blank to just open WhatsApp)","")||'';
+    const msg=await askText("Message to pre-fill? (optional)","")||'';
     let url='https://wa.me/';
     if(num) url+=waNumber(num);   // batch 121: was .replace(/\D/g,'') — kept the leading 0 and 404'd
     if(msg) url+='?text='+encodeURIComponent(msg);
@@ -4224,7 +4312,7 @@
   // ---- Offline survival pack: generate + cache key phrases for no-signal use ----
   async function offlinePack(){
     const cached=localStorage.getItem('buddy_survival');
-    const country=prompt("Which country/language for your survival pack?", localStorage.getItem('buddy_country')||'')||'';
+    const country=await askText("Which country/language for your survival pack?", localStorage.getItem('buddy_country')||'')||'';
     if(country) localStorage.setItem('buddy_country',country);
     openChat();
     if(!country && cached){ showSurvival(JSON.parse(cached)); return; }
@@ -4258,16 +4346,16 @@
   function myName(){ return localStorage.getItem('buddy_myname')||'me'; }
   async function pairSetup(){
     if(pairCode()){
-      if(confirm(`Linked to trip ${pairCode()}. OK to change/relink, or Cancel to leave the trip.`)===false){ unlinkTrip(); return; }
+      if(await askYesNo(`Linked to trip ${pairCode()}. OK to change/relink, or Cancel to leave the trip.`)===false){ unlinkTrip(); return; }
     }
-    const name=prompt("Your name (so your partner sees who's who):", myName())||'me';
+    const name=await askText("Your name (so your partner sees who's who):", myName())||'me';
     localStorage.setItem('buddy_myname',name.trim());
     // Batch 133: buddy_partnername was read by the voice-note flow but nothing
     // ever wrote it, so every note said "your partner". Pairing is the natural
     // moment to ask — he's already naming people.
-    const pname=prompt("And what do you call them? (used when they leave you a voice note)", localStorage.getItem('buddy_partnername')||'')||'';
+    const pname=await askText("And what do you call them? (used when they leave you a voice note)", localStorage.getItem('buddy_partnername')||'')||'';
     if(pname.trim()) localStorage.setItem('buddy_partnername',pname.trim());
-    const code=prompt("Enter a shared trip code — you BOTH type the same one.\nMake it long and not obvious: anyone with this code can see your live location.\n(e.g. SHAUN-JESS-VIETNAM-2026):", pairCode())||'';
+    const code=await askText("Enter a shared trip code — you BOTH type the same one.\nMake it long and not obvious: anyone with this code can see your live location.\n(e.g. SHAUN-JESS-VIETNAM-2026):", pairCode())||'';
     if(!code){ return; }
     localStorage.setItem('buddy_paircode',code.trim().toUpperCase());
     try{
@@ -4363,8 +4451,8 @@
     }catch(e){}
   }
 
-  function shareMyPin(){
-    const label=prompt("Name this spot for your partner (e.g. 'this cafe', 'the fountain'):","Meet me here")||'Meet me here';
+  async function shareMyPin(){
+    const label=await askText("Name this spot for your partner (e.g. 'this cafe', 'the fountain'):","Meet me here")||'Meet me here';
     withRoom(async (code,me)=>{
       if(!me){ say("Need your location to drop a pin."); return; }
       try{ await api('/share',{code,name:myName(),pin:{label,lat:me.lat,lng:me.lng}});
@@ -4375,7 +4463,7 @@
   }
   async function relayMessage(){
     const code=pairCode(); if(!code){ say("Link with your partner first."); return; }
-    const msg=prompt("Message to send to your partner's Vision:"); if(!msg) return;
+    const msg=await askText("Message to send to your partner's Vision:"); if(!msg) return;
     try{ await api('/share',{code,name:myName(),message:msg});
       openChat(); addMsg('me',`🗨️ ${msg}`); addMsg('buddy','Sent ✓ — it\'ll show on their Vision when they check.');
       say('Message sent.');
@@ -4393,7 +4481,7 @@
   }
   async function seeHerView(){
     const code=pairCode(); if(!code){ say("Link with your partner first."); return; }
-    const from=prompt("Whose view? (their name)", "")||'';
+    const from=await askText("Whose view? (their name)", "")||'';
     if(!from) return;
     openChat(); addMsg('me',`🔭 See ${from}'s view`);
     const t=addMsg('buddy','Fetching their view…','think');
@@ -4421,7 +4509,7 @@
   async function findFlights(a){
     a=a||{};
     const to=a.to||await pickPlace('Flights to where?'); if(!to) return;
-    const from=a.from||prompt('Flying from?','Brisbane')||'Brisbane';
+    const from=a.from||await askText('Flying from?','Brisbane')||'Brisbane';
     const when=a.when||'';
     openChat(); addMsg('me',`✈️ Flights ${from} → ${to}${when?' '+when:''}`);
     const line=`Opening live fares ${from} to ${to}${when?' for '+when:''}. Tip: for ${to}, midweek flights usually run cheaper — check a day either side.`;
@@ -4566,7 +4654,7 @@
     const go=async(payload)=>{
       try{
         const {data}=await api('/arrival',payload);
-        if(data.needCountry){ const c=prompt('Which country did you land in?'); if(!c){ settle(t,'No worries — tell me the country when you\'re ready.'); return; } return go({country:c}); }
+        if(data.needCountry){ const c=await askText('Which country did you land in?'); if(!c){ settle(t,'No worries — tell me the country when you\'re ready.'); return; } return go({country:c}); }
         t.remove();
         if(data.country) localStorage.setItem('buddy_country',data.country);
         if(data.city) localStorage.setItem('buddy_city',data.city);
@@ -4706,7 +4794,7 @@
   async function meetMiddle(preset){
     const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return; }
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
-    const what=preset||prompt("Meet at what kind of place? (cafe, restaurant, bar…)","cafe")||'cafe';
+    const what=preset||await askText("Meet at what kind of place? (cafe, restaurant, bar…)","cafe")||'cafe';
     openChat(); addMsg('me','🤝 Meet in the middle: '+what);
     const t=addMsg('buddy','Finding a spot halfway…','think');
     navigator.geolocation.getCurrentPosition(async pos=>{
@@ -4756,7 +4844,7 @@
   // ---- COUPLES: shared spend pot + who-owes-who ----
   async function coupleSpend(preset){
     const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return; }
-    const entry=preset!==undefined?preset:prompt("Add shared spend (e.g. \"40 dinner\") — or leave blank for the split");
+    const entry=preset!==undefined?preset:await askText("Add shared spend (e.g. \"40 dinner\") — or leave blank for the split");
     openChat();
     if(entry&&String(entry).trim()){
       const m=String(entry).trim().match(/^([\d.]+)\s*(.*)$/);
@@ -4791,9 +4879,9 @@
   }
   async function planTogether(){
     const code=pairCode();
-    const city=prompt("Which city/area for your day together?", localStorage.getItem('buddy_city')||'')||'';
+    const city=await askText("Which city/area for your day together?", localStorage.getItem('buddy_city')||'')||'';
     if(city) localStorage.setItem('buddy_city',city);
-    const goal=prompt("What do you both want? (e.g. food + markets, relaxed, sightseeing)","explore together")||'explore';
+    const goal=await askText("What do you both want? (e.g. food + markets, relaxed, sightseeing)","explore together")||'explore';
     openChat(); addMsg('me',`🗺️ Plan our day in ${city||'here'} — ${goal}`);
     const t=addMsg('buddy','Planning your day together…','think');
     try{
@@ -4826,9 +4914,9 @@
   }
 
   // Unlink from the shared trip.
-  function unlinkTrip(){
+  async function unlinkTrip(){
     if(!pairCode()){ say("You're not linked to a trip."); return; }
-    if(confirm('Leave this shared trip? You can re-link with the code anytime.')){
+    if(await askYesNo('Leave this shared trip? You can re-link with the code anytime.')){
       localStorage.removeItem('buddy_paircode');
       document.getElementById('pairSub').textContent='Pair with your partner';
       say('Left the shared trip.');
@@ -4850,8 +4938,8 @@
       default: return 'https://music.apple.com/search?term='+t;
     }
   }
-  function playMusic(){
-    const q=prompt("What should I play? (song, artist, playlist, or vibe like 'chill beach')");
+  async function playMusic(){
+    const q=await askText("What should I play? (song, artist, playlist, or vibe like 'chill beach')");
     if(!q) return;
     openMusicSearch(q);
   }
@@ -4879,9 +4967,9 @@
   // native app (CallKit) or a forwarded VoIP number — noted as a future build.
   function contactsGet(){ try{return JSON.parse(localStorage.getItem('buddy_contacts')||'[]');}catch{return[];} }
   function contactsSave(a){ localStorage.setItem('buddy_contacts',JSON.stringify(a)); }
-  function addContact(){
-    const name=(prompt("Contact name?")||'').trim(); if(!name) return;
-    const num=(prompt(`Number for ${name}? (with country code for intl)`)||'').replace(/[^\d+]/g,''); if(!num) return;
+  async function addContact(){
+    const name=(await askText("Contact name?")||'').trim(); if(!name) return;
+    const num=(await askText(`Number for ${name}? (with country code for intl)`)||'').replace(/[^\d+]/g,''); if(!num) return;
     const a=contactsGet(); a.unshift({name,num}); contactsSave(a.slice(0,30));
     say(`Saved ${name}.`); quickDial();
   }
@@ -4898,37 +4986,37 @@
     const ft=addMsg('buddy','📹 FaceTime someone'); ft.style.cursor='pointer'; ft.onclick=()=>faceTimeSomeone();
     const tx=addMsg('buddy','✉️ Send a text'); tx.style.cursor='pointer'; tx.onclick=()=>textSomeone();
   }
-  function callSomeone(){
+  async function callSomeone(){
     const a=contactsGet();
-    const raw=prompt(a.length?`Number to call — or type a saved name (${a.map(c=>c.name).join(', ')}):`:"Number to call? (with country code for intl)")||'';
+    const raw=await askText(a.length?`Number to call — or type a saved name (${a.map(c=>c.name).join(', ')}):`:"Number to call? (with country code for intl)")||'';
     if(!raw) return;
     const hit=a.find(c=>c.name.toLowerCase()===raw.trim().toLowerCase());
     const num=(hit?hit.num:raw).replace(/[^\d+]/g,'');
     if(!num) return;
     say(hit?`Calling ${hit.name}…`:'Calling…'); window.location.href='tel:'+num;
   }
-  function faceTimeSomeone(){
-    const who=(prompt("FaceTime who? (phone number or Apple ID email)")||'').trim();
+  async function faceTimeSomeone(){
+    const who=(await askText("FaceTime who? (phone number or Apple ID email)")||'').trim();
     if(!who) return;
     say('Starting FaceTime…'); window.location.href='facetime:'+encodeURIComponent(who);
   }
-  function textSomeone(){
+  async function textSomeone(){
     const a=contactsGet();
-    const raw=prompt(a.length?`Text which number — or a saved name (${a.map(c=>c.name).join(', ')}):`:"Text which number? (digits)")||'';
+    const raw=await askText(a.length?`Text which number — or a saved name (${a.map(c=>c.name).join(', ')}):`:"Text which number? (digits)")||'';
     if(!raw) return;
     const hit=a.find(c=>c.name.toLowerCase()===raw.trim().toLowerCase());
     const num=(hit?hit.num:raw).replace(/[^\d+]/g,''); if(!num) return;
-    const msg=prompt("Message? (optional)")||'';
+    const msg=await askText("Message? (optional)")||'';
     say('Opening Messages…');
     window.location.href='sms:'+num+(msg?('&body='+encodeURIComponent(msg)):'');
   }
   // Emergency: dial local emergency number (from survival pack if cached)
-  function callEmergency(){
+  async function callEmergency(){
     let num='';
     try{ num=(JSON.parse(localStorage.getItem('buddy_survival')||'{}').emergency||'').replace(/[^\d+]/g,''); }catch(e){}
-    if(!num){ num=(prompt("Local emergency number? (I'll remember it via Survival pack)")||'').replace(/[^\d+]/g,''); }
+    if(!num){ num=(await askText("Local emergency number? (I'll remember it via Survival pack)")||'').replace(/[^\d+]/g,''); }
     if(!num){ say("Set up your Survival pack so I know the local emergency number."); return; }
-    if(confirm(`Call emergency services on ${num}?`)){ window.location.href='tel:'+num; }
+    if(await askYesNo(`Call emergency services on ${num}?`,{highStakes:true})){ window.location.href='tel:'+num; }
   }
   // Answering calls = native only. Explain honestly when asked.
   function answerCallsInfo(){
@@ -4972,7 +5060,7 @@
   }
   // Save at the current position under a label; used by auto-mark, chip-pick, voice.
   // quick=true means it was a one-tap auto-mark, so offer a rename / see-all line.
-  function saveSpotHere(label,quick){
+  async function saveSpotHere(label,quick){
     if(!navigator.geolocation){ say('Location unavailable.'); return; }
     say('Marking this spot…');
     navigator.geolocation.getCurrentPosition(pos=>{
@@ -4998,8 +5086,8 @@
         openChat();
         const el=addMsg('buddy',`📌 Marked your ${spot.label} — tap to rename or see all spots`);
         el.style.cssText+=';cursor:pointer;opacity:.85;font-size:13px';
-        el.onclick=()=>{
-          const t=prompt("Rename this spot", spot.label);
+        el.onclick=async()=>{
+          const t=await askText("Rename this spot", spot.label);
           if(t&&t.trim()){ const arr=spotsGet(); if(arr[0]){ arr[0].label=t.trim(); spotsSave(arr); localStorage.setItem('buddy_lastspotname',t.trim()); toast('Renamed to "'+t.trim()+'"'); } }
           spotsSheet();
         };
@@ -5016,7 +5104,7 @@
     if(!last){ pickSpotName(); return; }   // first ever: name it once
     saveSpotHere(last, true);              // true = offer rename + list after
   }
-  function pickSpotName(){
+  async function pickSpotName(){
     const chips=[['🛵','scooter'],['🚗','car'],['🏨','hotel'],['🍜','that stall'],['🏖️','beach'],['✏️','type my own']];
     const ov=document.createElement('div');
     ov.className='spotov';
@@ -5031,9 +5119,9 @@
       const b=document.createElement('button');
       b.style.cssText='background:#161c42;border:1px solid #263168;color:#fff;border-radius:14px;padding:16px 10px;font-size:15px;text-align:left;cursor:pointer';
       b.innerHTML=`<span style="font-size:22px;margin-right:8px">${ic}</span>${name==='type my own'?'Type my own':name}`;
-      b.onclick=()=>{
+      b.onclick=async()=>{
         ov.remove();
-        if(name==='type my own'){ const t=prompt("Label this spot",""); if(t) saveSpotHere(t); }
+        if(name==='type my own'){ const t=await askText("Label this spot",""); if(t) saveSpotHere(t); }
         else saveSpotHere(name);
       };
       grid.appendChild(b);
@@ -5083,7 +5171,7 @@
       const clr=document.createElement('button');
       clr.textContent='Clear all spots';
       clr.style.cssText='width:100%;background:transparent;border:1px solid #3a2436;color:#e07a7a;border-radius:12px;padding:11px;font-size:14px;cursor:pointer;margin-top:6px';
-      clr.onclick=()=>{ if(confirm('Clear all saved spots?')){ spotsSave([]); ov.remove(); toast('All spots cleared'); } };
+      clr.onclick=async()=>{ if(await askYesNo('Clear all saved spots?')){ spotsSave([]); ov.remove(); toast('All spots cleared'); } };
       card.appendChild(clr);
     }
     ov.appendChild(card); document.body.appendChild(ov);
@@ -5139,12 +5227,12 @@
 
   // ---- Conversation mode: two-way, auto-detect, tone-aware translate (great with BT headphones) ----
   async function conversationMode(){
-    const theirLang=localStorage.getItem('buddy_theirlang')||prompt("Who are you talking with — what language? (e.g. Vietnamese, Thai)","")||'';
+    const theirLang=localStorage.getItem('buddy_theirlang')||await askText("Who are you talking with — what language? (e.g. Vietnamese, Thai)","")||'';
     if(theirLang) localStorage.setItem('buddy_theirlang',theirLang);
     const myLang=localStorage.getItem('buddy_mylang')||'English';
     openChat();
     addMsg('buddy',`🗣️ Conversation mode with ${theirLang||'them'}. Tap 🎤 and speak (either language) — I'll translate each line. Say a line now:`);
-    const text=prompt(`Speak or type the line (either ${myLang} or ${theirLang}):`); if(!text) return;
+    const text=await askText(`Speak or type the line (either ${myLang} or ${theirLang}):`); if(!text) return;
     await converseTurn(text,myLang,theirLang);
   }
   window.lastConvoTurns = window.lastConvoTurns || [];
@@ -5171,13 +5259,13 @@
         brain.suggest('→ Save this conversation', ()=>saveConversation());
       }
       const more=addMsg('buddy','— tap to add the next line —'); more.style.cursor='pointer';
-      more.onclick=async()=>{ const n=prompt('Next line:'); if(n){ more.remove(); await converseTurn(n,myLang,theirLang);} };
+      more.onclick=async()=>{ const n=await askText('Next line:'); if(n){ more.remove(); await converseTurn(n,myLang,theirLang);} };
     }catch(e){ t.classList.remove('think'); t.textContent="Didn't catch that — try again."; }
   }
 
   // ---- Etiquette whisper: local customs coaching ----
   async function etiquetteWhisper(){
-    const q=prompt("What do you want to know? (e.g. how much to tip, is it rude to point, how to greet)"); if(!q) return;
+    const q=await askText("What do you want to know? (e.g. how much to tip, is it rude to point, how to greet)"); if(!q) return;
     const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
     openChat(); addMsg('me','🙏 '+q);
     const t=addMsg('buddy','Checking local customs…','think');
@@ -5191,7 +5279,7 @@
 
   // ---- Landmark look-up: what is this place? (photo or name) ----
   async function landmarkLook(){
-    const name=prompt("Name the place, or leave blank to photograph it")||'';
+    const name=await askText("Name the place, or leave blank to photograph it")||'';
     const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
     if(!name){
       say('Point your camera at it…');
@@ -5214,11 +5302,11 @@
 
   // ---- Split the bill (client-side; optional convert to home currency) ----
   async function splitBill(){
-    const total=Number(prompt("Total bill amount? (number)")); if(!total) return;
+    const total=Number(await askText("Total bill amount? (number)")); if(!total) return;
     const people=Number(await pick('Split between how many?', PICKS.people)); if(!people||people<1) return;
     const per=total/people;
     const home=localStorage.getItem('buddy_home')||'';
-    const cur=prompt("Currency of the bill? (optional, for a home-currency estimate)","")||'';
+    const cur=await askText("Currency of the bill? (optional, for a home-currency estimate)","")||'';
     let line=`Each person pays ${per.toFixed(2)}${cur?' '+cur.toUpperCase():''} (${people} way split of ${total}).`;
     say(line); openChat(); addMsg('me',`🧾 Split ${total}${cur?' '+cur:''} ÷ ${people}`); addMsg('buddy',line);
     if(cur && home && cur.toUpperCase()!==home){
@@ -5228,7 +5316,7 @@
 
   // ---- Tip calculator with local norms ----
   async function tipCalc(){
-    const bill=Number(prompt("Bill amount? (number)")); if(!bill) return;
+    const bill=Number(await askText("Bill amount? (number)")); if(!bill) return;
     const country=localStorage.getItem('buddy_country')||localStorage.getItem('buddy_city')||'';
     openChat(); addMsg('me',`🪙 Tip on ${bill}?`);
     const t=addMsg('buddy','Checking local tipping norms…','think');
@@ -5240,7 +5328,7 @@
 
   // ---- Find food: concierge — search, read price/rating/ETA, hand off to Grab ----
   async function findFood(){
-    const craving=prompt("What are you hungry for? (e.g. steak sandwich, pad thai, pizza)"); if(!craving) return;
+    const craving=await askText("What are you hungry for? (e.g. steak sandwich, pad thai, pizza)"); if(!craving) return;
     findFoodWith(craving);
   }
   async function findFoodWith(craving){
@@ -5354,11 +5442,11 @@
 
   // ---- Plan my day: agentic itinerary builder ----
   async function planDay(){
-    const city=prompt("Which city/area?", localStorage.getItem('buddy_city')||'')||'';
+    const city=await askText("Which city/area?", localStorage.getItem('buddy_city')||'')||'';
     if(city) localStorage.setItem('buddy_city',city);
-    const goal=prompt("What's the vibe? (e.g. food + temples, chilled, nightlife)","explore the highlights")||'explore';
-    const budget=prompt("Budget for the day? (number, optional)","")||'';
-    const currency=prompt("Currency? (optional)", localStorage.getItem('buddy_currency')||'')||'';
+    const goal=await askText("What's the vibe? (e.g. food + temples, chilled, nightlife)","explore the highlights")||'explore';
+    const budget=await askText("Budget for the day? (number, optional)","")||'';
+    const currency=await askText("Currency? (optional)", localStorage.getItem('buddy_currency')||'')||'';
     openChat(); addMsg('me',`🗺️ Plan my day in ${city||'here'} — ${goal}`);
     const t=addMsg('buddy','Planning your day…','think');
     try{
@@ -5377,9 +5465,9 @@
   }
 
   // ---- What Vision knows: persistent traveller memory ----
-  function travellerMemory(){
+  async function travellerMemory(){
     const cur=localStorage.getItem('buddy_profile')||'';
-    const next=prompt(
+    const next=await askText(
       "🧠 What should Vision always remember about you?\n(hotel, dietary needs, home currency, favourite spots, etc.)\n\nEdit below — this is used in every chat.",
       cur);
     if(next===null) return;
@@ -5401,8 +5489,8 @@
         .slice(-3).map(s=>({amt:s.amt,note:s.note})); }catch(e){ return []; }
   }
   async function scamCheck(){
-    const item=prompt("What are you buying? (e.g. tuk-tuk to airport, bowl of pho, SIM card)"); if(!item) return;
-    const price=prompt("What price are they asking? (just the number)"); if(!price) return;
+    const item=await askText("What are you buying? (e.g. tuk-tuk to airport, bowl of pho, SIM card)"); if(!item) return;
+    const price=await askText("What price are they asking? (just the number)"); if(!price) return;
     const currency=await pick('Which currency?',[{label:'🇻🇳 Vietnamese Dong (VND)',value:'VND'},{label:'🇹🇭 Thai Baht (THB)',value:'THB'},{label:'🇦🇺 Australian Dollar (AUD)',value:'AUD'},{label:'🇺🇸 US Dollar (USD)',value:'USD'},{label:'🇮🇩 Indonesian Rupiah (IDR)',value:'IDR'}])||"";
     openChat(); addMsg('me',`🛡️ ${item} — ${price} ${currency}`);
     const t=addMsg('buddy','Checking local prices…','think');
@@ -5420,7 +5508,7 @@
     // and whether it's a sensible thing to eat from a street stall.
     let avoid=localStorage.getItem('buddy_avoid')||'';
     if(!avoid) return;
-    const dish=prompt(`Avoiding: ${avoid}\n\nWhat's the dish? (name it, or leave blank to photograph it)`)||'';
+    const dish=await askText(`Avoiding: ${avoid}\n\nWhat's the dish? (name it, or leave blank to photograph it)`)||'';
     const country=localStorage.getItem('buddy_country')||'';
     if(!dish){ // photo path
       say('Point your camera at the food…');
@@ -5458,7 +5546,7 @@
 
   // ---- Entry & visa: honest advisory via the brain (always verify officially) ----
   async function visaInfo(){
-    const q=prompt("Where are you travelling, and on what passport? (e.g. 'Japan on Australian passport')");
+    const q=await askText("Where are you travelling, and on what passport? (e.g. 'Japan on Australian passport')");
     if(!q) return;
     openChat(); addMsg('me','🛂 '+q);
     const t=addMsg('buddy','Checking…','think');
@@ -5834,7 +5922,7 @@
       if(skill==='tellpartner'){
         const code=pairCode(); if(!code){ say("Link with your partner first — tap 'Link with...'."); return true; }
         const msg=a.message||original;
-        if(!confirm(`Send to your partner: "${msg}"?`)){ addMsg('buddy','Okay, not sent.'); say('Okay, cancelled.'); return true; }
+        if(!await askYesNo(`Send to your partner: "${msg}"?`,{highStakes:true})){ addMsg('buddy','Okay, not sent.'); say('Okay, cancelled.'); return true; }
         try{ await api('/share',{code,name:myName(),message:msg}); addMsg('buddy',`Sent to your partner: "${msg}" ✓`); say('Message sent.'); }
         catch(e){ addMsg('buddy',"Couldn't send right now."); }
         return true;
@@ -5935,8 +6023,8 @@
       if(skill==='seenrecall'){ await seenRecall(a.query||original); return true; }
       if(skill==='watcher'){ await watcherAdd(a.request||original); return true; }
       if(skill==='readpage'){ const m=(a.url||original||'').match(/https?:\/\/\S+/); await readPage(m?m[0]:a.url); return true; }
-      if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Call ${n}?`)){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
-      if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!confirm(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
+      if(skill==='call' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!await askYesNo(`Call ${n}?`,{highStakes:true})){ say('Okay, cancelled.'); return true; } say('Calling…'); window.location.href='tel:'+n; return true; }
+      if(skill==='text' && a.number){ const n=String(a.number).replace(/[^\d+]/g,''); if(!await askYesNo(`Text ${n}${a.message?': "'+a.message+'"':''}?`)){ say('Okay, cancelled.'); return true; } window.location.href='sms:'+n+(a.message?('&body='+encodeURIComponent(a.message)):''); return true; }
       if(skill==='myday'){ await myDay(a.days); return true; }
       if(skill==='showlist'){ await showList(a.list); return true; }
       if(skill==='tickoff'){ await tickOff(a.list, a.utterance||original); return true; }
@@ -5969,7 +6057,7 @@
   // ============================================================
 
   // Speak-or-type capture, same shape as the SMS reply flow.
-  function sayOrType(promptText){
+  async function sayOrType(promptText){
     return new Promise(resolve=>{
       openChat();
       addMsg('buddy', promptText);
@@ -5977,21 +6065,21 @@
       mic.style.cssText='margin-top:8px;padding:12px 14px;border-radius:12px;background:rgba(245,166,35,.18);'+
         'border:1px solid rgba(245,166,35,.45);font-weight:700;text-align:center;cursor:pointer';
       mic.textContent='🎤 Say it';
-      mic.onclick=()=>{
+      mic.onclick=async()=>{
         const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-        if(!SR){ mic.textContent='Voice not available — type instead'; setTimeout(()=>resolve(prompt(promptText,'')||''),50); return; }
+        if(!SR){ mic.textContent='Voice not available — type instead'; resolve(await askText(promptText,'')||''); return; }
         mic.textContent='🎙️ Listening…';
         try{
           const r=new SR(); r.lang='en-AU'; r.interimResults=false; r.maxAlternatives=1;
           r.onresult=e=>{ mic.textContent='🎤 Say it'; resolve(e.results[0][0].transcript.trim()); };
           r.onerror=()=>{ mic.textContent='Didn\u2019t catch that — tap to try again'; };
           r.start();
-        }catch(e){ mic.textContent='Voice failed — type instead'; resolve(prompt(promptText,'')||''); }
+        }catch(e){ mic.textContent='Voice failed — type instead'; resolve(await askText(promptText,'')||''); }
       };
       const typed=document.createElement('div');
       typed.style.cssText='margin-top:6px;text-align:center;opacity:.75;font-size:13px;cursor:pointer';
       typed.textContent='or type it instead';
-      typed.onclick=()=>resolve(prompt(promptText,'')||'');
+      typed.onclick=async()=>resolve(await askText(promptText,'')||'');
       const host=addMsg('buddy','');
       host.appendChild(mic); host.appendChild(typed);
     });
@@ -6021,13 +6109,26 @@
   // ---- Picker: what Vision reads vs what it monitors -------------------
   // Two independent switches. Read = it can see it when asked. Monitor = it
   // polls it and may lead the brief. Both off = ignored entirely.
+  async function calendarTest(){
+    openChat(); addMsg('me','🩺 Test calendar connection');
+    const _wait=addMsg('buddy','Checking iCloud and Geeks2U…');
+    const {status,data}=await api('/calendar/selftest',{}).catch(()=>({status:0,data:{}}));
+    _wait.remove();
+    if(status===0){ const m='Couldn\u2019t reach Vision to run the test.'; addMsg('buddy',m); say(m); return; }
+    const ic=data.icloud||{}, gk=data.geeks2u||{};
+    addMsg('buddy',`${ic.ok?'✅':'⚠️'} ${ic.spoken||'iCloud: unknown'}`);
+    if(ic.names&&ic.names.length){ addMsg('buddy','📅 '+ic.names.join(' · ')).style.opacity='.75'; }
+    addMsg('buddy',`${gk.ok?'✅':(gk.configured?'⚠️':'▫️')} ${gk.spoken||'Geeks2U: unknown'}`);
+    say(data.spoken||'Test done.');
+  }
   async function calendarPicker(refresh){
     openChat(); addMsg('me','🗓️ Calendars & lists');
     const _wait=addMsg('buddy','Looking up your calendars…');
     const {status,data}=await api('/calendar/sources', refresh?{refresh:true}:{}).catch(()=>({status:0,data:{}}));
     _wait.remove();
     if(status===0){ addMsg('buddy','Couldn\u2019t reach Vision just then.'); return; }
-    if(!data.ok){ const m=data.error||'iCloud isn\u2019t set up yet.'; addMsg('buddy',m); say(m); return; }
+    if(!data.ok){ const m=data.error||'iCloud isn\u2019t set up yet.'; addMsg('buddy',m); say(m);
+      const t=addMsg('buddy','🩺 Test connection'); t.style.cssText+=';cursor:pointer;opacity:.8;font-weight:700'; t.onclick=()=>calendarTest(); return; }
 
     const all=[...(data.sources||[]), ...(data.feeds||[])];
     if(!all.length){ addMsg('buddy','No calendars or lists came back.'); return; }
@@ -6036,6 +6137,7 @@
     all.forEach(s=>{ prefs[s.id]={read:!!s.read, monitor:!!s.monitor}; });
 
     const host=addMsg('buddy','Tap to switch each one on. <b>Read</b> = Vision can see it when you ask. <b>Watch</b> = it checks it and can bring it up.');
+    const test=addMsg('buddy','🩺 Test connection'); test.style.cssText+=';cursor:pointer;opacity:.8;font-weight:700'; test.onclick=()=>calendarTest();
     const wrap=document.createElement('div');
     wrap.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:6px';
 
@@ -6168,6 +6270,7 @@
     }
 
     addMsg('buddy',data.spoken); say(data.spoken);
+    const _tok=data.token;
     const go=await pick(data.spoken,[
       {label:'✅ Yes, tick them off',value:'yes'},
       {label:'🎤 Say it again',value:'redo'},
@@ -6175,7 +6278,7 @@
     if(go==='redo') return tickOff(list, null);
     if(go!=='yes'){ say('Left it alone.'); return; }
 
-    const r=await api('/calendar/tick/confirm',{}).catch(()=>({data:{}}));
+    const r=await api('/calendar/tick/confirm',{token:_tok}).catch(()=>({data:{}}));
     const m=(r.data&&r.data.spoken)||'Something went wrong ticking those off.';
     addMsg('buddy',m); say(m);
   }
@@ -6462,7 +6565,7 @@
   }
 
   async function convoTypeLine(){
-    const t=prompt('Type the line (either language):','');
+    const t=await askText('Type the line (either language):','');
     if(t&&t.trim()) convoTurn(t.trim());
   }
 
@@ -6621,13 +6724,13 @@
     if(choice==='mic'){ convo.autoMic=!convo.autoMic; localStorage.setItem('buddy_convo_automic',convo.autoMic?'1':'0'); }
     if(choice==='speak'){ convo.speak=!convo.speak; localStorage.setItem('buddy_convo_speak',convo.speak?'1':'0'); }
     if(choice==='lang'){
-      const l=prompt('Which language are they speaking? (leave blank for auto)',convo.theirLang||'');
+      const l=await askText('Which language are they speaking? (leave blank for auto)',convo.theirLang||'');
       convo.theirLang=(l||'').trim();
       localStorage.setItem('buddy_theirlang',convo.theirLang);
       // Batch 124: buddy_mylang was read in two places but nothing ever wrote
       // it, so it silently stayed 'English' forever. Set it here alongside the
       // other language, which is where he'd expect to change it.
-      const mine=prompt('And what are YOU speaking?', localStorage.getItem('buddy_mylang')||'English');
+      const mine=await askText('And what are YOU speaking?', localStorage.getItem('buddy_mylang')||'English');
       if(mine && mine.trim()) localStorage.setItem('buddy_mylang', mine.trim());
       convoHint();
     }
@@ -6645,10 +6748,8 @@
     if(!convo.turns.length){ convoStatus('Nothing to save yet.'); return; }
     convoStopMic();
     if(tag===undefined){
-      tag=await new Promise(r=>{
-        const t=prompt('Save it as… (e.g. "the guesthouse bloke", "tuk-tuk driver")','');
-        r(t===null?undefined:t);
-      });
+      const t=await askText('Save it as… (e.g. "the guesthouse bloke", "tuk-tuk driver")','');
+      tag=(t===null||t==='')?undefined:t;
       if(tag===undefined) return;
     }
     convoStatus('Saving…');
@@ -7625,7 +7726,7 @@
 
   // ---- live: currency ----
   async function convertDemo(){
-    const raw=prompt("Convert what? (e.g. 50 EUR to JPY, or 100 USD AUD)","50 EUR to AUD");
+    const raw=await askText("Convert what? (e.g. 50 EUR to JPY, or 100 USD AUD)","50 EUR to AUD");
     if(!raw) return;
     // Parse "<amount> <FROM> [to] <TO>"
     const m=raw.toUpperCase().match(/([\d.]+)?\s*([A-Z]{3})\s*(?:TO|IN)?\s*([A-Z]{3})/);
@@ -7641,8 +7742,8 @@
 
   // ---- Good deal? convert a price + judge if it's worth it ----
   async function goodDeal(){
-    const item=prompt("What is it? (e.g. silk scarf, massage, cocktail)","")||"";
-    const price=prompt("Price they're asking? (number)"); if(!price) return;
+    const item=await askText("What is it? (e.g. silk scarf, massage, cocktail)","")||"";
+    const price=await askText("Price they're asking? (number)"); if(!price) return;
     const currency=await pick('Which currency?',[{label:'🇻🇳 Dong (VND)',value:'VND'},{label:'🇹🇭 Baht (THB)',value:'THB'},{label:'🇦🇺 AUD',value:'AUD'},{label:'🇺🇸 USD',value:'USD'},{label:'🇮🇩 Rupiah (IDR)',value:'IDR'}])||""; if(!currency) return;
     const home=localStorage.getItem('buddy_home')||'AUD';
     openChat(); addMsg('me',`🏷️ ${item||'this'} — ${price} ${currency}`);
@@ -7658,11 +7759,11 @@
   // ---- Spend tracker: client-side running total for the trip ----
   function spendGet(){ try{return JSON.parse(localStorage.getItem('buddy_spend')||'[]');}catch{return[];} }
   function spendSave(a){ localStorage.setItem('buddy_spend',JSON.stringify(a)); }
-  function spendTrack(){
+  async function spendTrack(){
     const a=spendGet();
     const totalNow=a.reduce((s,e)=>s+e.amt,0);
     const home=localStorage.getItem('buddy_home')||'AUD';
-    const choice=prompt(
+    const choice=await askText(
       `💰 Trip spend so far: ${totalNow.toFixed(2)} ${home} over ${a.length} item(s).\n\n`+
       `Type an entry to ADD (e.g. "12 lunch")\n`+
       `or type "total" for a summary\n`+
@@ -7674,7 +7775,7 @@
       const line=`You've spent ${totalNow.toFixed(2)} ${home} across ${a.length} item(s) — about ${(totalNow/days).toFixed(2)} ${home} a day.`;
       say(line); document.getElementById('spendSub').textContent=`${totalNow.toFixed(2)} ${home} so far`; return;
     }
-    if(c==='reset'){ if(confirm('Clear all trip spending?')){ spendSave([]); say('Spend tracker cleared.'); document.getElementById('spendSub').textContent='Log & total your trip'; } return; }
+    if(c==='reset'){ if(await askYesNo('Clear all trip spending?')){ spendSave([]); say('Spend tracker cleared.'); document.getElementById('spendSub').textContent='Log & total your trip'; } return; }
     // parse "<amount> <note>"
     const m=choice.match(/([\d.]+)\s*(.*)/);
     if(!m){ say("Try it like: 12 lunch"); return; }
@@ -7814,7 +7915,7 @@
         const top0=list[0];
         if(top0&&top0.photo) addImg(top0.photo, top0.name);
         if(top0&&top0.hoursToday) addMsg('buddy','🕐 '+top0.hoursToday);
-        if(top0&&top0.phone){ const ph=addMsg('buddy','📞 '+top0.phone); ph.style.cursor='pointer'; ph.onclick=()=>{ if(confirm('Call '+top0.phone+'?')) window.location.href='tel:'+top0.phone.replace(/[^\d+]/g,''); }; }
+        if(top0&&top0.phone){ const ph=addMsg('buddy','📞 '+top0.phone); ph.style.cursor='pointer'; ph.onclick=async()=>{ if(await askYesNo('Call '+top0.phone+'?',{highStakes:true})) window.location.href='tel:'+top0.phone.replace(/[^\d+]/g,''); }; }
         // BUDDY BRAIN: remember what we found + anticipate the next step
         brain.lastList=list; brain.lastTopic='nearby';
         const top=list[0]; if(top){ brain.setPlace(top.name, top.vicinity||top.name);
@@ -7825,7 +7926,7 @@
           if(/restaurant|cafe|bar|food|meal|bakery|store|shop|market|supermarket|lodging|spa|gym|hair|beauty/.test(t)){
             brain.suggest(`Is ${top.name} a fair price?`, ()=>{ document.getElementById('chatText').value='is '+top.name+' reasonably priced?'; });
           } else if(top.phone){
-            brain.suggest(`Call ${top.name}`, ()=>{ if(confirm('Call '+top.phone+'?')) window.location.href='tel:'+String(top.phone).replace(/[^\d+]/g,''); });
+            brain.suggest(`Call ${top.name}`, async ()=>{ if(await askYesNo('Call '+top.phone+'?',{highStakes:true})) window.location.href='tel:'+String(top.phone).replace(/[^\d+]/g,''); });
           } }
       }catch(e){ t.classList.remove('think'); t.textContent="Couldn't search nearby right now."; }
     }, ()=>{ t.classList.remove('think'); t.textContent='I need location access. In Safari: tap the "aA" in the address bar → Website Settings → Location → Allow. Then try again.'; say('I need location access to look around you. Allow location for this site in Safari settings, then try again.'); });
@@ -8297,7 +8398,8 @@
     const think = addMsg('buddy','…','think');
     let data;
     try{
-      const r = await api('/ask', { skill, seed, history:_askHist[skill] });
+      const fix = await placeFix();
+      const r = await api('/ask', { skill, seed, history:_askHist[skill], lat:fix?fix.lat:undefined, lng:fix?fix.lng:undefined });
       data = r.data || {};
     }catch(e){ think.remove(); say("Something glitched — try again?"); return; }
     think.remove();
@@ -8473,7 +8575,7 @@
 
   // ---- live: flight ----
   async function checkFlight(){
-    const code=prompt('Flight number (e.g. BA292)'); if(!code) return;
+    const code=await askText('Flight number (e.g. BA292)'); if(!code) return;
     await trackFlight(code.toUpperCase());
   }
   // Save a flight so "how's my flight?" works anytime, and offer a reminder.
@@ -8586,7 +8688,7 @@
       opts.push({label:'📱 A different number',value:'__other'});
       const chosen=await pick('Reply to who?', opts);
       if(!chosen) return;
-      number = chosen==='__other' ? (prompt('Number to text:','')||'').replace(/[^\d+]/g,'') : chosen;
+      number = chosen==='__other' ? (await askText('Number to text:','')||'').replace(/[^\d+]/g,'') : chosen;
       if(!number) return;
     }
     let message=preMessage;
@@ -8646,12 +8748,12 @@
   }
 
   // ---- Call receptionist: OFF by default, toggle for later (needs TelTel routing) ----
-  function callReceptionist(){
+  async function callReceptionist(){
     const on=localStorage.getItem('buddy_receptionist')==='on';
     const msg=on
       ? "Vision's call receptionist is currently ON (for when it's fully wired to TelTel). Turn it OFF?"
       : "Turn ON Vision's call receptionist?\n\nNote: this is a placeholder toggle. Actually answering live calls needs TelTel call-routing wired to Vision (a bigger setup we scoped). For now this just saves your preference.";
-    if(confirm(msg)){
+    if(await askYesNo(msg)){
       localStorage.setItem('buddy_receptionist', on?'off':'on');
       say(on?'Call receptionist turned off.':'Call receptionist turned on — I\'ll answer once TelTel routing is wired.');
     }

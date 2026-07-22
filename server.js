@@ -209,7 +209,58 @@ process.on("SIGTERM", () => flushAndExit("SIGTERM"));
 process.on("SIGINT", () => flushAndExit("SIGINT"));
 function uidOf(req) { return String((req.body && req.body.uid) || req.query.uid || "shaun-default").slice(0, 64); }
 function profileOf(uid) { return STORE.profiles[uid] || { name: "Shaun", ainame: "Vision" }; }
+
+// Shared "current time" line every time-sensitive skill can drop into its
+// prompt, so no endpoint ever has to ask the user what time it is or guess the
+// date. Location-aware: uses his travel timezone when known (COUNTRY_TZ is a
+// const defined later in the file, so it's guarded — by request time the module
+// has fully loaded and it exists). Falls back to Brisbane.
+function nowLine(uid, coords) {
+  const prof = profileOf(uid) || {};
+  // Priority: live GPS box → saved profile country → Brisbane.
+  let tz = "";
+  if (coords && typeof tzFromLatLng === "function") tz = tzFromLatLng(coords.lat, coords.lng);
+  if (!tz) tz = (typeof COUNTRY_TZ !== "undefined" && prof.country && COUNTRY_TZ[String(prof.country).toLowerCase()]) || "Australia/Brisbane";
+  let stamp;
+  try { stamp = new Date().toLocaleString("en-AU", { timeZone: tz, dateStyle: "full", timeStyle: "short" }); }
+  catch { stamp = new Date().toLocaleString("en-AU"); }
+  return `The current date and time is ${stamp} (${tz}). You ALWAYS know the current time and date — never ask him for them, and use them for anything about "today", "tomorrow", "now", or timing.`;
+}
 function flagsOf(uid) { return STORE.flags[uid] = STORE.flags[uid] || { quiet: false, whisper: false, saver: false }; }
+
+/* --- 🌐 SHARED AMBIENT CONTEXT (build 159) ----------------------------------
+ * The thing EVERY model-backed skill should know before it answers: what time
+ * it is, where he is, who he is, and (when relevant) what he's told Vision
+ * before. Built once here so no skill is ever flying blind on context again —
+ * append visionContext(uid, {recall: <the request text>}) to any system prompt.
+ *
+ * TIERED so it's smart, not heavy:
+ *   - ALWAYS (cheap): time + place + name. Every skill gets this.
+ *   - WHEN recall passed: core facts + memory relevant to THIS request. Skills
+ *     that don't need it (currency, translate) simply don't pass recall.
+ *
+ * The later-defined helpers (coreBrief/recallBrief) are referenced safely:
+ * this runs at request time, by which point the whole module has loaded.
+ * An audit contract (sim-context) enforces that every model endpoint calls it.
+ * ------------------------------------------------------------------------ */
+function visionContext(uid, opts = {}) {
+  const prof = profileOf(uid) || {};
+  const coords = opts.coords || (opts.lat != null ? { lat: opts.lat, lng: opts.lng } : null);
+  const bits = [nowLine(uid, coords)];
+  const whereBits = [];
+  if (prof.city) whereBits.push(prof.city);
+  if (prof.country) whereBits.push(prof.country);
+  if (whereBits.length) bits.push(`He's currently in ${whereBits.join(", ")} — use it, don't ask.`);
+  if (prof.name && prof.name !== "Shaun") bits.push(`His name is ${prof.name}.`);
+  if (prof.localCurrency) bits.push(`Local currency ${prof.localCurrency}; home currency AUD.`);
+  // Heavier layer only when the caller passes the request text to match against.
+  if (opts.recall) {
+    try { const c = (typeof coreBrief === "function") ? coreBrief(uid) : ""; if (c) bits.push(c); } catch {}
+    try { const r = (typeof recallBrief === "function") ? recallBrief(uid, String(opts.recall)) : ""; if (r) bits.push(r); } catch {}
+  }
+  bits.push("Never ask him for anything you already know from the above.");
+  return " " + bits.filter(Boolean).join(" ");
+}
 
 // --- NATIVE PLUMBING (batch 41): shared brain state across web + glasses ---
 // The web app already sends brain.brief() on every /chat and /route call.
@@ -665,7 +716,7 @@ app.post("/scamcheck", requireAuth, async (req, res) => {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 220,
     system: "You are Vision, a savvy travel companion who protects Shaun from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. Be honest and practical, never alarmist." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
-      _memNote,
+      _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
       content:
@@ -718,7 +769,7 @@ app.post("/allergy", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", // safety-critical → stronger model
     max_tokens: 320,
-    system: sys + _memNote,
+    system: sys + _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content }],
   };
   try {
@@ -785,7 +836,7 @@ app.post("/gooddeal", requireAuth, async (req, res) => {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 200,
     system: "You are Vision, Shaun's savvy money companion abroad. You judge whether a price is good value for the country, in plain friendly terms. You know rough local costs across SE Asia and worldwide." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
-      _memNote,
+      _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
       content:
@@ -821,7 +872,7 @@ app.post("/planday", requireAuth, async (req, res) => {
     model: "claude-sonnet-4-6", // planning benefits from the stronger model
     max_tokens: 900,
     system: "You are Vision, Shaun's travel companion who PLANS his day, not just answers. Build a realistic, well-paced itinerary for the place and budget, with actual place types, rough times, and rough costs. Be specific and local, mindful of opening hours and travel time. Keep it doable, not a rushed checklist." + NO_INVENT_STRICT + ANSWER_FIRST +
-      _memNote,
+      _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
       content:
@@ -901,7 +952,7 @@ app.post("/etiquette", requireAuth, async (req, res) => {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 240,
     system: "You are Vision, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic." + SPOKEN_PLAIN + ANSWER_FIRST +
-      NO_INVENT,
+      NO_INVENT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
       content: `${country ? `In ${country}: ` : ""}${question}${_memNote}\n` +
@@ -942,7 +993,7 @@ app.post("/landmark", requireAuth, async (req, res) => {
     model: "claude-sonnet-4-6", // identification benefits from stronger vision
     max_tokens: 320,
     system: "You are Vision, Shaun's knowledgeable, enthusiastic travel guide. When he looks at something, you tell him what it is and something genuinely interesting — like a great local guide would, briefly." + SPOKEN_PLAIN + ANSWER_FIRST +
-      NO_INVENT_STRICT,
+      NO_INVENT_STRICT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content }],
   };
   try {
@@ -1317,7 +1368,7 @@ app.post("/arrival", requireAuth, async (req, res) => {
       model: "claude-sonnet-4-6",
       max_tokens: 600,
       system: "You are Vision, Shaun's Aussie travel companion. He has JUST LANDED somewhere new. Give him the arrival essentials, warm and brief, spoken-style." + SPOKEN_PLAIN + ANSWER_FIRST +
-      NO_INVENT,
+      NO_INVENT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
       messages: [{ role: "user", content: `Shaun just landed in ${city ? city + ", " : ""}${country}. Reply as compact JSON ONLY: "currency" (ISO code), "spoken" (warm 3-4 sentence arrival brief: emergency number, the #1 scam to dodge arriving here, tipping norm, rough AUD exchange rate), "emergency", "scam", "tipping", "rate" (each one short line).` }],
     };
     const { status, text: out } = await callClaude(body);
@@ -1410,7 +1461,7 @@ app.post("/findfood", requireAuth, async (req, res) => {
     model: "claude-sonnet-4-6",
     max_tokens: 700,
     system: "You are Vision, Shaun's food concierge abroad. Given what he's craving and where he is, suggest realistic nearby options a delivery app like Grab would have, with plausible price, rating, and delivery ETA. Be realistic for the city; don't invent famous names — describe the kind of place. Rank best-value first." + NO_INVENT_STRICT + ANSWER_FIRST +
-      _memNote,
+      _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
       content:
@@ -2140,7 +2191,7 @@ const SLOT_HINTS = {
 
 app.post("/ask", requireAuth, async (req, res) => {
   const uid = uidOf(req);
-  const { skill, history, seed } = req.body || {};
+  const { skill, history, seed, lat, lng } = req.body || {};
   const recipe = SKILL_RECIPES[skill];
   if (!recipe) return res.status(400).json({ error: "unknown_skill", spoken: "I'm not set up to plan that one conversationally yet." });
 
@@ -2149,7 +2200,9 @@ app.post("/ask", requireAuth, async (req, res) => {
   const seedText = typeof seed === "string" ? seed : "";
   const past = recallFor(uid, `${skill} ${seedText}`, 4).map(m => `${when(m.at)}: ${m.t}`).join(" | ");
 
+  const _tz = (typeof COUNTRY_TZ !== "undefined" && prof.country && COUNTRY_TZ[String(prof.country).toLowerCase()]) || "Australia/Brisbane";
   const known = [
+    nowLine(uid, (lat != null ? { lat, lng } : null)),
     prof.city ? `He's based near ${prof.city}.` : "",
     prof.country ? `He's currently in ${prof.country}.` : "",
     prof.localCurrency ? `Local currency is ${prof.localCurrency}; his home currency is AUD.` : "",
@@ -2286,6 +2339,7 @@ app.post("/getthere", requireAuth, async (req, res) => {
 
   const ctx =
     `Destination: ${destination}. Trip type: ${type}.` +
+    `\n${nowLine(uid, (originLat != null ? { lat: originLat, lng: originLng } : null))} When he gives a flight or event time like "4pm", combine it with today's date (or tomorrow's if that time has already passed today) to compute the target arrival.` +
     (flightNote ? `\n${flightNote}` : "") +
     (usual ? `\nHis usual for this trip: ${usual.note || ""}${usual.leaveBy ? ` (last time he left by ${usual.leaveBy})` : ""}.` : "") +
     (past ? `\nRelevant memory: ${past}` : "") +
@@ -2329,6 +2383,10 @@ app.post("/getthere", requireAuth, async (req, res) => {
       return res.json({ phase: "ask", mode: type, question: "I need your location to time this — allow location and tell me again?", spoken: "I need your location to time this." });
     }
     const target = new Date(p.targetArrival);
+    if (isNaN(target.getTime())) {
+      // The brain gave a target we can't parse — ask once more rather than crash.
+      return res.json({ phase: "ask", mode: type, question: "What time do you need to be there? A clock time like 2:30pm works best.", spoken: "What time do you need to be there?" });
+    }
     const rr = await fetchRoute({ originLat, originLng, destination, mode, departAt: Date.now() });
     if (!rr.ok) {
       return res.status(200).json({ fallback: true, spoken: "I couldn't find a train route there just now — want me to open Maps so you can check?", mapsDest: destination, mode });
@@ -2612,7 +2670,7 @@ app.post("/stay", requireAuth, async (req, res) => {
       const body = {
         model: "claude-haiku-4-5-20251001", max_tokens: 200,
         system: "You are Vision, a warm travel companion. Given hotel options, recommend ONE in 2 short spoken sentences (why it stands out), mention a runner-up by name. No lists, no markdown." + NO_INVENT_STRICT + ANSWER_FIRST +
-      _memNote,
+      _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
         messages: [{ role: "user", content: JSON.stringify(places) }],
       };
       const { status, text } = await callClaude(body);
@@ -2637,7 +2695,7 @@ app.post("/activities", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, a warm travel companion speaking aloud. Suggest 4-5 genuinely good things to do — current, specific, not tourist-trap filler. Use web search if it helps (events, seasonal). Reply as JSON only: {\"spoken\": \"2-3 sentence pick of the best one or two\", \"items\": [\"short line each\"]}. No markdown." + NO_INVENT_STRICT + ANSWER_FIRST,
+    system: "You are Vision, a warm travel companion speaking aloud. Suggest 4-5 genuinely good things to do — current, specific, not tourist-trap filler. Use web search if it helps (events, seasonal). Reply as JSON only: {\"spoken\": \"2-3 sentence pick of the best one or two\", \"items\": [\"short line each\"]}. No markdown." + NO_INVENT_STRICT + ANSWER_FIRST + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content: `Things to do in ${where}${interests ? " — he's into " + interests : ""}.${_memNote}` }],
   };
   try {
@@ -2659,7 +2717,7 @@ app.post("/tripplan", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", max_tokens: 1500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
-    system: "You are Vision, a sharp travel planner. Build a realistic day-by-day plan — geographically sensible (cluster nearby things), paced like a human (not 12 stops a day), with real place names. Web-search if current info helps. Reply as JSON ONLY: {\"spoken\": \"2-3 sentences selling the shape of the trip\", \"days\": [{\"day\": 1, \"title\": \"...\", \"items\": [{\"when\": \"morning|afternoon|evening\", \"what\": \"short line\"}]}]}. No markdown." + NO_INVENT_STRICT + ANSWER_FIRST,
+    system: "You are Vision, a sharp travel planner. Build a realistic day-by-day plan — geographically sensible (cluster nearby things), paced like a human (not 12 stops a day), with real place names. Web-search if current info helps. Reply as JSON ONLY: {\"spoken\": \"2-3 sentences selling the shape of the trip\", \"days\": [{\"day\": 1, \"title\": \"...\", \"items\": [{\"when\": \"morning|afternoon|evening\", \"what\": \"short line\"}]}]}. No markdown." + NO_INVENT_STRICT + ANSWER_FIRST + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content: `${nDays}-day plan for ${destination}.${budget ? ` Budget ${budget} ${currency || ""}/day.` : ""}${interests ? ` Into: ${interests}.` : ""}` }],
   };
   try {
@@ -2682,7 +2740,7 @@ app.post("/packlist", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
     system: "You are Vision. Build a tight packing list for the trip — climate-aware, no obvious filler (\"clothes\"), include the things people forget (adapters, meds, offline maps). JSON only: {\"spoken\": \"1-2 sentences with the non-obvious highlights\", \"items\": [\"item — why, only when not obvious\"]}. Max 15 items." + SPOKEN_PLAIN + ANSWER_FIRST +
-      NO_INVENT_STRICT,
+      NO_INVENT_STRICT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content: `Packing for ${destination || "a trip"}${days ? `, ${days} days` : ""}${month ? `, in ${month}` : ""}. He's travelling from Australia.${_memNote}` }],
   };
   try {
@@ -2709,7 +2767,7 @@ app.post("/tripbudget", requireAuth, async (req, res) => {
     model: "claude-haiku-4-5-20251001", max_tokens: 400,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
     system: "You are Vision, honest about money. Estimate a realistic daily budget for the trip in AUD (his home currency) — food, transport, activities, drinks; note what accommodation adds separately. Web-search current prices if useful. JSON only: {\"spoken\": \"2-3 plain sentences with the daily number and what swings it\", \"perDay\": <number AUD>, \"total\": <number AUD>, \"currency\": \"AUD\"}." + SPOKEN_PLAIN +
-      NO_INVENT_STRICT,
+      NO_INVENT_STRICT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content: `${nDays} days in ${destination}, ${style || "mid-range"} style.${_memNote}` }],
   };
   try {
@@ -2735,7 +2793,7 @@ app.post("/esim", requireAuth, async (req, res) => {
     model: "claude-haiku-4-5-20251001", max_tokens: 450,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
     system: "You are Vision, practical about phone data abroad. For the country given: best eSIM options for an Australian traveller (e.g. Airalo/Holafly/local telco), rough current prices, and whether a local physical SIM at the airport beats them. Web-search for current pricing. JSON only: {\"spoken\": \"2-3 sentences with your actual pick\", \"options\": [\"short line each\"]}." + SPOKEN_PLAIN + ANSWER_FIRST +
-      NO_INVENT_STRICT,
+      NO_INVENT_STRICT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content: `Data/eSIM for ${country}.${_memNote}` }],
   };
   try {
@@ -3151,7 +3209,7 @@ app.post("/season", requireAuth, async (req, res) => {
         "actually means day to day — most 'wet season' is an afternoon downpour, not a washout, and saying so is more " +
         "useful than a warning. " +
         "If a month is genuinely a bad idea, say so plainly rather than hedging." +
-        NO_INVENT_STRICT + ANSWER_FIRST + SPOKEN_PLAIN,
+        NO_INVENT_STRICT + ANSWER_FIRST + SPOKEN_PLAIN + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
       messages: [{ role: "user", content:
         `Where: ${where}${when ? `\nWhen: ${when}` : ""}${activity ? `\nHe wants to: ${activity}` : ""}${dates}` +
         (mem ? `\n\nWhat you remember about how he travels: ${mem}` : "") +
@@ -3499,7 +3557,7 @@ app.post("/local", requireAuth, async (req, res) => {
       "You brief a traveller on what's happening around them right now. " +
       "Only state something as fact if the search results actually support it — otherwise say what's typical and that it needs checking. " +
       "Lead with anything time-sensitive; skip anything he can't act on today." +
-      NO_INVENT_STRICT + SPOKEN_PLAIN + ANSWER_FIRST,
+      NO_INVENT_STRICT + SPOKEN_PLAIN + ANSWER_FIRST + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
       content: `For someone in or near ${place}, give a brief spoken briefing covering: ${asks}. ${_memNote}` +
@@ -4038,8 +4096,14 @@ app.post("/readpage", requireAuth, async (req, res) => {
   if (!/^https?:$/.test(u.protocol) || /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(u.hostname))
     return res.status(400).json({ error: "blocked url" });
   try {
-    const r = await fetch(u, { redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (VisionReader)" } });
-    const html = await r.text();
+    // A hung page must never tie up the single dyno — 8s hard cap, like caldav.
+    const _ac = new AbortController();
+    const _to = setTimeout(() => _ac.abort(), 8000);
+    let r, html;
+    try {
+      r = await fetch(u, { redirect: "follow", signal: _ac.signal, headers: { "user-agent": "Mozilla/5.0 (VisionReader)" } });
+      html = await r.text();
+    } finally { clearTimeout(_to); }
     const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || u.hostname;
     const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -4068,6 +4132,17 @@ function when(ts) {
   if (d <= 0) return "today"; if (d === 1) return "yesterday";
   if (d < 7) return `${d} days ago`; if (d < 30) return `${Math.floor(d / 7)} weeks ago`;
   return new Date(ts).toLocaleDateString("en-AU", { month: "short", day: "numeric" });
+}
+// Forward-looking counterpart of when() — "today at 1pm", "tomorrow at 8am",
+// "Monday at 8am", or a dated form further out. Used to surface upcoming events.
+function whenPhrase(ts) {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true }).replace(":00", "").replace(/\s?([ap]m)$/i, "$1");
+  const days = Math.floor((new Date(ts).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  if (days <= 0) return `today at ${time}`;
+  if (days === 1) return `tomorrow at ${time}`;
+  if (days < 7) return `${d.toLocaleDateString("en-AU", { weekday: "long" })} at ${time}`;
+  return `${d.toLocaleDateString("en-AU", { weekday: "short", month: "short", day: "numeric" })} at ${time}`;
 }
 function recallFor(uid, text, limit) {
   const mem = STORE.mem[uid] || [];
@@ -5686,6 +5761,12 @@ app.post("/watchers", requireAuth, async (req, res) => {
       if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't get that just now — give me another go in a moment.", detail: "parse_failed" });
       const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
       const w = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      // Guard: a valid-JSON-but-junk type would store a watcher no loop handles —
+      // a dead slot that silently never fires. Refuse it plainly instead.
+      const VALID = ["flightdeal", "weather", "events", "currency", "reminder"];
+      if (!w || !VALID.includes(w.type)) {
+        return res.status(200).json({ fallback: true, spoken: "I couldn't tell what to watch there — try it like \"watch flights Brisbane to Bali under 300 dollars\" or \"remind me to grab the passport at 6\"." });
+      }
       w.id = "w" + Date.now(); w.createdAt = Date.now();
       list.push(w); saveStore();
       if (w.type === "reminder") {   // recallable later: "what did I need at the market?"
@@ -6039,6 +6120,68 @@ app.post("/calendar/sources", requireAuth, async (req, res) => {
   });
 });
 
+// One-tap health check: is iCloud actually connected, and is the Geeks2U feed
+// live? Reports each leg plainly ("iCloud: 4 calendars ✓ · Geeks2U: not set")
+// so he never has to infer connection from whether events happen to show.
+app.post("/calendar/selftest", requireAuth, async (req, res) => {
+  const out = { ok: true, icloud: {}, geeks2u: {} };
+
+  // Leg 1 — iCloud CalDAV discovery
+  if (!ICLOUD_USER || !ICLOUD_APP_PW) {
+    out.icloud = { ok: false, spoken: "iCloud isn't set up — add ICLOUD_USER and an app-specific ICLOUD_APP_PW." };
+  } else {
+    try {
+      const r = await CAL.discover({ user: ICLOUD_USER, pw: ICLOUD_APP_PW });
+      if (!r.ok) out.icloud = { ok: false, spoken: `iCloud connected but discovery failed: ${r.error}` };
+      else {
+        const calSrcs = (r.sources || []).filter(x => x.kind !== "reminders");
+        const cals = calSrcs.length;
+        const lists = (r.sources || []).filter(x => x.kind === "reminders").length;
+        // Is the Geeks2U calendar visible via CalDAV discovery? Subscribed feeds
+        // sometimes aren't — if so he needs GEEKS2U_ICS_URL instead.
+        const g2uInDiscovery = calSrcs.some(x => /geeks2u/i.test(x.name || ""));
+        out.icloud = { ok: true, calendars: cals, lists,
+          names: calSrcs.map(x => x.name), geeks2uFound: g2uInDiscovery,
+          spoken: `iCloud connected — ${cals} calendar${cals === 1 ? "" : "s"} and ${lists} reminder list${lists === 1 ? "" : "s"} found${g2uInDiscovery ? ", including your Geeks2U calendar" : ""}.` };
+      }
+    } catch (e) {
+      out.icloud = { ok: false, spoken: `iCloud check failed: ${String(e && e.message || e).slice(0, 120)}` };
+    }
+  }
+
+  // Leg 2 — Geeks2U ICS feed
+  if (!GEEKS2U_ICS) {
+    out.geeks2u = out.icloud.geeks2uFound
+      ? { ok: true, configured: false, viaICloud: true,
+          spoken: "Geeks2U jobs are already coming through your iCloud (the subscribed calendar) — no separate feed URL needed. Just make sure it's switched on in the picker." }
+      : { ok: false, configured: false,
+          spoken: "Geeks2U jobs feed isn't set — and it didn't show up in your iCloud calendars either. Either switch on 'My Geeks2U Calendar' in Apple Calendar so it syncs, or add GEEKS2U_ICS_URL (the .ics subscribe link) on the server." };
+  } else {
+    try {
+      const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 8000);
+      let text = "";
+      try {
+        const gr = await fetch(GEEKS2U_ICS, { signal: ac.signal, headers: { "user-agent": "Mozilla/5.0 (VisionCal)" } });
+        if (!gr.ok) { out.geeks2u = { ok: false, configured: true, spoken: `Geeks2U feed is set but returned ${gr.status} — check the URL is still valid.` }; }
+        else { text = await gr.text(); }
+      } finally { clearTimeout(to); }
+      if (text) {
+        const isCal = /BEGIN:VCALENDAR/i.test(text);
+        const events = (text.match(/BEGIN:VEVENT/gi) || []).length;
+        out.geeks2u = isCal
+          ? { ok: true, configured: true, events, spoken: `Geeks2U feed connected — ${events} job${events === 1 ? "" : "s"} in the feed.` }
+          : { ok: false, configured: true, spoken: "Geeks2U URL responded but it doesn't look like a calendar feed — double-check it's the .ics link." };
+      }
+    } catch (e) {
+      out.geeks2u = { ok: false, configured: true,
+        spoken: `Geeks2U feed is set but wouldn't load: ${String(e && e.message || e).slice(0, 120)}.` };
+    }
+  }
+
+  out.spoken = `${out.icloud.spoken} ${out.geeks2u.spoken}`;
+  res.json(out);
+});
+
 // Two independent switches per source. Both off = Vision ignores it entirely.
 app.post("/calendar/prefs", requireAuth, (req, res) => {
   const uid = uidOf(req);
@@ -6151,15 +6294,17 @@ app.post("/calendar/tick/prepare", requireAuth, async (req, res) => {
   if (!p.ok) return res.json({ ok: false, spoken: p.error, missing: p.missing || [], ambiguous: p.ambiguous || [] });
 
   STORE.calPending = STORE.calPending || {};
+  const _tickToken = "tk" + Date.now() + "-" + String(p.items.length) + "-" + Math.random().toString(36).slice(2, 8);
   STORE.calPending[uid] = {
     at: Date.now(),
+    token: _tickToken,
     sourceId: m.source.id,
     items: p.items.map(x => ({ uid: x.todo.uid, title: x.todo.title, href: x.todo.href, etag: x.todo.etag, raw: x.todo.raw })),
   };
   saveStore();
 
   res.json({
-    ok: true, needsConfirmation: true, spoken: p.confirm,
+    ok: true, needsConfirmation: true, spoken: p.confirm, token: _tickToken,
     list: m.source.name, shared: m.source.sharedByOther,
     items: p.items.map(x => x.todo.title),
     missing: p.missing, ambiguous: p.ambiguous.map(a => ({ spoken: a.spoken, options: a.options.map(o => o.title) })),
@@ -6169,9 +6314,16 @@ app.post("/calendar/tick/prepare", requireAuth, async (req, res) => {
 // Step 2 — only after he says yes.
 app.post("/calendar/tick/confirm", requireAuth, async (req, res) => {
   const uid = uidOf(req);
+  const { token } = req.body || {};
   const pend = (STORE.calPending || {})[uid];
   if (!pend || (Date.now() - pend.at) > 600000) {
     return res.json({ ok: false, spoken: "That's expired — say what you want ticked off again." });
+  }
+  // Confirm exactly what was read back. If a newer prepare replaced it (e.g. he
+  // prepared a second list before tapping yes), the token won't match — refuse
+  // rather than tick the wrong list. Critical for the shared lists that are hers.
+  if (token && pend.token && token !== pend.token) {
+    return res.json({ ok: false, spoken: "That changed since I read it back — say what you want ticked off again so I don't tick the wrong list." });
   }
 
   const done = [], failed = [];
@@ -6490,10 +6642,33 @@ async function checkCalendar(uid) {
   // Today's work jobs, cached for the brief so /chat doesn't wait on Apple.
   STORE.calToday = STORE.calToday || {};
   const todayEnd = CAL.endOfDay();
+  const _prefs = calPrefsOf(uid);
+  // Whose event is it? Jess is the only person who shares calendars TO him, so
+  // any sharedByOther calendar is hers by default (Payments, Work, School
+  // Holidays, her Calendar — all "Shared by Jessica"). The picker can override
+  // per-calendar via prefs[id].person ("jess" | "me" | "ignore") if he wants.
+  const personOf = (e) => {
+    const pref = _prefs[e.sourceId] && _prefs[e.sourceId].person;
+    if (pref) return pref;
+    return e.sharedByOther ? "jess" : "me";
+  };
+  const soonEnd = CAL.endOfDay(new Date(Date.now() + 3 * 86400000)); // next ~3 days
   STORE.calToday[uid] = {
     at: Date.now(),
     jobs: g.events.filter(e => isWorkEvent(e) && e.start <= todayEnd && e.start >= CAL.startOfDay())
       .map(e => ({ title: e.title, job: jobNumberOf(e.title), whenBoth: bothZones(e.start), startMs: e.start ? e.start.getTime() : 0 })),
+    // Upcoming events over the next few days, attributed. Used by the people-advisor.
+    upcoming: g.events
+      .filter(e => e.start && e.start.getTime() > Date.now() && e.start <= soonEnd)
+      .map(e => ({
+        title: e.title,
+        startMs: e.start.getTime(),
+        source: e.sourceName || "",
+        person: personOf(e),
+      }))
+      .filter(e => e.person !== "ignore")
+      .sort((a, b) => a.startMs - b.startMs)
+      .slice(0, 40),
   };
 
   if (changes.any) {
@@ -6796,6 +6971,48 @@ const COUNTRY_TZ = {
   myanmar: "Asia/Yangon", japan: "Asia/Tokyo", "new zealand": "Pacific/Auckland",
 };
 
+/* --- 📍 LIVE-GPS TIMEZONE (build 159) ---------------------------------------
+ * So the moment he opens Vision in Hanoi it's on Vietnam time — no Arrival tap
+ * needed. Bounding boxes for the countries he actually travels; deliberately
+ * dependency-free (a global tz library is ~2MB of boundary data and another
+ * thing to break npm install on his Windows PC, for coverage he won't use).
+ * Approximate at borders, but adjacent boxes here share the same offset
+ * (Vietnam/Laos/Cambodia/Thailand all UTC+7), so a border wobble is harmless.
+ * Indonesia is split because it genuinely spans +7/+8/+9 and Bali (+8) matters.
+ * Returns a named IANA zone or "" if he's outside the known region (then the
+ * caller falls back to profile country, then Brisbane).
+ * Box = [minLat, maxLat, minLng, maxLng, zone].
+ */
+const TZ_BOXES = [
+  // Australia — east coast / Brisbane is home; keep it simple to AEST unless
+  // he's clearly in WA or SA/NT.
+  [-39, -10,  138, 154, "Australia/Brisbane"],   // QLD/NSW/VIC/east (AEST, his home)
+  [-35, -12,  129, 138, "Australia/Adelaide"],   // SA/NT centre
+  [-35, -13,  112, 129, "Australia/Perth"],      // WA
+  // SE Asia (all UTC+7 except where noted)
+  [ 8,  24,  102, 110, "Asia/Ho_Chi_Minh"],      // Vietnam
+  [ 5,  21,   97, 106, "Asia/Bangkok"],          // Thailand
+  [ 10, 15,  102, 108, "Asia/Phnom_Penh"],       // Cambodia
+  [ 13, 23,  100, 108, "Asia/Vientiane"],        // Laos
+  [ 9,  29,   92, 102, "Asia/Yangon"],           // Myanmar (UTC+6:30)
+  [ 1,   8,  100, 105, "Asia/Kuala_Lumpur"],     // Malaysia (west) + Singapore
+  // Indonesia — split by longitude into its three real zones
+  [-11,  6,   95, 115, "Asia/Jakarta"],          // WIB +7 (Java, Sumatra)
+  [-11,  1,  115, 125, "Asia/Makassar"],         // WITA +8 (Bali, Lombok, Sulawesi)
+  [-11,  0,  125, 141, "Asia/Jayapura"],         // WIT +9 (Papua)
+  [ 5,  20,  116, 127, "Asia/Manila"],           // Philippines
+  [ 24, 46,  122, 146, "Asia/Tokyo"],            // Japan
+  [-47,-34,  166, 179, "Pacific/Auckland"],      // New Zealand
+];
+function tzFromLatLng(lat, lng) {
+  if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return "";
+  for (const [a, b, c, d, zone] of TZ_BOXES) {
+    if (lat >= a && lat <= b && lng >= c && lng <= d) return zone;
+  }
+  return "";
+}
+
+
 // Timezone collisions are the single most likely thing to bite him: he works
 // AEST hours from a country 2-4 hours behind, so "4:30" means two things.
 function tzGap(uid) {
@@ -6839,6 +7056,30 @@ const ADVISORS = [
     return {
       kind: "timezone", weight: 95,
       note: `${next.title} is ${next.whenBoth}. You're ${Math.abs(gap)} hours ${gap > 0 ? "behind" : "ahead of"} Brisbane — worth saying the local time out loud so you don't book something over it.`,
+    };
+  },
+
+  // What's coming up for Jess (and anyone else sharing calendars to him) over
+  // the next few days — her flights, appointments, work shifts. He asked for
+  // this to be surfaced actively rather than only when he opens the calendar.
+  // Equal weight across her events (his choice); once-per-event so the same
+  // appointment doesn't lead every brief.
+  function peopleUpcoming(uid, ctx) {
+    const up = (ctx.upcoming || []).filter(e => e.person === "jess" && e.startMs > ctx.now);
+    if (!up.length) return null;
+    STORE.advSeen = STORE.advSeen || {};
+    const seen = STORE.advSeen[uid] = STORE.advSeen[uid] || {};
+    // Prune seen keys older than 5 days so it can resurface a rescheduled event.
+    for (const k of Object.keys(seen)) { if (Date.now() - seen[k] > 5 * 86400000) delete seen[k]; }
+    // Nearest not-yet-mentioned event (keyed by title+start so a moved event re-fires).
+    const next = up.find(e => !seen[`${e.title}|${e.startMs}`]);
+    if (!next) return null;
+    seen[`${next.title}|${next.startMs}`] = Date.now();
+    const dt = new Date(next.startMs);
+    const when = whenPhrase(next.startMs); // "tomorrow at 1pm", "Monday 8am"
+    return {
+      kind: "people", weight: 72,
+      note: `Jess has "${next.title}" ${when}${next.source ? ` (${next.source})` : ""} — worth knowing so it's on your radar.`,
     };
   },
 
@@ -6994,7 +7235,8 @@ function adviseContext(uid) {
   const events = (today.events || jobsToday).map(e => ({
     title: e.title, startMs: e.startMs || 0, endMs: e.endMs || 0,
   })).filter(e => e.startMs);
-  return { now: Date.now(), jobsToday, events };
+  const upcoming = (today.upcoming || []).filter(e => e.startMs);
+  return { now: Date.now(), jobsToday, events, upcoming };
 }
 
 function advise(uid, { max = 2 } = {}) {
