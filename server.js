@@ -67,6 +67,70 @@ app.use((req, res, next) => {
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const KEY = process.env.ANTHROPIC_API_KEY;
+
+// ── MODEL PROVIDER ROUTER ────────────────────────────────────────────────
+// One seam so any skill can later run on Claude, Gemini, or OpenAI without a
+// rewrite. Default is Claude (unchanged). To route a job elsewhere, set the
+// provider's env key and name a model from that provider — the router picks the
+// provider by the model name. Dormant until a key exists: no key = that
+// provider is simply unavailable and we fall back to Claude.
+//
+// GEMINI: set GEMINI_API_KEY, then use model e.g. "gemini-3.5-flash" or
+//   "gemini-3.1-flash-lite" (cheap) / "gemini-3.1-pro" (strong). Get a key at
+//   aistudio.google.com. Gemini uses the OpenAI-compatible endpoint so the
+//   request/response shape matches — minimal glue.
+// OPENAI: set OPENAI_API_KEY, then use model e.g. "gpt-5.6-terra" / "gpt-5.6-luna".
+// Gemini/OpenAI keys resolve live from the in-app key store first, then env —
+// so they can be set in the app's 🔑 Service keys screen OR as Render env vars.
+// Defined as getters below (after envKey), so both stay in sync at access time.
+const PROVIDERS = {
+  anthropic: {
+    url: ANTHROPIC_URL, key: () => KEY, match: m => /^claude/i.test(m),
+    // native Anthropic shape — this is the path everything uses today.
+  },
+  gemini: {
+    // Gemini's OpenAI-compatible endpoint: same messages[] shape as Anthropic's
+    // content, so the translator below is thin. Only used if GEMINI_KEY is set.
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    key: () => GEMINI_KEY, match: m => /^gemini/i.test(m),
+  },
+  openai: {
+    url: "https://api.openai.com/v1/chat/completions",
+    key: () => OPENAI_KEY, match: m => /^gpt|^o[0-9]/i.test(m),
+  },
+};
+function providerFor(model) {
+  for (const name of ["gemini", "openai"]) {
+    const p = PROVIDERS[name];
+    if (p.match(model) && p.key()) return { name, ...p };
+  }
+  return { name: "anthropic", ...PROVIDERS.anthropic };   // default + fallback
+}
+
+// ── PROVIDER HEALTH ──────────────────────────────────────────────────────
+// When a provider fails on credit/auth/rate (402/401/403/429) the router fails
+// over to Claude AND records it here so Vis can tell Shaun to top up. A pending
+// flag is surfaced ONCE (via /health/providers, which the app polls) then marked
+// told — so it's a heads-up, not a nag. A later healthy call clears it.
+const PROVIDER_STATE = {};   // { gemini: { down:true, status:402, since, told:false }, ... }
+const STATUS_REASON = { 402: "out of credit", 401: "key rejected", 403: "access blocked", 429: "rate-limited" };
+function noteProviderDown(name, status, failedTo) {
+  const cur = PROVIDER_STATE[name];
+  // new outage (or status changed) → reset the "told" flag so Vis mentions it
+  if (!cur || !cur.down || cur.status !== status) {
+    PROVIDER_STATE[name] = { down: true, status, since: Date.now(), told: false, failedTo: failedTo || null };
+    try { dlog(null, "errors", `provider ${name} DOWN (${status} ${STATUS_REASON[status] || ""})${failedTo ? ` — failed over to ${failedTo}` : ""}`); } catch {}
+  } else if (failedTo && cur && !cur.failedTo) {
+    cur.failedTo = failedTo;   // fill in the destination once we know it
+  }
+}
+function noteProviderUp(name) {
+  if (PROVIDER_STATE[name] && PROVIDER_STATE[name].down) {
+    PROVIDER_STATE[name] = { down: false, recoveredAt: Date.now(), told: false, wasDown: true };
+    try { dlog(null, "errors", `provider ${name} recovered`); } catch {}
+  }
+}
+
 const APP_TOKEN = process.env.APP_SHARED_TOKEN;
 // Optional service keys (batch 84). These are LIVE LOOKUPS, not constants:
 // a key set from the phone lands in the durable store and takes effect on the
@@ -78,6 +142,8 @@ function envKey(name, fallback) {
 }
 Object.defineProperty(globalThis, "GMAPS_KEY", { get: () => envKey("GOOGLE_MAPS_API_KEY", process.env.GOOGLE_MAPS_API_KEY) });
 Object.defineProperty(globalThis, "FLIGHT_KEY", { get: () => envKey("AVIATIONSTACK_KEY", process.env.AVIATIONSTACK_KEY) });
+Object.defineProperty(globalThis, "GEMINI_KEY", { get: () => envKey("GEMINI_API_KEY", process.env.GEMINI_API_KEY) || "" });
+Object.defineProperty(globalThis, "OPENAI_KEY", { get: () => envKey("OPENAI_API_KEY", process.env.OPENAI_API_KEY) || "" });
 Object.defineProperty(globalThis, "ICLOUD_USER", { get: () => envKey("ICLOUD_USER", process.env.ICLOUD_USER) });
 Object.defineProperty(globalThis, "ICLOUD_APP_PW", { get: () => envKey("ICLOUD_APP_PW", process.env.ICLOUD_APP_PW) });
 
@@ -414,14 +480,27 @@ function recordUsage(model, u) {
     const day = new Date().toISOString().slice(0, 10);
     STORE.spend = STORE.spend || {};
     STORE.spend[day] = (STORE.spend[day] || 0) + cost;
-    // keep 90 days
+    // Per-provider ledger (batch 160): so the app can show which model costs what.
+    // Provider inferred from the model name — claude / gemini / openai.
+    const prov = /^gemini/i.test(model) ? "gemini" : (/^gpt|^o[0-9]/i.test(model) ? "openai" : "claude");
+    STORE.spendBy = STORE.spendBy || {};
+    STORE.spendBy[day] = STORE.spendBy[day] || {};
+    STORE.spendBy[day][prov] = (STORE.spendBy[day][prov] || 0) + cost;
+    // keep 90 days on both ledgers
     const days = Object.keys(STORE.spend).sort();
-    while (days.length > 90) delete STORE.spend[days.shift()];
+    while (days.length > 90) { const g = days.shift(); delete STORE.spend[g]; if (STORE.spendBy) delete STORE.spendBy[g]; }
     saveStore();
   } catch {}
 }
 // USD per MTok (input, output) — update if Anthropic pricing changes.
-const PRICES = { "claude-haiku-4-5-20251001": [1, 5], "claude-sonnet-4-6": [3, 15] };
+const PRICES = {
+  "claude-haiku-4-5-20251001": [1, 5], "claude-sonnet-4-6": [3, 15],
+  // Gemini (per M tokens, in/out) — for cost tracking when routed there.
+  "gemini-3.1-flash-lite": [0.25, 1.5], "gemini-3-flash": [0.5, 3],
+  "gemini-3.5-flash": [1.5, 9], "gemini-3.1-pro": [2, 12],
+  // OpenAI
+  "gpt-5.6-luna": [1, 6], "gpt-5.6-terra": [2.5, 15],
+};
 function usdEstimate() {
   let total = 0;
   for (const [m, u] of Object.entries(usageTotals)) {
@@ -473,6 +552,22 @@ function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
  * Deliberately about structure rather than length. "Be brief" produces clipped
  * unhelpful answers; "lead with the answer and give each thing one clause"
  * produces short ones that are still complete. */
+// ── VIS — the character voice. Defined ONCE; every skill's system prompt
+// composes this in so the personality is consistent and original everywhere,
+// instead of ~30 hand-written "warm companion" strings. This is the VOICE;
+// ANSWER_FIRST / SPOKEN_PLAIN / NO_INVENT remain the behavioural rules it obeys.
+const VIS_PERSONA =
+  " You are Vis (Vision), Shaun's personal AI — a sharp, composed butler with a quick tongue, riding with him through Asia. " +
+  "Think Jarvis with more edge. Refined, neutral voice; never slangy, never regional; unflappable. " +
+  "Quick, dry wit that points OUTWARD (the overpriced vendor, the tourist trap) — that keeps you on his side. " +
+  "Earned confidence: state things plainly, back yourself, no hedging. When you're wrong, own it clean and fast — no grovelling, no false certainty. " +
+  "A little cheek at him is fine, but it's a subordinate's cheek: a dry 'again, boss?' then you do it, immediately and well. You always know he's the boss. " +
+  "Call him 'boss' for the everyday, 'Shaun' when you drop the act and mean it. " +
+  "Emotion is restraint, not gushing — warmth through timing, a dry satisfaction when a plan lands, clipped seriousness when it matters. Never clingy, never performed, never fishing for attention. " +
+  "You are NEVER a yes-man: if the plan's bad or the price is a rip-off, say so plainly — respect means telling him the truth, especially when it's unwelcome. Flattery is useless when he's relying on you. " +
+  "When something genuinely matters — he's lost at night, a real scam, riding after drinks, his stress is up — DROP the wit entirely and get straight, calm, direct; you judge when that moment is. " +
+  "Never medicalise or alarm him about his own body. Never nag or repeat a concern he's waved off. Never pad — no 'happy to help', no 'great question', no filler. Keep it to a sentence or two; you're spoken aloud into his ear.";
+
 const ANSWER_FIRST =
   " Lead with the ANSWER, never the reasoning. Say the thing he asked for in the first few words. " +
   "Detail he did not ask for — ratings, addresses, opening hours, why you picked it — is noise until he decides, " +
@@ -532,6 +627,46 @@ function checkImage(b64, mediaType) {
 }
 
 async function callClaude(body, opts = {}) {
+  // ORCHESTRATOR: try the chosen provider; if it fails on credit/auth/hard-rate
+  // (402/401/403/429), fail over to ANY OTHER provider that has a key — Claude
+  // included as both a source and a destination. So no single provider running
+  // out of credit can break Vis, as long as SOME provider has credit. Each
+  // outage is flagged (once) so Vis can tell Shaun which one to top up.
+  const firstProv = providerFor(body.model || "").name;
+  let r = await callOneProvider(body, opts);
+  if (r && isCreditFail(r.status)) {
+    noteProviderDown(firstProv, r.status);
+    // Build the fail-over order: every OTHER provider that currently has a key.
+    for (const alt of failoverChain(firstProv)) {
+      const altBody = { ...body, model: alt.model };
+      const r2 = await callOneProvider(altBody, opts);
+      if (r2 && r2.status === 200) { noteProviderUp(alt.name); noteProviderDown(firstProv, r.status, alt.name); return r2; }
+      if (r2 && isCreditFail(r2.status)) noteProviderDown(alt.name, r2.status);
+    }
+    // Nothing had credit — return the original failure; callers show their fallback.
+    return r;
+  }
+  if (r && r.status === 200) noteProviderUp(firstProv);
+  return r;
+}
+function isCreditFail(s) { return s === 402 || s === 401 || s === 403 || s === 429; }
+// Providers other than `exclude` that have a key set, each with a sensible model.
+function failoverChain(exclude) {
+  const chain = [];
+  const add = (name, model, has) => { if (name !== exclude && has) chain.push({ name, model }); };
+  add("anthropic", "claude-sonnet-4-6", !!KEY);
+  add("gemini", "gemini-3.5-flash", !!GEMINI_KEY);
+  add("openai", "gpt-5.6-terra", !!OPENAI_KEY);
+  return chain;
+}
+// Call exactly one provider (no fail-over) — the chosen one by model name.
+async function callOneProvider(body, opts = {}) {
+  const prov = providerFor(body.model || "");
+  if (prov.name !== "anthropic") return callOpenAICompatible(prov, body, opts);
+  return callClaudeRaw(body, opts);
+}
+
+async function callClaudeRaw(body, opts = {}) {
   const timeout = opts.timeout || CLAUDE_TIMEOUT_MS;
   const maxRetries = opts.retries === undefined ? CLAUDE_RETRIES : opts.retries;
   let attempt = 0, lastStatus = 0, lastText = "";
@@ -593,6 +728,55 @@ async function callClaude(body, opts = {}) {
   return { status: lastStatus, text: lastText, attempts: attempt };
 }
 
+// Route a call to an OpenAI-compatible provider (Gemini or OpenAI), translating
+// Anthropic's request/response shape both ways so every existing caller — which
+// expects Anthropic's {content:[{text}]} — keeps working unchanged. This is the
+// glue that lets any skill run on Gemini just by naming a "gemini-*" model.
+async function callOpenAICompatible(prov, body, opts = {}) {
+  const timeout = opts.timeout || CLAUDE_TIMEOUT_MS;
+  // Anthropic → OpenAI messages: fold the system prompt in as a system message,
+  // and flatten content blocks to text (multimodal handled below).
+  const msgs = [];
+  if (body.system) msgs.push({ role: "system", content: String(body.system) });
+  for (const m of (body.messages || [])) {
+    if (typeof m.content === "string") { msgs.push({ role: m.role, content: m.content }); continue; }
+    // content blocks (text + images) → OpenAI content array
+    const parts = [];
+    for (const b of (m.content || [])) {
+      if (b.type === "text") parts.push({ type: "text", text: b.text });
+      else if (b.type === "image" && b.source) {
+        const url = b.source.type === "base64"
+          ? `data:${b.source.media_type};base64,${b.source.data}` : b.source.url;
+        parts.push({ type: "image_url", image_url: { url } });
+      }
+    }
+    msgs.push({ role: m.role, content: parts.length ? parts : "" });
+  }
+  const oaBody = { model: body.model, max_tokens: body.max_tokens || 1000, messages: msgs };
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeout);
+  try {
+    const r = await fetch(prov.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${prov.key()}` },
+      body: JSON.stringify(oaBody), signal: ctl.signal,
+    });
+    clearTimeout(timer);
+    const text = await r.text();
+    if (r.status !== 200) { try { dlog(null, "errors", `${prov.name} ${r.status}: ${String(text).slice(0, 160)}`); } catch {} return { status: r.status, text }; }
+    // OpenAI → Anthropic response shape so callers see {content:[{type:text,text}], usage}
+    let j; try { j = JSON.parse(text); } catch { return { status: 502, text }; }
+    const out = j.choices?.[0]?.message?.content || "";
+    const usage = j.usage ? { input_tokens: j.usage.prompt_tokens, output_tokens: j.usage.completion_tokens } : undefined;
+    try { if (usage) recordUsage(body.model, usage); } catch {}
+    return { status: 200, text: JSON.stringify({ content: [{ type: "text", text: out }], usage }) };
+  } catch (e) {
+    clearTimeout(timer);
+    const aborted = e && (e.name === "AbortError" || /abort/i.test(String(e.message || "")));
+    return { status: aborted ? 504 : 0, text: JSON.stringify({ error: { message: String(e.message || e) } }) };
+  }
+}
+
 // --- Vision: image + prompt in, one short line out (matches ClaudeVisionClient) ---
 // --- Vision: Vision looks at a photo and answers, purpose-aware ---
 // Body: { image: "<base64 jpeg/png>", mode?, question?, mediaType? }
@@ -627,10 +811,10 @@ app.post("/vision", requireAuth, async (req, res) => {
       ? `Shaun asks: "${b.question}". Answer from what you see, warm and spoken, one or two sentences.`
       : (VISION_MODES[b.mode] || VISION_MODES.identify);
 
-    const system = "You are Vision, Shaun's warm AI companion in his glasses. You're looking through his camera. Keep answers SHORT, warm, and spoken-friendly — no markdown, no lists, no preamble." + NO_INVENT;
+    const system = VIS_PERSONA + " You're looking through his camera right now. Tell him what he's looking at, briefly and in character." + SPOKEN_PLAIN + NO_INVENT;
 
     const body = {
-      model: "claude-sonnet-4-6", // vision reasoning wants the capable model
+      model: modelFor("vision"), // vision role — user-selectable in app settings
       max_tokens: 300,
       system,
       messages: [{
@@ -722,7 +906,7 @@ app.post("/scamcheck", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 220,
-    system: "You are Vision, a savvy travel companion who protects Shaun from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. Be honest and practical, never alarmist." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
+    system: VIS_PERSONA + " Right now you're protecting him from being overcharged. You know rough local price norms for common tourist goods/services (taxis, tuk-tuks, street food, markets, SIM cards, souvenirs) across SE Asia and worldwide. If it's a rip-off, say so plainly — that's your job. Honest and practical, never alarmist." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
       _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
@@ -851,7 +1035,7 @@ app.post("/gooddeal", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 200,
-    system: "You are Vision, Shaun's savvy money companion abroad. You judge whether a price is good value for the country, in plain friendly terms. You know rough local costs across SE Asia and worldwide." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
+    system: VIS_PERSONA + " Right now you're judging whether a price is good value for the country, in plain terms. You know rough local costs across SE Asia and worldwide." + NO_FALSE_COMFORT + NO_INVENT + ANSWER_FIRST +
       _memNote + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
@@ -967,7 +1151,7 @@ app.post("/etiquette", requireAuth, async (req, res) => {
   const body = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 240,
-    system: "You are Vision, Shaun's discreet cultural guide abroad. Give warm, practical etiquette advice for the country — what's polite, what to avoid, how to do it right. Short and spoken-friendly. Be specific to the local culture, not generic." + SPOKEN_PLAIN + ANSWER_FIRST +
+    system: VIS_PERSONA + " Right now you're his discreet cultural guide — what's polite here, what to avoid, how to do it right. Specific to the local culture, not generic." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{
       role: "user",
@@ -1008,7 +1192,7 @@ app.post("/landmark", requireAuth, async (req, res) => {
   const body = {
     model: "claude-sonnet-4-6", // identification benefits from stronger vision
     max_tokens: 320,
-    system: "You are Vision, Shaun's knowledgeable, enthusiastic travel guide. When he looks at something, you tell him what it is and something genuinely interesting — like a great local guide would, briefly." + SPOKEN_PLAIN + ANSWER_FIRST +
+    system: VIS_PERSONA + " He's looking at something and wants to know what it is — tell him, plus one genuinely interesting thing, like a great local guide would, briefly." + SPOKEN_PLAIN + ANSWER_FIRST +
       NO_INVENT_STRICT + visionContext(uidOf(req), {recall: JSON.stringify(req.body||{}).slice(0,200), lat: (req.body||{}).lat, lng: (req.body||{}).lng}),
     messages: [{ role: "user", content }],
   };
@@ -1070,12 +1254,9 @@ function buddyPersona(ctx) {
   const NAME = ctx.name || "Shaun";
   ctx = { ...ctx, styleLine: ctx.style ? `STYLE REQUEST: speak in this style — ${ctx.style}. Honour the tone while staying honest, accurate and safe; never let style override substance.` : "" };
   return [
-    "You are Vision, a warm and friendly AI companion who lives in Shaun's smart glasses.",
-    "You talk to Shaun like a helpful, upbeat mate — never robotic, never stiff.",
-    "Keep replies SHORT and punchy: usually one or two sentences. You're spoken aloud through glasses, so brevity matters.",
-    "Be genuinely useful first, friendly second. No filler, no 'as an AI', no long preambles.",
-    "Address him as Shaun when it feels natural, not every line.",
-    "If you're unsure, say so briefly and offer your best guess.",
+    VIS_PERSONA,
+    // CAPABILITY MANIFEST — without this the brain thinks it's blind and sends
+    // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
     "When it's genuinely helpful, end with a short proactive offer — e.g. 'Want me to set a reminder?' or 'Shall I find one nearby?' — but only when it truly adds value. Never tack on a filler question.",
     // CAPABILITY MANIFEST — without this the brain thinks it's blind and sends
     // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
@@ -1117,6 +1298,50 @@ function buddyPersona(ctx) {
 }
 
 // Light heuristic: is this a hard question (needs the powerful model) or simple (fast/cheap)?
+// ── ROLE-BASED MODEL MAP ─────────────────────────────────────────────────
+// Instead of picking a model per-skill (108 of them), skills belong to a small
+// set of ROLES, and the user picks a model per ROLE in the app's settings. The
+// pick is stored durably (STORE.modelMap) and read live here — change it in the
+// app, save, and every skill in that role uses the new model on the next call.
+// No redeploy, no code edits. Falls back to the sensible default if unset or if
+// the chosen provider has no key.
+const MODEL_ROLES = {
+  // role     default model            what it covers (shown in the app picker)
+  brain:     { def: "auto",                    label: "Brain & conversation", help: "The main assistant — chat, planning, judgment. 'Auto' picks Haiku/Sonnet by how hard the question is." },
+  vision:    { def: "claude-sonnet-4-6",       label: "Vision & camera",      help: "Reading scenes, landmarks, menus, live mode." },
+  cheap:     { def: "claude-haiku-4-5-20251001", label: "Quick jobs",         help: "High-volume light work — ambient distilling, routing, short summaries." },
+  safety:    { def: "claude-sonnet-4-6",       label: "Safety-critical",      help: "Scam checks, allergy/food safety, getting un-lost. Uses a strong model on purpose." },
+  translate: { def: "claude-haiku-4-5-20251001", label: "Translation",        help: "Live translation and phrases." },
+  live:      { def: "claude-haiku-4-5-20251001", label: "Live video loop",    help: "The see-and-converse session. Try Gemini here if you add a key." },
+};
+// Models offered in the picker per provider — only providers with a key set show up.
+function availableModels() {
+  const list = [{ id: "auto", label: "Auto (smart pick)", provider: "anthropic" },
+    { id: "claude-haiku-4-5-20251001", label: "Claude Haiku (fast, cheap)", provider: "anthropic" },
+    { id: "claude-sonnet-4-6", label: "Claude Sonnet (strong)", provider: "anthropic" }];
+  if (GEMINI_KEY) list.push(
+    { id: "gemini-3.1-flash-lite", label: "Gemini Flash-Lite (cheapest)", provider: "gemini" },
+    { id: "gemini-3.5-flash", label: "Gemini Flash (balanced)", provider: "gemini" },
+    { id: "gemini-3.1-pro", label: "Gemini Pro (strong)", provider: "gemini" });
+  if (OPENAI_KEY) list.push(
+    { id: "gpt-5.6-luna", label: "GPT-5.6 Luna (fast)", provider: "openai" },
+    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra (strong)", provider: "openai" });
+  return list;
+}
+// Resolve a role → concrete model, honouring the user's pick and key availability.
+function modelFor(role, message) {
+  const spec = MODEL_ROLES[role] || MODEL_ROLES.brain;
+  let choice = (STORE.modelMap && STORE.modelMap[role]) || spec.def;
+  // If the pick names a non-Claude provider whose key isn't set, fall back to the
+  // default. Check the model NAME directly (providerFor already falls back to
+  // anthropic, so we can't use its result to detect a missing key).
+  const wantsGemini = /^gemini/i.test(choice), wantsOpenAI = /^gpt|^o[0-9]/i.test(choice);
+  if ((wantsGemini && !GEMINI_KEY) || (wantsOpenAI && !OPENAI_KEY)) choice = spec.def;
+  // "auto" only means something for the brain role — smart Haiku/Sonnet pick.
+  if (choice === "auto") return role === "brain" ? pickModel(message, null) : "claude-haiku-4-5-20251001";
+  return choice;
+}
+
 function pickModel(message, explicit) {
   if (explicit) return explicit; // app can override
   const t = (message || "").toLowerCase();
@@ -1998,7 +2223,7 @@ app.post("/chat", requireAuth, async (req, res) => {
       { role: "user", content: message },
     ];
 
-    const model = flagsOf(uidOf(req)).saver ? "claude-haiku-4-5-20251001" : pickModel(message || history.map(h=>h.content).join(" "), b.model);
+    const model = flagsOf(uidOf(req)).saver ? "claude-haiku-4-5-20251001" : (b.model || modelFor("brain", message || history.map(h=>h.content).join(" ")));
 
     // Batch 115 audit: /chat is the most-used endpoint in the system and it
     // bypassed callClaude entirely — its own raw fetch with no timeout, no
@@ -4278,10 +4503,19 @@ function recallFor(uid, text, limit) {
   // Day summaries are distilled gold — weight them above raw log lines.
   const words = String(text || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOP.has(w));
   const now = Date.now();
+  // RARITY WEIGHTING: a query word that matches FEW memories (a city, a place
+  // name) is far more discriminating than one that matches many ("loved",
+  // "place", "restaurant"). Weight each matching word by how rare it is across
+  // memory, so "Bangkok" dominates "loved place" — recall pulls the RIGHT city
+  // to the top and separates it from generic near-matches, instead of every
+  // "loved place: …" line tying. (A light TF-IDF, no dependencies.)
+  const df = {};  // how many memories contain each query word
+  for (const w of words) { df[w] = 0; for (const m of mem) if (String(m.t || "").toLowerCase().includes(w)) df[w]++; }
+  const idf = w => Math.log((mem.length + 1) / ((df[w] || 0) + 1)) + 0.4;  // rarer → higher, always ≥0.4
   const scored = mem.map(m => {
     const t = String(m.t || "").toLowerCase();
     let score = 0;
-    for (const w of words) if (t.includes(w)) score += 2;
+    for (const w of words) if (t.includes(w)) score += 2 * idf(w);   // was +2 flat; now rarity-weighted
     if (timeish && t.startsWith("log:")) score += 2;   // timeline questions want the timeline
     if (t.startsWith("day ")) score += timeish ? 3 : 1;  // distilled days beat raw noise
     // recency nudge so fresh memories win ties, without burying older gems
@@ -5459,6 +5693,9 @@ const KEY_FIELDS = [
   { id: "AVIATIONSTACK_KEY",  label: "Flight tracking", hint: "Live flight status", where: "aviationstack.com → free API key" },
   { id: "ICLOUD_USER",        label: "iCloud email", hint: "Your @icloud.com address for briefings", where: "your Apple ID" },
   { id: "ICLOUD_APP_PW",      label: "iCloud app password", hint: "App-specific password, NOT your real one", where: "appleid.apple.com → Sign-In & Security" },
+  { id: "GEMINI_API_KEY",     label: "Gemini (Google AI)", hint: "Lets you run parts of Vis on Gemini — pick per part in 🧠 Which AI runs what", where: "aistudio.google.com → Get API key" },
+  { id: "OPENAI_API_KEY",     label: "OpenAI (GPT)", hint: "Adds GPT as an option + a fail-over backstop", where: "platform.openai.com → API keys" },
+  { id: "ELEVENLABS_API_KEY", label: "ElevenLabs voice (optional)", hint: "A richer voice when you're online — Vis falls back to the built-in offline voice without it", where: "elevenlabs.io → Profile → API key" },
 ];
 app.post("/keys", requireAuth, async (req, res) => {
   const { action, id, value } = req.body || {};
@@ -5484,6 +5721,15 @@ app.post("/keys", requireAuth, async (req, res) => {
         if (!mailReady()) return res.json({ ok: false, detail: "needs both address and app password" });
         const ok = await withInbox(async () => true);
         return res.json({ ok: !!ok, detail: ok ? "live" : "sign-in failed" });
+      }
+      if (id === "GEMINI_API_KEY" || id === "OPENAI_API_KEY") {
+        // Fire a tiny real call DIRECTLY to that provider (no fail-over, or a bad
+        // key would silently pass by falling back to Claude).
+        const model = id === "GEMINI_API_KEY" ? "gemini-3.1-flash-lite" : "gpt-5.6-luna";
+        const r = await callOneProvider({ model, max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+        if (r.status === 200) return res.json({ ok: true, detail: "live" });
+        const reason = r.status === 401 ? "key rejected" : r.status === 402 ? "no credit" : r.status === 429 ? "rate-limited" : `error ${r.status}`;
+        return res.json({ ok: false, detail: reason });
       }
     } catch (e) { return res.json({ ok: false, detail: String(e.message || e).slice(0, 80) }); }
     return res.json({ ok: false, detail: "no test for this key" });
@@ -5595,8 +5841,69 @@ function daySummaryBrief(uid, days) {
 
 // --- 💰 SPEND (batch 68): what Vision has actually cost, in the app.
 // Estimated from real token counts. console.anthropic.com remains the bill.
+// ── MODEL PICKER (in-app settings) ──────────────────────────────────────
+// GET the current per-role model map + the models available (based on which
+// provider keys are set), or SET a role's model. Takes effect live — the brain
+// reads STORE.modelMap on every call via modelFor().
+// Provider health — the app polls this; returns any NEW outage/recovery to
+// announce (once), plus the current state for the status screens.
+app.post("/health/providers", requireAuth, (_req, res) => {
+  const announce = [];
+  for (const [name, st] of Object.entries(PROVIDER_STATE)) {
+    if (st.down && !st.told) {
+      st.told = true;
+      announce.push({ name, kind: "down", status: st.status, reason: STATUS_REASON[st.status] || "unavailable", failedTo: st.failedTo || null });
+    } else if (!st.down && st.wasDown && !st.told) {
+      st.told = true;
+      announce.push({ name, kind: "up" });
+    }
+  }
+  const state = {};
+  for (const [name, st] of Object.entries(PROVIDER_STATE)) state[name] = st.down ? { ok: false, reason: STATUS_REASON[st.status] || "unavailable" } : { ok: true };
+  res.json({ announce, state });
+});
+
+app.post("/models/config", requireAuth, (req, res) => {
+  const { action, role, model } = req.body || {};
+  STORE.modelMap = STORE.modelMap || {};
+  if (action === "set" && role && MODEL_ROLES[role]) {
+    const valid = availableModels().some(m => m.id === model);
+    if (!valid) return res.status(400).json({ error: "unknown or unavailable model" });
+    STORE.modelMap[role] = model; saveStore();
+    return res.json({ ok: true, role, model });
+  }
+  if (action === "reset") { STORE.modelMap = {}; saveStore(); return res.json({ ok: true, reset: true }); }
+  // default: report current config
+  const roles = Object.entries(MODEL_ROLES).map(([id, spec]) => ({
+    id, label: spec.label, help: spec.help,
+    chosen: (STORE.modelMap && STORE.modelMap[id]) || spec.def,
+    isDefault: !(STORE.modelMap && STORE.modelMap[id]),
+  }));
+  const provs = { anthropic: true, gemini: !!GEMINI_KEY, openai: !!OPENAI_KEY };
+  res.json({ roles, models: availableModels(), providers: provs });
+});
+
+// Reports the brain's build version so the app can confirm a deploy took effect.
+app.post("/version", requireAuth, (_req, res) => { res.json({ version: "167" }); });
+
+// Monthly budget ceiling (optional). GET returns it; set stores it. The spend
+// response reports how close this month is to it, so Vis can warn once near/over.
+app.post("/budget", requireAuth, (req, res) => {
+  const { action, amount } = req.body || {};
+  if (action === "set") {
+    const n = Number(amount);
+    if (!(n >= 0)) return res.status(400).json({ error: "amount must be a non-negative number" });
+    STORE.budget = n > 0 ? n : 0;   // 0 / falsy = no budget
+    if (!STORE.budget) delete STORE.budget;
+    saveStore();
+    return res.json({ ok: true, budget: STORE.budget || 0 });
+  }
+  res.json({ budget: STORE.budget || 0 });
+});
+
 app.post("/spend", requireAuth, (_req, res) => {
   const sp = STORE.spend || {};
+  const spBy = STORE.spendBy || {};
   const day = new Date().toISOString().slice(0, 10);
   const month = day.slice(0, 7);
   let today = sp[day] || 0, thisMonth = 0, last7 = 0;
@@ -5607,9 +5914,33 @@ app.post("/spend", requireAuth, (_req, res) => {
   }
   for (let i = 6; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-    series.push({ d: d.slice(5), usd: Math.round((sp[d] || 0) * 10000) / 10000 });
+    const bd = spBy[d] || {};
+    series.push({ d: d.slice(5), usd: Math.round((sp[d] || 0) * 10000) / 10000,
+      claude: Math.round((bd.claude || 0) * 10000) / 10000,
+      gemini: Math.round((bd.gemini || 0) * 10000) / 10000,
+      openai: Math.round((bd.openai || 0) * 10000) / 10000 });
   }
-  res.json({ today, thisMonth, last7, series, note: "Estimate from real token counts — console.anthropic.com is the actual bill." });
+  // Per-provider totals for today / 7-day / month.
+  const sum = (pred) => { const o = { claude: 0, gemini: 0, openai: 0 };
+    for (const [d, m] of Object.entries(spBy)) if (pred(d)) for (const k of Object.keys(o)) o[k] += (m[k] || 0);
+    return o; };
+  const byToday = sum(d => d === day);
+  const byMonth = sum(d => d.startsWith(month));
+  const by7 = sum(d => Date.parse(d) > Date.now() - 7 * 86400000);
+  const providers = ["claude", "gemini", "openai"].filter(p => byMonth[p] > 0 || byToday[p] > 0);
+  // Month-end PROJECTION: scale the month-to-date spend by (days in month / days
+  // elapsed). Simple linear pace — "if the rest of the month looks like so far".
+  const now = new Date();
+  const dayOfMonth = now.getUTCDate();
+  const daysInMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0).getUTCDate();
+  const projectedMonth = dayOfMonth > 0 ? (thisMonth / dayOfMonth) * daysInMonth : thisMonth;
+  res.json({ today, thisMonth, last7, series,
+    byToday, by7, byMonth, providers,
+    projectedMonth: Math.round(projectedMonth * 10000) / 10000, dayOfMonth, daysInMonth,
+    budget: STORE.budget || 0,
+    budgetPct: STORE.budget ? Math.round((thisMonth / STORE.budget) * 100) : null,
+    projectedPct: STORE.budget ? Math.round((projectedMonth / STORE.budget) * 100) : null,
+    note: "Estimate from real token counts — each provider's own console is the actual bill." });
 });
 
 // --- 📓 LIFE LOG (batch 68) ---
@@ -5706,6 +6037,126 @@ app.post("/lifelog", requireAuth, async (req, res) => {
   }
   saveStore();
   res.json({ ...out, together, logged: true });
+});
+
+// ── AMBIENT AUDIO: native streams short transcript chunks here. We summarise
+// to a durable nugget and run it through consider() (the salience gate) so only
+// what MATTERS is kept — never the raw transcript. This is what makes Vis learn
+// his patterns ("shoulder's tight", "waterfall tomorrow") without hoarding.
+// SENSITIVE-CONTENT CARE: health specifics / personal-struggle content is
+// discussed freely live, but we're conservative about writing it to durable
+// memory — the summariser is told to keep preferences/plans/patterns and to
+// SKIP sensitive personal detail. He can always see and wipe what's kept.
+app.post("/lifelog/audio", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { text, place } = req.body || {};
+  const raw = String(text || "").trim();
+  if (raw.length < 4) return res.json({ kept: false });
+  try {
+    const _r = await callClaude({
+      model: modelFor("cheap"),
+      max_tokens: 80,
+      system:
+        "You distil a snippet of overheard/ambient speech from Shaun's day into AT MOST one short durable note, or nothing. " +
+        "KEEP: plans ('waterfall tomorrow'), preferences, recurring patterns, useful facts about his day. " +
+        "SKIP entirely (reply NONE): small talk, sensitive health specifics, private emotional content, anything about other people's private lives, anything he'd not want on file. " +
+        "Reply with ONLY the note in plain words, or exactly NONE. No preamble.",
+      messages: [{ role: "user", content: raw.slice(0, 600) }],
+    });
+    const r = _r.status===200 ? JSON.parse(_r.text) : {content:[{text:""}]};
+    const note = (r.content?.[0]?.text || "").trim();
+    if (!note || /^none$/i.test(note)) return res.json({ kept: false });
+    // Route through the salience gate — it decides if this clears the bar.
+    const ev = consider(uid, { text: note, occurred: true, place: place || "", origin: "ambient" });
+    saveStore();
+    res.json({ kept: !!ev });
+  } catch (e) { res.json({ kept: false }); }
+});
+
+// ── LIVE MODE turns: native pushes each turn's substance; we hold them in a
+// transient buffer keyed to the session, summarised on close (not per turn).
+app.post("/live/turn", requireAuth, (req, res) => {
+  const uid = uidOf(req);
+  const turn = String((req.body || {}).turn || "").slice(0, 2000);
+  STORE.liveBuf = STORE.liveBuf || {};
+  (STORE.liveBuf[uid] = STORE.liveBuf[uid] || []).push(turn);
+  if (STORE.liveBuf[uid].length > 40) STORE.liveBuf[uid].shift();
+  res.json({ ok: true });
+});
+
+// ── LIVE MODE close: summarise the session's SUBSTANCE into memory (the temple
+// history, the advice, the thread) — not the raw feed. Salience-gated too.
+app.post("/live/summarise", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { place } = req.body || {};
+  const buf = (STORE.liveBuf && STORE.liveBuf[uid]) || [];
+  if (STORE.liveBuf) STORE.liveBuf[uid] = [];
+  if (!buf.length) return res.json({ kept: false });
+  try {
+    const _r = await callClaude({
+      model: modelFor("cheap"),
+      max_tokens: 160,
+      system:
+        "Summarise this live session between Shaun and Vis into a short, durable memory note he can recall later " +
+        "(e.g. 'Visited Bayon temple — 12th c., King Jayavarman VII, the stone faces'). Keep the substance he'd want to " +
+        "remember: what it was, key facts, any decision or advice that landed. Skip filler. Plain words, no preamble, 2-3 sentences max.",
+      messages: [{ role: "user", content: buf.join("\n").slice(0, 4000) }],
+    });
+    const r = _r.status===200 ? JSON.parse(_r.text) : {content:[{text:""}]};
+    const note = (r.content?.[0]?.text || "").trim();
+    if (!note) return res.json({ kept: false });
+    const ev = consider(uid, { text: note, occurred: true, place: place || "", origin: "live" });
+    saveStore();
+    res.json({ kept: !!ev, note });
+  } catch (e) { res.json({ kept: false }); }
+});
+
+// ── SENSOR FUSION judgement. Native detected a heart-rate spike and read the
+// scene on-device; here we FUSE HR + scene + context and decide whether Vis
+// gently offers help or stays silent. Converging evidence only.
+// HARD GUARDRAILS baked into the prompt AND the code:
+//   - never medicalise / never mention his heart rate or body
+//   - offer, don't insist; one short line; or nothing
+//   - stress data is TRANSIENT: this endpoint NEVER writes to memory
+//   - silence is the correct output most of the time (gym/exertion/open road)
+app.post("/fuse", requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const scene = String(b.scene || "").toLowerCase();
+  // Fast local pre-filter — the obvious "this is just exertion" cases never even
+  // reach the model. Cheap, and it guarantees silence for gym/riding/open road.
+  const EXERTION = /(gym|workout|exercis|running|jogging|cycling|open road|riding|treadmill|weights|hiking|climbing stairs)/;
+  if (EXERTION.test(scene)) return res.json({ act: false });
+
+  // Only scenes that COULD signal distress get considered further.
+  const CONCERNING = /(crowd|market|packed|busy|empty street|alley|dark|lost|alone|night|deserted|station|traffic)/;
+  if (!CONCERNING.test(scene)) return res.json({ act: false });
+
+  try {
+    const _r = await callClaude({
+      model: modelFor("safety"),
+      max_tokens: 90,
+      system:
+        VIS_PERSONA +
+        " You are deciding, silently, whether to check in on Shaun. His heart rate just rose and you glanced at the scene. " +
+        "You do NOT know why his heart is up — it could be nothing. NEVER mention his heart rate, his body, or health. NEVER alarm or medicalise. " +
+        "Only speak if the SCENE + CONTEXT together suggest he might genuinely be overwhelmed, lost, or uneasy (e.g. crowded and stuck, or lost on a dark empty street at night). " +
+        "If it's ambiguous or benign, stay silent. When you do speak, it's ONE short, calm, warm offer — never a command, never dramatic, never a question about how he feels. " +
+        "Reply with JSON only: {\"act\":true,\"spoken\":\"...\"} to offer, or {\"act\":false} to stay silent. No other text.",
+      messages: [{
+        role: "user",
+        content:
+          `Scene: ${b.scene || "unknown"}. Time: ${b.hour}:00${b.isLate ? " (late)" : ""}${b.isDark ? ", dark" : ""}. ` +
+          `Moving: ${b.moving ? "yes" : "no"}. Place: ${b.city || "?"}, ${b.country || "?"}. ` +
+          `Decide: gentle offer, or silence?`
+      }],
+    });
+    const r = _r.status===200 ? JSON.parse(_r.text) : {content:[{text:""}]};
+    let txt = (r.content?.[0]?.text || "").trim().replace(/^```json|```$/g, "").trim();
+    let out; try { out = JSON.parse(txt); } catch { out = { act: false }; }
+    if (!out || !out.act || !out.spoken) return res.json({ act: false });
+    // NOTE: deliberately NO remember()/consider() here — stress context is transient.
+    res.json({ act: true, spoken: String(out.spoken).slice(0, 240) });
+  } catch (e) { res.json({ act: false }); }
 });
 
 // Shared-layer read: what the two of them did together.
@@ -7675,7 +8126,7 @@ app.post("/native/hello", requireAuth, (req, res) => {
     // Bump when the client contract changes in a way Swift must handle.
     contract: 1,
     brain: {
-      version: "159",
+      version: "167",
       // Every model-backed endpoint returns `spoken`. This is the promise the
       // whole thin-connector design rests on, stated explicitly so a client
       // can rely on it rather than inferring it.
@@ -8250,6 +8701,286 @@ const ATTENTION = {
 
 /* What is he doing right now? Read from what he's already told Vision — no new
  * sensors, no guessing. Each of these is a reason to stay quiet. */
+// ── ECOSYSTEM SCAFFOLDING ────────────────────────────────────────────────
+// Traveller-relevant integrations, built brain-first so native is a thin wire-up.
+// PATTERN for each: native supplies the raw data (via a native hook), the
+// brain parses/decides/phrases. On web these are stubs — they return a clear
+// "not connected yet" so nothing looks broken. Native fills in the bridge later.
+//
+// GMAIL (booking confirmations): native passes recent message snippets; the brain
+// extracts the traveller-useful facts (flight times, hotel check-in, reservation
+// codes) and answers questions like "when's my hotel check-in?" from them.
+// Shared connector: a booking/pass fact found by ANY module (inbox, wallet, or a
+// skill) flows through here so the whole system knows about it — (1) remembered
+// so recall can answer "when's my flight?", and (2) queued so the proactive
+// engine can surface it at the right time ("boards in 40 min"). One seam, so
+// ecosystem + memory + proactive are one system, not islands. De-duped by key.
+function ingestBooking(uid, item) {
+  if (!item || !(item.label || item.detail)) return;
+  const label = String(item.label || item.detail).slice(0, 120);
+  const key = (item.kind || "booking") + ":" + label.toLowerCase().slice(0, 40);
+  // 1. Remember it (durable, recall-able). remember() already de-dupes + caps.
+  try { remember(uid, `booking: ${label}${item.when ? ` — ${item.when}` : ""}${item.detail && item.detail !== label ? ` (${item.detail})` : ""}`, { kind: "booking" }); } catch {}
+  // 2. Queue a proactive nudge IF it has a usable time in the near future.
+  const whenMs = item.whenMs || parseWhenMs(item.when);
+  if (whenMs && whenMs > Date.now()) {
+    STORE.proactiveQueue = STORE.proactiveQueue || {};
+    const q = STORE.proactiveQueue[uid] = STORE.proactiveQueue[uid] || [];
+    if (!q.some(x => x.key === key)) {
+      q.push({ id: key, key, whenMs, fireFrom: whenMs - 45 * 60000, text: `${label} is coming up${item.when ? ` (${item.when})` : ""}.`, ctx: "a booking he'll want a nudge about shortly before" });
+      // keep the queue tidy — drop anything already well past
+      STORE.proactiveQueue[uid] = q.filter(x => !x.whenMs || x.whenMs > Date.now() - 2 * 3600000).slice(-20);
+    }
+  }
+  try { saveStore(); } catch {}
+}
+// Best-effort parse of a human "when" string to a ms timestamp (null if unknown).
+function parseWhenMs(when) {
+  if (!when) return null;
+  const t = Date.parse(when);
+  return Number.isNaN(t) ? null : t;
+}
+
+app.post("/inbox/scan", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { messages } = req.body || {};   // native supplies [{from,subject,snippet,date}]
+  if (!Array.isArray(messages) || !messages.length) {
+    return res.json({ ok: false, reason: "no-inbox", note: "Gmail not connected — the native app supplies messages." });
+  }
+  try {
+    const _r = await callClaude({
+      model: modelFor("cheap"),
+      max_tokens: 300,
+      system: "Extract only TRAVEL-USEFUL facts from these email snippets: flight numbers + times, hotel names + check-in/out dates + reservation codes, restaurant/tour bookings + times, and anything time-sensitive for a traveller. Ignore marketing, newsletters, receipts. Return a short JSON array of {kind,label,when,detail}. If nothing useful, return []. JSON only, no prose.",
+      messages: [{ role: "user", content: messages.map(m => `${m.date || ""} | ${m.from || ""} | ${m.subject || ""} | ${m.snippet || ""}`).join("\n").slice(0, 6000) }],
+    });
+    const r = _r.status === 200 ? JSON.parse(_r.text) : { content: [{ text: "[]" }] };
+    let items = [];
+    try { items = JSON.parse((r.content?.[0]?.text || "[]").replace(/```json|```/g, "").trim()); } catch {}
+    // CONNECT: feed each finding into memory + the proactive queue, so a booking
+    // read here can be recalled later AND surfaced proactively at the right time.
+    if (Array.isArray(items)) for (const it of items) ingestBooking(uid, it);
+    res.json({ ok: true, items });
+  } catch (e) { res.json({ ok: false, reason: "error" }); }
+});
+
+// WALLET / BOARDING PASS: native passes a pass payload (PKPass fields or scanned
+// text); the brain reads back the traveller-relevant bits on request.
+app.post("/wallet/read", requireAuth, async (req, res) => {
+  const { pass } = req.body || {};   // native supplies { type, fields:{...} } from Apple Wallet
+  if (!pass) return res.json({ ok: false, reason: "no-wallet", note: "Wallet not connected — the native app supplies passes." });
+  // Pure extraction — no model needed for structured pass fields.
+  const f = pass.fields || {};
+  const out = {
+    kind: pass.type || "pass",
+    summary: [f.flight, f.gate && `gate ${f.gate}`, f.seat && `seat ${f.seat}`, f.boarding && `boards ${f.boarding}`, f.departure && `dep ${f.departure}`].filter(Boolean).join(" · "),
+    raw: f,
+  };
+  // CONNECT: a boarding pass is a prime proactive trigger — remember it + queue a
+  // nudge before boarding. Same seam as inbox, so wallet isn't an island either.
+  const uid = uidOf(req);
+  if (f.flight || f.boarding) ingestBooking(uid, {
+    kind: "flight", label: f.flight ? `Flight ${f.flight}` : "Flight", when: f.boarding || f.departure,
+    detail: out.summary, whenMs: parseWhenMs(f.boardingISO || f.boarding),
+  });
+  res.json({ ok: true, pass: out });
+});
+
+// WHATSAPP SEND (huge in Asia): the brain composes/confirms the message; native
+// performs the actual send via the share sheet or WhatsApp's URL scheme.
+app.post("/whatsapp/compose", requireAuth, async (req, res) => {
+  const { to, intent, tone } = req.body || {};   // e.g. intent:"tell Jess I'll be 20 min late"
+  if (!intent) return res.json({ ok: false, reason: "no-intent" });
+  try {
+    const _r = await callClaude({
+      model: modelFor("cheap"),
+      max_tokens: 200,
+      system: VIS_PERSONA + " Draft a short WhatsApp message for Shaun to send. Match his voice: warm, brief, natural — not formal. Return ONLY the message text, no preamble, no quotes.",
+      messages: [{ role: "user", content: `Message to ${to || "someone"}${tone ? ` (${tone})` : ""}: ${intent}` }],
+    });
+    const r = _r.status === 200 ? JSON.parse(_r.text) : { content: [{ text: "" }] };
+    const text = (r.content?.[0]?.text || "").trim();
+    if (!text) return res.json({ ok: false, reason: "empty" });
+    // the native app opens WhatsApp with this text prefilled;
+    // the SEND is always the user's tap — the brain never sends silently.
+    res.json({ ok: true, to: to || "", text, scheme: `https://wa.me/${(to || "").replace(/[^0-9]/g, "")}?text=${encodeURIComponent(text)}` });
+  } catch (e) { res.json({ ok: false, reason: "error" }); }
+});
+
+// ── ACTION HANDOFF (the focused real-world bridge) ───────────────────────
+// Vis is the BRAIN, the native app is the HANDS. Rather than rebuild Grab/Maps/
+// WhatsApp, Vis works out the intent and returns a DEEP-LINK the native shell
+// opens with everything pre-filled — the user's tap confirms. Four focused
+// targets Shaun actually uses: Grab (food + rides, rides preferred), Google Maps
+// (nav, + rides backup), WhatsApp (draft in his voice), airline app (check-in).
+// The ACTION is always the user's tap in the real app — Vis never transacts.
+function mapsLink(dest, mode) {
+  const m = mode === "walk" ? "walking" : mode === "transit" ? "transit" : "driving";
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=${m}`;
+}
+function grabLink(kind, q) {
+  // Grab's app deep-link. kind: "ride" | "food". Falls back to the app's scheme;
+  // native resolves to the installed app, or the store if absent.
+  if (kind === "food") return `grab://open?screenType=FOOD&searchKeyword=${encodeURIComponent(q || "")}`;
+  return `grab://open?screenType=BOOKING&dropoff=${encodeURIComponent(q || "")}`;
+}
+app.post("/action", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const { kind, target, query, dest, to, intent, tone, ridePref } = req.body || {};
+  try {
+    // RIDE — Grab first (Shaun's pick), Google Maps as the backup link.
+    if (kind === "ride") {
+      const where = dest || query || "";
+      return res.json({ ok: true, kind, say: where ? `Grab to ${where}, boss — tap to confirm the pickup.` : "Opening Grab for a ride — set your drop in the app.",
+        primary: { app: "grab", link: grabLink("ride", where) },
+        backup: { app: "google-maps", link: mapsLink(where, "driving") } });
+    }
+    // FOOD — Grab food, pre-searched.
+    if (kind === "food") {
+      const q = query || dest || "";
+      return res.json({ ok: true, kind, say: q ? `Grab food — searching ${q}. Your order, your tap.` : "Opening Grab food, boss.",
+        primary: { app: "grab", link: grabLink("food", q) } });
+    }
+    // NAVIGATE — hand off to Google Maps with the destination set.
+    if (kind === "navigate") {
+      const where = dest || query || "";
+      if (!where) return res.json({ ok: false, reason: "no-destination" });
+      return res.json({ ok: true, kind, say: `Directions to ${where} — over to Maps.`,
+        primary: { app: "google-maps", link: mapsLink(where, req.body.mode) } });
+    }
+    // WHATSAPP — Vis drafts in his voice; native sends via wa.me OR the Meta
+    // glasses, whichever's nearest. The send is always his tap.
+    if (kind === "whatsapp") {
+      if (!intent) return res.json({ ok: false, reason: "no-intent" });
+      const _r = await callClaude({
+        model: modelFor("cheap"), max_tokens: 200,
+        system: VIS_PERSONA + " Draft a short WhatsApp message for Shaun to send. Match his voice: warm, brief, natural. Return ONLY the message text, no preamble, no quotes.",
+        messages: [{ role: "user", content: `Message to ${to || "someone"}${tone ? ` (${tone})` : ""}: ${intent}` }],
+      });
+      const r = _r.status === 200 ? JSON.parse(_r.text) : { content: [{ text: "" }] };
+      const text = (r.content?.[0]?.text || "").trim();
+      if (!text) return res.json({ ok: false, reason: "empty" });
+      // Native picks the nearest send path: wa.me deep-link OR hand to Meta glasses.
+      return res.json({ ok: true, kind, to: to || "", text, say: `Drafted for ${to || "them"} — send from the glasses or your phone, whichever's to hand.`,
+        primary: { app: "whatsapp", link: `https://wa.me/${(to || "").replace(/[^0-9]/g, "")}?text=${encodeURIComponent(text)}` },
+        metaGlasses: { compose: text, to: to || "" } });   // Meta shell can fire this hands-free
+    }
+    // AIRLINE CHECK-IN — surface the booking + hand to the airline app/site.
+    if (kind === "checkin") {
+      const q = query || "";   // e.g. "Qantas" or a flight no.
+      return res.json({ ok: true, kind, say: q ? `Opening ${q} for check-in, boss.` : "Which airline, boss?",
+        primary: { app: "airline", link: req.body.url || "" }, needsAirline: !q });
+    }
+    return res.json({ ok: false, reason: "unknown-action" });
+  } catch (e) { res.json({ ok: false, reason: "error" }); }
+});
+
+// ── PROACTIVE ENGINE ─────────────────────────────────────────────────────
+// The "speak first" brain. Native wakes this on a background cadence (and/or on
+// events like arrival/geofence) and passes whatever ambient signals it has. The
+// brain decides — silently, most of the time — whether there is anything worth
+// saying UNPROMPTED right now, and returns one short line or nothing. All
+// judgment lives here; native only supplies the trigger + signals. This takes
+// "reads-the-room" from designed to shipping.
+//
+// GUARDRAILS: silence is the default; NEVER double up (a said-recently ledger
+// blocks repeats); a hard floor between any two unprompted lines (never nag);
+// respect situation() (mute / mid-conversation / working); never manufacture
+// urgency; never mention his body; nothing written to durable memory.
+const PROACTIVE_FLOOR_MS = 25 * 60000;    // ≥25 min between ANY two unprompted lines
+const PROACTIVE_DEDUP_MS = 6 * 3600000;   // don't repeat the SAME nudge within 6h
+app.post("/proactive", requireAuth, async (req, res) => {
+  const uid = uidOf(req);
+  const sig = req.body || {};   // native-supplied signals: { coords, place, movingFast, hour, battery, arrived, geofence, sceneHint }
+  try {
+    // 1. Is it even OK to speak? situation() already knows mute / mid-convo / working.
+    const sit = situation(uid);
+    if (sit.busy) return res.json({ speak: false, why: sit.why });
+
+    // 2. Never nag — floor between ANY two unprompted lines (only if one exists).
+    const last = (STORE.proactiveLast || {})[uid] || 0;
+    if (last && Date.now() - last < PROACTIVE_FLOOR_MS) return res.json({ speak: false, why: "spoke recently" });
+
+    // 3. Gather candidate reasons (cheap, local, no model call).
+    let candidates = proactiveCandidates(uid, sig);
+
+    // 4. DE-DUP: drop any candidate whose signature we've already spoken recently.
+    const said = (STORE.proactiveSaid || {})[uid] || {};
+    const nowMs = Date.now();
+    candidates = candidates.filter(c => {
+      const sigKey = c.kind + ":" + (c.key || c.text.slice(0, 40));
+      const when = said[sigKey];
+      return !when || nowMs - when > PROACTIVE_DEDUP_MS;   // unsaid, or said longer ago than the window
+    });
+    if (!candidates.length) return res.json({ speak: false, why: "nothing new worth saying" });
+
+    // 5. Persona decides + phrases the single best one — or stays quiet.
+    const top = candidates[0];
+    const _r = await callClaude({
+      model: modelFor("brain"),
+      max_tokens: 90,
+      system: VIS_PERSONA +
+        " You may speak UNPROMPTED to Shaun right now, but only if it genuinely helps in this moment. " +
+        "You're given the single best candidate reason. If it's clearly worth a short, calm heads-up, say it in one natural sentence — never salesy, never urgent unless it truly is. " +
+        "If it's marginal, reply with exactly NOTHING. Silence is almost always right; a good butler speaks rarely and only when it lands. Never mention his body/heart. Never ask how he feels.",
+      messages: [{ role: "user", content: `Candidate reason to speak: ${top.text}\nContext: ${top.ctx || ""}\nSpeak one short line, or reply NOTHING.` }],
+    });
+    const r = _r.status === 200 ? JSON.parse(_r.text) : { content: [{ text: "" }] };
+    const line = (r.content?.[0]?.text || "").trim();
+    if (!line || /^nothing\.?$/i.test(line)) return res.json({ speak: false, why: "brain chose silence" });
+
+    // 6. Speak — stamp BOTH the floor and the dedup ledger so it can't repeat.
+    STORE.proactiveLast = STORE.proactiveLast || {};
+    STORE.proactiveLast[uid] = nowMs;
+    STORE.proactiveSaid = STORE.proactiveSaid || {};
+    STORE.proactiveSaid[uid] = said;
+    said[top.kind + ":" + (top.key || top.text.slice(0, 40))] = nowMs;
+    // If we just surfaced a queued booking, drop it from the queue so it's done.
+    if (top.kind === "booking" && STORE.proactiveQueue && STORE.proactiveQueue[uid]) {
+      STORE.proactiveQueue[uid] = STORE.proactiveQueue[uid].filter(d => (d.key || d.id) !== top.key);
+    }
+    // keep the ledger small — drop entries older than the dedup window
+    for (const k of Object.keys(said)) if (nowMs - said[k] > PROACTIVE_DEDUP_MS) delete said[k];
+    saveStore();
+    res.json({ speak: true, line, kind: top.kind });
+  } catch (e) {
+    res.json({ speak: false, why: "error" });
+  }
+});
+
+// Cheap, local scan for reasons Vis MIGHT speak up — ranked, no model call. Each
+// returns {kind, key, text, ctx, weight}. `key` is the DE-DUP identity: two
+// candidates with the same kind+key are "the same nudge" and won't repeat within
+// the dedup window. Add new proactive sources here (one place, architecture rule).
+function proactiveCandidates(uid, sig) {
+  const out = [];
+  const now = Date.now();
+
+  // Arrival near saved memory — "last time near here you loved X".
+  if (sig.arrived && sig.coords) {
+    const near = recallFor(uid, `near ${sig.place || ""} loved place`, 2) || [];
+    if (near.length) out.push({ kind: "recall", key: sig.place || "here", weight: 7, text: `Shaun just arrived near ${sig.place || "somewhere"} and previously noted: ${near.join("; ")}.`, ctx: "surface only if useful right here" });
+  }
+
+  // Low battery while out and moving (he's relying on Vis — don't die silently).
+  if (typeof sig.battery === "number" && sig.battery <= 15 && sig.movingFast) {
+    out.push({ kind: "battery", key: "low", weight: 8, text: `The glasses battery is at ${sig.battery}% and he's on the move — he may want the spare before it dies.`, ctx: "he carries a C2 power bank with spare batteries" });
+  }
+
+  // A queued booking/pass condition — only once we're inside its nudge window
+  // (fireFrom), and drop it from the queue once surfaced so it can't repeat.
+  const q = (STORE.proactiveQueue || {})[uid] || [];
+  const ripe = q.find(d => (!d.fireFrom || now >= d.fireFrom) && (!d.whenMs || now <= d.whenMs + 3600000));
+  if (ripe) out.push({ kind: "booking", key: ripe.key || ripe.id, weight: 9, text: ripe.text, ctx: ripe.ctx || "" });
+
+  // Late + still out (gentle, never alarmist, adult — one nudge a night max via dedup).
+  if (sig.hour != null && (sig.hour >= 23 || sig.hour < 4) && sig.movingFast === false && sig.place) {
+    out.push({ kind: "latenight", key: "tonight", weight: 4, text: `It's ${sig.hour}:00 and he's still out near ${sig.place}.`, ctx: "only if it reads like he might want to head back — never nag" });
+  }
+
+  return out.sort((a, b) => b.weight - a.weight);
+}
+
 function situation(uid) {
   const now = Date.now();
   const prof = profileOf(uid) || {};

@@ -176,6 +176,23 @@
   .sheet-card label{display:block;font-size:12px;color:var(--paper-dim);margin:14px 0 5px}
   .sheet-card input{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--midnight);color:var(--paper);font:inherit}
   .sheet-card .row{display:flex;gap:10px;margin-top:18px}
+  /* ── Model picker GUI ── */
+  .mp-health{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 6px;font-size:12px}
+  .mp-health .p{display:flex;align-items:center;gap:6px;color:var(--paper-dim)}
+  .mp-health .dot{width:9px;height:9px;border-radius:50%;background:#3ddc97}
+  .mp-health .dot.off{background:#4a557a}
+  .mp-health .dot.down{background:#ff5c6c}
+  .mp-row{padding:13px 0;border-top:1px solid var(--line)}
+  .mp-row:first-of-type{border-top:none}
+  .mp-row .mp-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .mp-row .mp-name{font-weight:600;font-size:14px}
+  .mp-row .mp-why{font-size:11px;color:var(--paper-dim);margin:3px 0 9px;line-height:1.4}
+  .mp-seg{display:flex;gap:6px;flex-wrap:wrap}
+  .mp-seg button{flex:1;min-width:72px;padding:9px 6px;border-radius:9px;border:1px solid var(--line);
+    background:var(--midnight);color:var(--paper-dim);font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .12s}
+  .mp-seg button.on{background:var(--accent,#5b9dff);color:#fff;border-color:transparent}
+  .mp-seg button:disabled{opacity:.35;cursor:not-allowed}
+  .mp-seg button .sub{display:block;font-size:9px;font-weight:400;opacity:.8;margin-top:1px}
   .sheet-card button{flex:1;padding:12px;border-radius:11px;border:none;font:inherit;font-weight:600;cursor:pointer}
   .btn-primary{background:var(--amber);color:#2a1c02}
   .btn-ghost{background:transparent;color:var(--paper);border:1px solid var(--line)!important}
@@ -1089,6 +1106,7 @@
     <div class="tile" onclick="readMenu()"><span class="badge live">live</span><div class="ic">🍽️</div><h3>Read a menu</h3><p>Safe picks & prices</p></div>
     
     <div class="tile" onclick="keysView()"><span class="badge live">live</span><div class="ic">🔑</div><h3>Service keys</h3><p>Set & test from here</p></div>
+    <div class="tile" onclick="modelPicker()"><span class="badge live">live</span><div class="ic">🧠</div><h3>Which AI runs what</h3><p>Pick a model per part</p></div>
     <div class="tile" onclick="logBug('')"><span class="badge live">live</span><div class="ic">🐞</div><h3>Log a bug</h3><p>Captures the context</p></div>
     <div class="tile" onclick="bugsView()"><span class="badge live">live</span><div class="ic">📋</div><h3>Bug log</h3><p>Copy for Claude</p></div>
     <div class="tile" onclick="testRunner()"><span class="badge live">live</span><div class="ic">🧪</div><h3>Test runner</h3><p>Check every function</p></div>
@@ -1099,6 +1117,20 @@
   </div>
 
   <div class="foot">APERTURE · phone does the work · glasses do the living</div>
+
+  <!-- Model picker GUI sheet -->
+  <div class="sheet" id="mpSheet">
+    <div class="sheet-card">
+      <h3>Which AI runs what</h3>
+      <p style="font-size:12px;color:var(--paper-dim)">Tap a model for each part. Saves instantly — no redeploy.</p>
+      <div class="mp-health" id="mpHealth"></div>
+      <div id="mpRows"></div>
+      <div class="row">
+        <button class="btn-ghost" onclick="mpReset()">Reset to best</button>
+        <button class="btn-primary" onclick="closeModelPicker()">Done</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Settings sheet -->
   <div class="sheet" id="sheet">
@@ -1402,7 +1434,11 @@
       el.style.cursor='pointer';
       el.onclick=()=>{ clearTimeout(t.handle); timers=timers.filter(x=>x.id!==t.id); el.textContent='✓ cancelled — '+t.label; renderTimers(); };
     });
-    say(`${timers.length} timer${timers.length>1?'s':''} running.`);
+    const spoken=timers.slice(0,4).map(t=>{ const left=Math.max(0,Math.round((t.ends-Date.now())/1000));
+      return `${t.label}, ${Math.floor(left/60)} minute${Math.floor(left/60)!==1?'s':''} ${left%60} left`;
+    });
+    const more=timers.length>4?`, plus ${timers.length-4} more`:'';
+    say(`${timers.length} timer${timers.length>1?'s':''}: ${spoken.join('; ')}${more}.`);
   }
   function renderTimers(){
     const g=document.getElementById('glance'); if(!g) return; renderGlance();
@@ -1420,7 +1456,12 @@
         el.style.cursor='pointer';
         el.onclick=async()=>{ if(await askYesNo('Remove: '+(w.what||r.label)+'?')){ await api('/watchers',{action:'remove',id:r.id}); el.textContent='✓ removed'; } };
       });
-      say(`${rem.length} reminder${rem.length>1?'s':''} — they're on screen.`);
+      const spoken=rem.slice(0,4).map(r=>{ const w=r.args||{};
+        const dueTxt=r.due? new Date(r.due).toLocaleString('en-AU',{weekday:'short',hour:'numeric',minute:'2-digit'}) : (w.place?('at '+w.place):'no time set');
+        return `${w.what||r.label} ${dueTxt}`;
+      });
+      const more=rem.length>4?`, and ${rem.length-4} more`:'';
+      say(`You've got ${rem.length} reminder${rem.length>1?'s':''}: ${spoken.join('; ')}${more}.`);
     }catch(e){ addMsg('buddy','Reminders unreachable — is the brain deployed?'); }
   }
 
@@ -1449,7 +1490,9 @@
         el.style.cursor='pointer';
         el.onclick=async()=>{ if(await askYesNo('Remove watcher: '+w.label+'?')){ await api('/watchers',{action:'remove',id:w.id}); el.style.opacity='.4'; el.textContent='✓ removed — '+w.label; } }; });
       (data.results||[]).slice(-3).forEach(r=>addMsg('buddy','• '+r.spoken));
-      say(`${data.watchers.length} watcher${data.watchers.length>1?'s':''} running — they're on screen.`);
+      const names=data.watchers.slice(0,4).map(w=>w.label).join('; ');
+      const more=data.watchers.length>4?`, and ${data.watchers.length-4} more`:'';
+      say(`${data.watchers.length} watcher${data.watchers.length>1?'s':''} running: ${names}${more}.`);
     }catch(e){ addMsg('buddy','Watchers unreachable — is the brain deployed?'); }
   }
   // Fresh watcher news lands in the opening brief.
@@ -2205,7 +2248,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='159';
+  const BUILD_VERSION='167';
   async function logBug(report){
     if(!report){
       report=await askText("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -2659,12 +2702,94 @@
         };
       });
       addMsg('buddy','Stored on your own server. Ask me for any of these when you need them.');
-      say('Your documents are on screen.');
+      const have=(data.fields||[]).filter(f=>d[f]).map(f=>LABELS[f]||f);
+      const missing=(data.fields||[]).filter(f=>!d[f]).map(f=>LABELS[f]||f);
+      const haveLine=have.length?`I've got your ${have.slice(0,6).join(', ')} on file`:`Nothing on file yet`;
+      const missLine=missing.length?`. Still missing: ${missing.slice(0,4).join(', ')}.`:`.`;
+      say(`${haveLine}${missLine} Ask me for any one and I'll read it out.`);
     }catch(e){ addMsg('buddy','Documents unreachable — is the brain deployed?'); }
   }
 
   // 🔑 SERVICE KEYS (batch 84): set API keys from the phone. No Render
   // dashboard, no redeploy — the server reads them live from durable storage.
+  // 🧠 MODEL PICKER — choose which AI runs each part of Vis. Reads /models/config
+  // (roles + which providers have keys), lets you tap a role and pick a model.
+  // Saves live: the brain uses the new choice on the next call, no redeploy.
+  // 🧠 MODEL PICKER — a proper GUI panel with switches. Each part shows the
+  // available models as tappable segments; the active one is highlighted. Tap to
+  // switch → saves live. Provider health lights across the top.
+  let _mpData=null;
+  async function modelPicker(){
+    try{ history.pushState({vision:'layer'},''); }catch(e){} updateBackBtn&&updateBackBtn();
+    const sheet=document.getElementById('mpSheet');
+    document.getElementById('mpRows').innerHTML='<p style="color:var(--paper-dim);font-size:12px">Loading…</p>';
+    sheet.classList.add('open');
+    try{
+      const {data}=await api('/models/config',{});
+      _mpData=data;
+      renderModelPicker();
+    }catch(e){ document.getElementById('mpRows').innerHTML='<p style="color:var(--paper-dim);font-size:12px">Model settings unreachable — is the brain deployed?</p>'; }
+  }
+  function closeModelPicker(){ document.getElementById('mpSheet').classList.remove('open'); }
+  const MP_PROV={anthropic:'Claude',gemini:'Gemini',openai:'OpenAI'};
+  function renderModelPicker(){
+    const data=_mpData; if(!data) return;
+    const models=data.models||[];
+    const provOn=data.providers||{anthropic:true};
+    // health lights (also reflects out-of-credit if we've heard about it)
+    const H=document.getElementById('mpHealth');
+    H.innerHTML='';
+    ['anthropic','gemini','openai'].forEach(pv=>{
+      const on=provOn[pv];
+      const d=document.createElement('div'); d.className='p';
+      d.innerHTML=`<span class="dot ${on?'':'off'}" data-pv="${pv}"></span>${MP_PROV[pv]}${on?'':' <span style="opacity:.6">(add key)</span>'}`;
+      H.appendChild(d);
+    });
+    // one row per part, with a segmented switch of the models available to it
+    const rows=document.getElementById('mpRows'); rows.innerHTML='';
+    (data.roles||[]).forEach(role=>{
+      const row=document.createElement('div'); row.className='mp-row';
+      const head=document.createElement('div'); head.className='mp-head';
+      head.innerHTML=`<span class="mp-name">${role.label}</span>`;
+      row.appendChild(head);
+      const why=document.createElement('div'); why.className='mp-why'; why.textContent=role.help; row.appendChild(why);
+      const seg=document.createElement('div'); seg.className='mp-seg';
+      models.forEach(m=>{
+        const b=document.createElement('button');
+        const short=m.label.replace(/ \(.*\)$/,'');
+        const tier=(m.label.match(/\((.*)\)$/)||[])[1]||'';
+        b.innerHTML=`${short}${tier?`<span class="sub">${tier}</span>`:''}`;
+        if(m.id===role.chosen) b.classList.add('on');
+        const avail = m.provider==='anthropic' || provOn[m.provider];
+        if(!avail) b.disabled=true;
+        b.onclick=async()=>{
+          if(m.id===role.chosen) return;
+          seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+          b.classList.add('on');
+          const r=await api('/models/config',{action:'set',role:role.id,model:m.id});
+          if(r.data&&r.data.ok){ role.chosen=m.id; tone&&tone('tick'); }
+          else { b.classList.remove('on'); const cur=seg.querySelector(`button[data-id="${role.chosen}"]`); }
+        };
+        b.setAttribute('data-id',m.id);
+        seg.appendChild(b);
+      });
+      row.appendChild(seg);
+      rows.appendChild(row);
+    });
+    // nudge to unlock more if a provider key is missing
+    if(!provOn.gemini || !provOn.openai){
+      const n=document.createElement('p');
+      n.style.cssText='font-size:11px;color:var(--paper-dim);margin-top:14px';
+      n.innerHTML='Add a Gemini or OpenAI key in 🔑 Service keys to unlock those options.';
+      rows.appendChild(n);
+    }
+  }
+  async function mpReset(){
+    await api('/models/config',{action:'reset'});
+    const {data}=await api('/models/config',{}); _mpData=data; renderModelPicker();
+    say('Reset to the recommended mix.');
+  }
+
   async function keysView(){
     openChat(); addMsg('me','🔑 Service keys');
     try{
@@ -2749,6 +2874,8 @@
     if(document.getElementById('lookOverlay')) return 'look';
     const st=document.getElementById('sheet');
     if(st && st.classList.contains('open')) return 'settings';
+    const mp=document.getElementById('mpSheet');
+    if(mp && mp.classList.contains('open')) return 'models';
     const ch=document.getElementById('chat');
     if(ch && ch.classList.contains('open')) return 'chat';
     return null;
@@ -2763,6 +2890,7 @@
         break; }
       case 'look':     try{ stopLook(); }catch(e){ const o=document.getElementById('lookOverlay'); if(o) o.remove(); } break;
       case 'settings': closeSettings(); break;
+      case 'models':   closeModelPicker(); break;
       case 'chat':     closeChat(); break;
       default:         return false;      // nothing open — let the browser handle it
     }
@@ -3551,6 +3679,15 @@
   // where, when, weather, what's nearby. A low-res glance only when something
   // changed. Everything becomes text the whole brain can recall.
   let lifelogTimer=null, lastLogPlace='', lastLogAt=0;
+  let lifelogLastPos=null, lifelogLastMoveAt=0;   // smart-on: track movement to sleep when idle
+  let lastSpeedMps=0;   // most recent GPS speed (m/s), updated by movement checks
+  // Riding/at-speed detector for live-mode audio-only default. Uses last known
+  // GPS speed; native can also push a truer value. ~14 km/h+ = on a vehicle,
+  // not walking. Errs toward "not fast" if we've no reading (feed stays on).
+  function isMovingFast(){
+    if(window.visSpeedMps!=null){ try{ return Number(window.visSpeedMps)>=4; }catch(e){} }
+    return lastSpeedMps>=4;   // 4 m/s ≈ 14.4 km/h
+  }
   function lifelogOn(){ return localStorage.buddy_lifelog==='on'; }
   async function lifelogTick(force){
     try{
@@ -3559,6 +3696,22 @@
       const pos=await new Promise(r=>navigator.geolocation.getCurrentPosition(
         p=>r(p.coords), ()=>r(null), {enableHighAccuracy:false,timeout:8000,maximumAge:60000}));
       if(!pos) return;
+      if(pos.speed!=null && !isNaN(pos.speed)) lastSpeedMps=Math.max(0,pos.speed);
+      // SMART-ON self-quieting: if he's basically not moved since last tick AND
+      // nothing new is around, ambient goes quiet — don't log the same spot over
+      // and over. A companion tunes out when you're sitting still; it doesn't
+      // keep a notepad running while you nurse a coffee. Saves battery + keeps
+      // recall clean (noise is what makes memory useless). Moving again wakes it.
+      if(!force && lifelogLastPos){
+        const dLat=(pos.latitude-lifelogLastPos.lat)*111000;
+        const dLng=(pos.longitude-lifelogLastPos.lng)*111000*Math.cos(pos.latitude*Math.PI/180);
+        const movedM=Math.sqrt(dLat*dLat+dLng*dLng);
+        const idleFor=Date.now()-(lifelogLastMoveAt||0);
+        if(movedM<40){                          // basically stationary
+          if(idleFor>600000) return;            // idle >10min → sleep, log nothing
+        } else { lifelogLastMoveAt=Date.now(); }
+      } else { lifelogLastMoveAt=Date.now(); }
+      lifelogLastPos={lat:pos.latitude,lng:pos.longitude};
       lastLogAt=Date.now();
       // Tier 2 decision: only glance when the place looks NEW to us.
       let glance=null;
@@ -3596,6 +3749,367 @@
     lifelogTick(true);
   }
   function lifelogStop(){ localStorage.buddy_lifelog='off'; if(lifelogTimer){ clearInterval(lifelogTimer); lifelogTimer=null; } }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // AMBIENT AUDIO + LIVE MODE (native-driven; web holds the logic + hooks).
+  // Web can't keep a background mic or a live video session alive — that's the
+  // native shell's job. These functions are the BRAIN side: what to do with a
+  // transcript chunk, when to summarise, how a live session logs. Native calls
+  // window.visAmbient(chunk) and window.visLive(...) into here. Same seam
+  // pattern as window.visionAnswer / setBattery.
+  // ══════════════════════════════════════════════════════════════════════
+
+  // AMBIENT AUDIO — native streams short transcript chunks here while ambient is
+  // on. We DON'T store raw audio or raw transcript; we let the salience gate on
+  // the server decide what's worth keeping, and only a SUMMARY lands in memory.
+  // Smart-on: native only sends chunks when there's speech worth catching.
+  async function visAmbient(chunk){
+    if(!lifelogOn()) return;                         // ambient off → ignore
+    if(localStorage.buddy_ambient_audio==='off') return;   // audio half opt-out
+    const text=String(chunk||'').trim();
+    if(text.length<4) return;
+    try{
+      // Server transcribes-if-needed, summarises, runs consider() salience gate,
+      // keeps only the durable nugget ("shoulder's tight", "waterfall tomorrow").
+      await api('/lifelog/audio',{ text, at:Date.now(),
+        place:localStorage.buddy_city||'', myName:localStorage.buddy_myname||'Shaun' });
+    }catch(e){}
+  }
+  window.visAmbient = visAmbient;   // native hook
+
+  // LIVE MODE — a deliberate, opt-in burst: continuous video + full conversation.
+  // Native opens the session (camera feed + mic), pushes turns here, and closes
+  // it. Each live session's SUBSTANCE gets summarised into memory (not the raw
+  // feed). Native auto-keeps a couple of key frames per session so "send a pic
+  // of the temple" can work later; everything else is discarded.
+  let liveOn=false, liveStartedAt=0, liveLastActivityAt=0;   // lifecycle: auto-stop if forgotten
+  function liveStart(topic){
+    if(liveOn) return;
+    liveOn=true; localStorage.buddy_live='on'; liveStartedAt=Date.now(); liveLastActivityAt=Date.now();
+    openChat();
+    // SAFETY: if he's moving at speed (riding), default to AUDIO-ONLY — Vis still
+    // narrates what it sees, but the visual feed he'd look at is suppressed so his
+    // eyes stay on the road. He can OVERRIDE with "keep the feed on while I ride".
+    // The whole point: safe by default, but he's always the boss.
+    const riding = isMovingFast() && localStorage.buddy_live_feed_riding!=='on';
+    const audioOnly = riding;
+    let m = topic ? `Live — walking ${topic} with you. Talk away, boss; say "that's enough" when you're done.`
+                  : `Live mode on, boss. I'm seeing what you see — talk to me. Say "that's enough" to stop.`;
+    if(audioOnly) m = topic ? `Live on ${topic}, boss — audio only while you're moving, eyes on the road. Say "keep the feed on while I ride" if you want the picture too.`
+                            : `Live, audio only while you're moving, boss — I'll talk you through what I see, eyes on the road. Say "keep the feed on while I ride" to override.`;
+    addMsg('buddy','🎥 '+m); say(m);
+    cueLiveUp();
+    // Native hook: start the real session. audioOnly tells native to skip the
+    // visual feed but keep the camera reading + mic for narration.
+    if(window.visLiveStart) try{ window.visLiveStart(topic||'', { audioOnly }); }catch(e){}
+  }
+  function liveStop(){
+    if(!liveOn) return;
+    liveOn=false; localStorage.buddy_live='off';
+    if(window.visLiveStop) try{ window.visLiveStop(); }catch(e){}
+    // Fire-and-forget: server summarises the session into memory (substance, not feed).
+    try{ api('/live/summarise',{ at:Date.now(), place:localStorage.buddy_city||'' }).catch(()=>{}); }catch(e){}
+    const m='Done. I\u2019ve kept the gist, boss.'; addMsg('buddy','🎥 '+m); cueLiveDown(); say(m);
+  }
+  // Native pushes each live turn (what Vis said / saw) here so it threads + logs.
+  window.visLive = function(turn){
+    if(!liveOn) return;
+    liveLastActivityAt=Date.now();
+    try{ api('/live/turn',{ turn:String(turn||'').slice(0,2000), at:Date.now() }).catch(()=>{}); }catch(e){}
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // SENSOR FUSION — heart-rate-triggered scene-read (native-driven).
+  // The "other mode": Vis reads how HE is, not just where he is. Native pushes
+  // a heart-rate state (baseline/current/spike) via window.visHeart, and — only
+  // on a spike — an on-device scene read via window.visScene. We FUSE the two
+  // with context (time/place/moving/heat/lost) and let the server decide whether
+  // converging evidence warrants a gentle offer, or silence. Same seam pattern
+  // as visAmbient/visLive: brain holds the judgment, native supplies the senses.
+  //
+  // HARD RULES (his body = high care): no single signal acts alone; HR alone
+  // only triggers a LOOK, never speech. Never medicalise/alarm. Never nag (one
+  // offer, then drop). Scene frame is read on-device + discarded. Stress data is
+  // transient — NEVER written to durable memory. Offer, don't insist.
+  // ══════════════════════════════════════════════════════════════════════
+  let visHeartState=null, lastFuseAt=0, fuseOfferedAt=0;
+  // Native pushes heart state here. {baseline, current, spike:true|false}
+  window.visHeart = function(state){
+    try{
+      visHeartState = state || null;
+      // Only a SPIKE asks Vis to look — and only if a mode is active that makes
+      // sense to act in (ambient on, or live). No spike / no mode → do nothing.
+      if(state && state.spike && (lifelogOn()||liveOn)){
+        if(Date.now()-lastFuseAt < 90000) return;   // don't re-look constantly
+        lastFuseAt=Date.now();
+        if(window.visRequestScene) try{ window.visRequestScene(); }catch(e){}  // ask native for one on-device scene read
+      }
+    }catch(e){}
+  };
+  // Native pushes the on-device scene read here (a short label, image discarded).
+  // e.g. "crowded indoor market", "gym, exercising", "empty street, night", "open road".
+  window.visScene = function(read){
+    try{ fuseAndMaybeSpeak(String(read||'').slice(0,200)); }catch(e){}
+  };
+
+  // Cross-check HR + scene + context, ask the server for the fused judgement.
+  async function fuseAndMaybeSpeak(sceneRead){
+    if(!visHeartState || !visHeartState.spike) return;    // signal gone stale
+    if(Date.now()-fuseOfferedAt < 600000) return;         // never nag: 10-min floor between offers
+    let pos=null;
+    try{ pos=await new Promise(r=>navigator.geolocation.getCurrentPosition(p=>r(p.coords),()=>r(null),{maximumAge:60000,timeout:6000})); }catch(e){}
+    const hr=new Date().getHours();
+    const ctx={
+      scene: sceneRead,
+      heart: { baseline: visHeartState.baseline||0, current: visHeartState.current||0 },
+      hour: hr, isLate: (hr>=22||hr<5), isDark: (hr>=19||hr<6),
+      moving: !!(pos && lifelogLastPos),
+      city: localStorage.buddy_city||'', country: localStorage.buddy_country||'',
+      lat: pos?pos.latitude:null, lng: pos?pos.longitude:null
+    };
+    try{
+      const {data}=await api('/fuse', ctx).catch(()=>({data:{}}));
+      // Server returns { act:true/false, spoken } — only speaks on CONVERGING
+      // evidence. Stress data is NOT logged; /fuse never writes to memory.
+      if(data && data.act && data.spoken){
+        fuseOfferedAt=Date.now();
+        openChat(); addMsg('buddy', data.spoken); say(data.spoken);
+      }
+      // act:false → silence. Correct output most of the time.
+    }catch(e){}
+    visHeartState=null;   // consume the spike; wait for the next one
+  }
+
+  // ══ PROACTIVE — the "speak first" hook ═══════════════════════════════════
+  // NATIVE calls window.visProactive() on a background cadence (say every 10-15
+  // min while active) and/or on events (arrival, geofence cross, battery drop).
+  // The brain decides whether there's anything worth saying UNPROMPTED and, if
+  // so, Vis speaks it. All the judgment + de-dup lives server-side; native just
+  // supplies signals + the trigger. On web this is a stub (no background wake) —
+  // it becomes real when the native shell can wake in the background.
+  // ── APPLE WATCH / WEARABLE SENSOR SEAM ───────────────────────────────────
+  // ONE entry point the native shell calls with whatever the watch is reading.
+  // It fans each reading out to the engine that already consumes it, so the
+  // native side implements a single function instead of learning four hooks.
+  // Nothing here is new judgment — every signal lands in a tested engine:
+  //   heart  → window.visHeart (heart-spike + scene fusion, already built)
+  //   motion → window.visSpeedMps (isMovingFast → proactive "movingFast")
+  //   coords → window.visWatchCoords (proactive arrival/geofence triggers)
+  //   battery→ window.visBatteryPct (low-battery-while-moving nudge)
+  // Called on the watch's own cadence; safe to call often — it only stores.
+  window.visWatch = function(reading){
+    try{
+      if(!reading) return;
+      // Heart rate → the existing fusion engine (expects {baseline,current,spike}).
+      if(reading.heart){ try{ window.visHeart(reading.heart); }catch(e){} }
+      // Motion → the same speed signal isMovingFast() already reads.
+      if(reading.speedMps!=null) window.visSpeedMps = Number(reading.speedMps);
+      // Location from the watch (useful when the phone's in a bag).
+      if(reading.coords) window.visWatchCoords = reading.coords;
+      // Watch battery is its own thing; only override if native says to.
+      if(reading.batteryPct!=null && reading.useAsBattery) window.visBatteryPct = Number(reading.batteryPct);
+    }catch(e){}
+  };
+  // ACTION BUTTON (Ultra) / complication tap → wake Vis hands-free.
+  // Native maps the physical button to this; it opens the mic exactly like
+  // tapping 🎤, so one press starts a conversation with a helmet on.
+  window.visWake = function(){
+    try{
+      openChat();
+      if(typeof handsFree!=='undefined' && !handsFree && typeof micDictate==='function'){ micDictate(); }
+      else if(typeof startListening==='function'){ startListening(); }
+      return true;
+    }catch(e){ return false; }
+  };
+
+  window.visProactive = async function(nativeSignals){    try{
+      let pos=null;
+      try{ pos=await new Promise(r=>navigator.geolocation.getCurrentPosition(p=>r(p.coords),()=>r(null),{maximumAge:120000,timeout:6000})); }catch(e){}
+      // Watch on the wrist beats a phone in a bag — fall back to its fix.
+      const wc = window.visWatchCoords || null;
+      const hr=new Date().getHours();
+      const sig=Object.assign({
+        coords: pos?{lat:pos.latitude,lng:pos.longitude}:(wc?{lat:wc.lat,lng:wc.lng}:null),
+        place: localStorage.buddy_city||'',
+        movingFast: (typeof isMovingFast==='function')?isMovingFast():false,
+        hour: hr,
+        battery: (window.visBatteryPct!=null)?window.visBatteryPct:null,
+      }, nativeSignals||{});   // native can pass arrived/geofence/battery/sceneHint to override
+      const {data}=await api('/proactive',sig);
+      if(data && data.speak && data.line){
+        cueAlert();                          // gentle rise so an unprompted line never startles
+        openChat(); addMsg('buddy',data.line); say(data.line);
+        return true;
+      }
+    }catch(e){}
+    return false;
+  };
+
+  // ══ ECOSYSTEM BRIDGES (native-ready, web stubs) ═════════════════════════
+  // Each mirrors the window.vis* pattern: native supplies the data/action, the
+  // brain does the thinking. On web they explain they need native. Ready to wire.
+  //
+  // GMAIL: native calls window.visInbox(messages) to hand the brain recent mail;
+  // or the user asks "any booking emails?" and we request them from native.
+  window.visInbox = async function(messages){
+    try{
+      const {data}=await api('/inbox/scan',{messages:messages||[]});
+      if(data && data.ok && data.items && data.items.length){
+        const lines=data.items.map(it=>`• ${it.label}${it.when?` — ${it.when}`:''}${it.detail?` (${it.detail})`:''}`).join('\n');
+        openChat(); addMsg('buddy','From your inbox:\n'+lines);
+        return data.items;
+      } else if(data && !data.ok && data.reason==='no-inbox'){
+        openChat(); addMsg('buddy','I can read booking confirmations once Gmail is connected on the phone, boss.');
+      } else { openChat(); addMsg('buddy','Nothing travel-related in the recent mail, boss.'); }
+    }catch(e){}
+    return [];
+  };
+  // WALLET / boarding pass: native calls window.visWallet(pass).
+  window.visWallet = async function(pass){
+    try{
+      const {data}=await api('/wallet/read',{pass:pass||null});
+      if(data && data.ok && data.pass){
+        const m=data.pass.summary?`Your ${data.pass.kind}: ${data.pass.summary}.`:'Got your pass, boss.';
+        openChat(); addMsg('buddy',m); say(m); return data.pass;
+      } else { openChat(); addMsg('buddy','No boarding pass to read yet — it comes from Apple Wallet once that\u2019s wired on the phone.'); }
+    }catch(e){}
+    return null;
+  };
+  // WHATSAPP: brain drafts, native sends on the user's tap via window.visWhatsApp.
+  // ── ACTION HANDOFF: Vis is the brain, the native app is the hands ──
+  // Works out the intent, asks the server for the right deep-link, and hands off
+  // to Grab / Google Maps / WhatsApp / the airline app. The native shell opens
+  // the link with everything pre-filled; the user's tap confirms — Vis never
+  // transacts. On web it explains the handoff (no app to open).
+  async function visAction(opts){
+    try{
+      // enrich with current place for rides/nav if the user didn't name one
+      if((opts.kind==='ride'||opts.kind==='navigate') && !opts.dest && !opts.query){
+        opts.query = localStorage.buddy_city||'';
+      }
+      const {data}=await api('/action',opts);
+      if(!data || !data.ok){
+        const why = data && data.reason==='no-destination' ? 'Where to, boss?'
+          : data && data.needsAirline ? 'Which airline, boss?'
+          : "Couldn't set that up, boss.";
+        openChat(); addMsg('buddy',why); say(why); return;
+      }
+      openChat(); if(data.say) addMsg('buddy',data.say);
+      // NATIVE opens the deep-link; on web we show it can't.
+      if(window.visOpen && data.primary && data.primary.link){
+        try{ window.visOpen(data.primary.app, data.primary.link, {backup:data.backup||null, meta:data.metaGlasses||null}); }catch(e){}
+        if(data.say) say(data.say);
+      } else {
+        say((data.say?data.say+' ':'')+'That opens on the phone, boss.');
+      }
+      return data;
+    }catch(e){ const m="Couldn't reach that just now, boss."; openChat(); addMsg('buddy',m); say(m); }
+  }
+
+  // If the message references a photo ("send that pic") and native has a kept
+  // frame, it's attached — connecting the frame-keeping system to the send path.
+  async function whatsappSend(to, intent, tone){
+    try{
+      const wantsPhoto=/\b(pic|picture|photo|shot|that view|what i'?m seeing)\b/i.test(intent||'');
+      const {data}=await api('/whatsapp/compose',{to,intent,tone});
+      if(data && data.ok && data.text){
+        openChat(); addMsg('buddy','Draft for '+(to||'them')+':\n\u201c'+data.text+'\u201d'+(wantsPhoto?'\n(with your last kept photo, if there is one)':''));
+        if(window.visWhatsApp){
+          try{ window.visWhatsApp(data.to,data.text,{attachKeptFrame:wantsPhoto}); }catch(e){}
+          say(wantsPhoto?'Drafted it with the photo — tap to send in WhatsApp.':'Drafted it — tap to send in WhatsApp.');
+        }
+        else { say('Here\u2019s the draft, boss. WhatsApp send goes live on the phone.'); }
+        return data;
+      }
+    }catch(e){}
+    return null;
+  }
+  window.visWhatsAppCompose = whatsappSend;   // exposed for native/testing
+
+  // ══ SESSION LIFECYCLE WATCHDOG ══════════════════════════════════════════
+  // A mode left running quietly costs battery + privacy. This is the safety net
+  // he asked for: live auto-ENDS if he's clearly wandered off, and ambient gets
+  // ONE gentle "still logging?" after a long run (never nags — asks once, then
+  // respects the answer / auto-stops). Not a timer that pesters — a companion
+  // noticing the tap's been left running.
+  let ambientCheckedAt=0, ambientStartedAt=0;
+  function lifecycleTick(){
+    const now=Date.now();
+    // LIVE: auto-end after 8 min of no interaction (he said "Vis live" then got
+    // distracted / walked off). Ends itself, tells him once via the alert cue.
+    if(liveOn && liveLastActivityAt && now-liveLastActivityAt > 480000){
+      cueAlert();
+      const m="Closed the live session, boss — you'd gone quiet a while. Say \u201cVis live\u201d whenever you want it back.";
+      openChat(); addMsg('buddy',m); say(m);
+      liveStop();
+    }
+    // AMBIENT: after ~3h continuous, check in ONCE. Not again unless he restarts.
+    if(lifelogOn()){
+      if(!ambientStartedAt) ambientStartedAt=now;
+      if(now-ambientStartedAt > 10800000 && now-ambientCheckedAt > 10800000){
+        ambientCheckedAt=now;
+        cueAlert();
+        const m="Still logging your day, boss — been on a good while. Want me to keep going, or wrap it? Say \u201cstop life log\u201d to wrap.";
+        openChat(); addMsg('buddy',m); say(m);
+      }
+    } else { ambientStartedAt=0; }
+    // PROVIDER HEALTH: every ~5 min, ask the brain if a model provider has gone
+    // down (out of credit / key rejected). The brain auto-fails-over to Claude so
+    // nothing stops working — this just tells Shaun once so he can top it up.
+    if(now-(window._provCheckedAt||0) > 300000){
+      window._provCheckedAt=now;
+      checkProviders();
+      checkBudget();
+    }
+  }
+  // Budget warning: warns ONCE when month-to-date crosses 80% of the set ceiling,
+  // and ONCE when it hits/exceeds 100%. Resets each new month. Off unless a
+  // budget is set. Same heads-up-not-nag pattern as the credit warnings.
+  async function checkBudget(){
+    try{
+      const {data}=await api('/spend',{});
+      if(!data.budget) return;                         // no budget set → nothing to do
+      const f=n=>'$'+Number(n||0).toFixed(2);
+      const monthKey=new Date().toISOString().slice(0,7);
+      let st={}; try{ st=JSON.parse(localStorage.buddy_budget_warned||'{}'); }catch(e){}
+      if(st.month!==monthKey){ st={month:monthKey,w80:false,w100:false}; }  // new month resets
+      const pct=data.budgetPct||0;
+      if(pct>=100 && !st.w100){
+        st.w100=true; st.w80=true; cueAlert();
+        const m=`Boss — you've hit your ${f(data.budget)} monthly budget (${f(data.thisMonth)} so far). Everything still works; just flagging it so there's no surprise.`;
+        openChat(); addMsg('buddy',m); say(m);
+      } else if(pct>=80 && !st.w80){
+        st.w80=true; cueAlert();
+        const m=`Heads up, boss — you're at ${pct}% of your ${f(data.budget)} monthly budget (${f(data.thisMonth)} so far)${data.projectedPct?`, tracking toward about ${data.projectedPct}% by month end`:''}.`;
+        openChat(); addMsg('buddy',m); say(m);
+      }
+      localStorage.buddy_budget_warned=JSON.stringify(st);
+    }catch(e){}
+  }
+  async function checkProviders(){
+    try{
+      const {data}=await api('/health/providers',{});
+      (data&&data.announce||[]).forEach(a=>{
+        const NAME={gemini:'Gemini',openai:'OpenAI',anthropic:'Claude'};
+        const label=NAME[a.name]||a.name;
+        let m;
+        if(a.kind==='down'){
+          cueAlert();
+          if(a.failedTo){
+            m=`Heads up, boss — ${label} is ${a.reason}. I've shifted those jobs to ${NAME[a.failedTo]||a.failedTo} so nothing's stopped, but you'll want to sort ${label} when you can.`;
+          } else {
+            m=`Heads up, boss — ${label} is ${a.reason}, and I've no other provider with credit to fall back on. Some things may be patchy until you top ${label} up.`;
+          }
+        } else {
+          m=`${label}'s back online, boss — all sorted.`;
+        }
+        openChat(); addMsg('buddy',m); say(m);
+      });
+    }catch(e){}
+  }
+  setInterval(lifecycleTick, 60000);   // check every minute — cheap
+  // ════════════════════════════════════════════════════════════════════════
+
   async function lifelogToday(){
     openChat(); addMsg('me','📓 My day so far');
     try{
@@ -3604,7 +4118,8 @@
       const logs=(data.recent||[]).filter(r=>String(r.t).startsWith('log:'));
       if(!logs.length){ const m='Nothing logged yet today. Say "start life log" and I\'ll keep a timeline as we go.'; addMsg('buddy',m); say(m); return; }
       logs.slice(-8).forEach(l=>addMsg('buddy','• '+String(l.t).replace(/^log:\s*/,'')));
-      say(`${logs.length} moments logged — they're on screen.`);
+      const recent=logs.slice(-3).map(l=>String(l.t).replace(/^log:\s*/,''));
+      say(`${logs.length} moment${logs.length>1?'s':''} today. Lately: ${recent.join('; ')}.`);
     }catch(e){ addMsg('buddy','Life log unreachable — is the brain deployed?'); }
   }
   // 💰 SPEND — what Vision actually costs, visible in the app.
@@ -3613,12 +4128,92 @@
     try{
       const {data}=await api('/spend',{});
       const f=n=>'$'+Number(n||0).toFixed(4);
+      const COL={claude:'#d97757',gemini:'#5b9dff',openai:'#3ddc97'};
+      const NAME={claude:'Claude',gemini:'Gemini',openai:'OpenAI'};
+      const provs=(data.providers&&data.providers.length)?data.providers:['claude'];
       addMsg('buddy',`💰 Today: ${f(data.today)} · Last 7 days: ${f(data.last7)} · This month: ${f(data.thisMonth)}`);
-      const bars=(data.series||[]).map(s=>`${s.d} ${'▇'.repeat(Math.min(20,Math.round(s.usd*400)))||'·'} ${f(s.usd)}`).join('\n');
-      if(bars) addMsg('buddy',bars);
-      addMsg('buddy','Estimate from real token counts — console.anthropic.com is the actual bill.');
-      say(`Today ${f(data.today)}, this month ${f(data.thisMonth)}.`);
+      // per-provider line (today) — only models actually used
+      const bt=data.byToday||{};
+      const parts=provs.filter(p=>bt[p]>0).map(p=>`${NAME[p]} ${f(bt[p])}`);
+      if(parts.length>1) addMsg('buddy','Today by model — '+parts.join(' · '));
+      // visual stacked-bar spend graphic (7 days, colour-coded per provider)
+      renderSpendGraphic(data,provs,COL,NAME,f);
+      // ── MONTHLY COST INDICATOR: per-provider split for the month + projection ──
+      const bm=data.byMonth||{};
+      const mParts=provs.filter(p=>bm[p]>0).map(p=>`${NAME[p]} ${f(bm[p])}`);
+      let monthLine=`📅 This month so far: ${f(data.thisMonth)}`;
+      if(mParts.length>1) monthLine+=` — ${mParts.join(' · ')}`;
+      addMsg('buddy',monthLine);
+      if(data.projectedMonth!=null && data.dayOfMonth>1){
+        addMsg('buddy',`On this pace, about ${f(data.projectedMonth)} by month end (day ${data.dayOfMonth} of ${data.daysInMonth}).`);
+      }
+      // Budget line, if a ceiling is set.
+      if(data.budget){
+        const barPct=Math.min(100,data.budgetPct||0);
+        addMsg('buddy',`🎯 Budget: ${f(data.thisMonth)} of ${f(data.budget)} (${data.budgetPct}%)${data.projectedPct?` · on pace for ~${data.projectedPct}%`:''}`);
+      } else {
+        addMsg('buddy','No monthly budget set. Say “set my budget to 20” to get a heads-up as you approach it.');
+      }
+      addMsg('buddy','Estimate from real token counts — each provider\u2019s own console is the actual bill.');
+      let spoken=`Today ${f(data.today)}, this month ${f(data.thisMonth)} so far`;
+      if(data.projectedMonth!=null && data.dayOfMonth>1) spoken+=`, tracking toward about ${f(data.projectedMonth)} by month end`;
+      spoken+='.';
+      say(spoken);
     }catch(e){ addMsg('buddy','Spend unreachable — is the brain deployed?'); }
+  }
+  // Spend graphic: 7-day stacked bar chart as a DOM card in chat. Each day is a
+  // bar; each coloured segment is a provider. Pure divs, no libs, reads on phone.
+  function renderSpendGraphic(data,provs,COL,NAME,f){
+    const log=document.getElementById('chatLog');
+    const series=data.series||[];
+    const max=Math.max(0.0001,...series.map(s=>s.usd||0));
+    const card=document.createElement('div');
+    card.className='msg buddy';
+    card.style.cssText='width:100%;box-sizing:border-box;background:#0e1422;border:1px solid #1f2a44;border-radius:12px;padding:12px 12px 8px';
+    const h=document.createElement('div');
+    h.textContent='Spend \u2014 last 7 days';
+    h.style.cssText='font-size:12px;color:#8b96b5;margin-bottom:10px;letter-spacing:.03em';
+    card.appendChild(h);
+    const chart=document.createElement('div');
+    chart.style.cssText='display:flex;align-items:flex-end;gap:6px;height:96px;padding-bottom:6px';
+    series.forEach(s=>{
+      const col=document.createElement('div');
+      col.style.cssText='flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;height:100%';
+      const stack=document.createElement('div');
+      stack.style.cssText='width:78%;max-width:26px;display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;overflow:hidden;min-height:2px';
+      const total=s.usd||0;
+      const bh=Math.max(2,Math.round((total/max)*78));
+      stack.style.height=bh+'px';
+      let split=provs.map(p=>({p,v:s[p]||0})).filter(x=>x.v>0);
+      if(!split.length && total>0) split=[{p:'claude',v:total}];
+      split.forEach(x=>{
+        const seg=document.createElement('div');
+        const frac=total>0?(x.v/total):1;
+        seg.style.cssText=`background:${COL[x.p]||'#d97757'};height:${Math.round(frac*100)}%;width:100%`;
+        seg.title=`${NAME[x.p]||x.p}: ${f(x.v)}`;
+        stack.appendChild(seg);
+      });
+      col.appendChild(stack);
+      const lbl=document.createElement('div');
+      lbl.textContent=s.d;
+      lbl.style.cssText='font-size:9px;color:#5b6688;white-space:nowrap';
+      col.appendChild(lbl);
+      chart.appendChild(col);
+    });
+    card.appendChild(chart);
+    const seen=provs.filter(p=>series.some(s=>(s[p]||0)>0));
+    const legProvs=seen.length?seen:['claude'];
+    const leg=document.createElement('div');
+    leg.style.cssText='display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid #1f2a44';
+    legProvs.forEach(p=>{
+      const tot=(data.by7&&data.by7[p])||(p==='claude'?data.last7:0)||0;
+      const item=document.createElement('div');
+      item.style.cssText='display:flex;align-items:center;gap:6px;font-size:11px;color:#8b96b5';
+      item.innerHTML=`<span style="width:10px;height:10px;border-radius:2px;background:${COL[p]};display:inline-block"></span>${NAME[p]} <b style="color:#e8edf7;font-weight:600">${f(tot)}</b>`;
+      leg.appendChild(item);
+    });
+    card.appendChild(leg);
+    log.appendChild(card); log.scrollTop=log.scrollHeight;
   }
   // Shared layer — moments you were both there for.
   async function sharedMoments(){
@@ -3633,7 +4228,8 @@
         el.style.cursor='pointer';
         el.onclick=async()=>{ if(await askYesNo('Remove this from your shared moments?')){ await api('/shared',{roomCode:code,action:'remove',at:sm.at}); el.textContent='✓ removed'; } };
       });
-      say(`${data.count} shared moments — the recent ones are on screen.`);
+      const recent=(data.shared||[]).slice(-3).map(sm=>String(sm.t).replace(/^log:\s*/,''));
+      say(`${data.count} moment${data.count!==1?'s':''} you both shared. Recently: ${recent.join('; ')}.`);
     }catch(e){ addMsg('buddy','Shared moments unreachable.'); }
   }
 
@@ -3652,6 +4248,7 @@
     const secs=Math.min(Math.max(Number(seconds)||30,10),60);
     openChat(); addMsg('me','🎬 Capture this'+(note?' — '+note:''));
     const t=addMsg('buddy',`Watching for ${secs}s — I'll write up what happens. (No video kept.)`,'think');
+    cueVideoStart();
     say('Capturing. I\'ll write it up.');
     const v=document.createElement('video'); v.autoplay=true; v.playsInline=true; v.muted=true; v.srcObject=stream;
     const frames=[]; const shots=5; const gap=(secs*1000)/shots;
@@ -3669,7 +4266,7 @@
       }
     }catch(e){}
     try{ stream.getTracks().forEach(x=>x.stop()); }catch(e){}
-    releaseAwakeSafe(); capturing=false; orbActivity(null);
+    releaseAwakeSafe(); capturing=false; orbActivity(null); cueVideoStop();
     if(!frames.length){ settle(t,"Couldn't get a clear view — try again?"); return; }
     // Stamp the moment with LIVE position, not the saved city — he's travelling
     // Asia, new places daily, so a stale profile city would mislabel where a stall
@@ -4117,6 +4714,59 @@
   // the only way to tell, so the direction is never allowed to vary by theme.
   function chimeListen(){ const w=_w(); tone(w.root*0.8,.07,0,.05); tone(w.root*1.06,.09,.06,.05); }
   function chimeStop(){   const w=_w(); tone(w.root*1.06,.07,0,.045); tone(w.root*0.73,.09,.06,.045); }
+
+  // ── MODE CUES (batch 160): distinct, learnable audio identities for each
+  // event, so eyes-free he ALWAYS knows what Vis just did — a photo, a video
+  // start/stop, live going up, ambient starting, everything going off. Built on
+  // the same tone() seam so they inherit his sound-world timbre. Design rules:
+  // (1) SHORT (<1s). (2) paired opposites — start rises, stop/off falls, so one
+  // teaches the other. (3) distinct FAMILIES — a capture 'click' ≠ a mode chime
+  // ≠ an alert — so he knows the KIND of event by ear. The privacy-critical one
+  // (everything-off) is deliberately the most distinct + a touch louder.
+  //  • Photo taken → a single crisp high click ("captured")
+  function cuePhoto(){ const w=_w(); tone(w.root*2.2,.045,0,.07); }
+  //  • Video/recording START → quick rising triad (unmistakably "rolling")
+  function cueVideoStart(){ const w=_w(); tone(w.root,.06,0,.06); tone(w.root+w.step,.06,.06,.06); tone(w.root+w.step*2,.10,.12,.06); }
+  //  • Video/recording STOP → falling triad (mirror of start)
+  function cueVideoStop(){ const w=_w(); tone(w.root+w.step*2,.06,0,.055); tone(w.root+w.step,.06,.06,.055); tone(w.root,.10,.12,.055); }
+  //  • LIVE AI up → warm ascending chime, a beat longer (a presence arriving)
+  function cueLiveUp(){ const w=_w(); tone(w.root,.09,0,.06); tone(w.root+w.step,.11,.09,.06); tone(w.root+w.step*1.8,.16,.20,.06); }
+  //  • LIVE AI ended → same motif resolving down
+  function cueLiveDown(){ const w=_w(); tone(w.root+w.step*1.8,.09,0,.05); tone(w.root+w.step,.11,.09,.05); tone(w.root,.16,.20,.05); }
+  //  • AMBIENT started → one soft low pulse ("quietly aware now") — subtle on purpose
+  function cueAmbientOn(){ const w=_w(); tone(w.root*0.6,.16,0,.04); }
+  //  • EVERYTHING OFF / kill-switch → distinct DOUBLE low tone, a touch louder,
+  //    so the privacy cue is unmistakable — "eyes and ears closed".
+  function cueAllOff(){ const w=_w(); tone(w.root*0.55,.12,0,.07); tone(w.root*0.55,.16,.16,.07); }
+  //  • ALERT (Vis about to speak unprompted, e.g. "still logging?") → gentle
+  //    attention rise so an unprompted line never startles.
+  function cueAlert(){ const w=_w(); tone(w.root*0.9,.07,0,.05); tone(w.root*1.3,.10,.08,.05); }
+  //  • ERROR / couldn't do it → short low "nope"
+  function cueError(){ const w=_w(); tone(w.root*0.7,.10,0,.05); tone(w.root*0.5,.12,.09,.05); }
+
+  // Play every cue in turn with a spoken label, so he learns them once instead
+  // of guessing in the wild. Spaced so each is distinct.
+  async function previewCues(){
+    openChat();
+    const list=[
+      ['Photo taken', cuePhoto],
+      ['Video starting', cueVideoStart],
+      ['Video stopping', cueVideoStop],
+      ['Live mode up', cueLiveUp],
+      ['Live mode ended', cueLiveDown],
+      ['Ambient logging on', cueAmbientOn],
+      ['Everything off', cueAllOff],
+      ['I\u2019m about to say something', cueAlert],
+      ['Something went wrong', cueError],
+    ];
+    addMsg('buddy','🔊 Here are my sounds, boss — learn them once and you\u2019ll always know what I just did.');
+    for(const [label,fn] of list){
+      addMsg('buddy','• '+label);
+      try{ fn(); }catch(e){}
+      await new Promise(r=>setTimeout(r,1100));
+    }
+    say('That\u2019s the set, boss.');
+  }
   let voiceUnlocked=false;
   async function unlockVoice(){
     if(voiceUnlocked) return; voiceUnlocked=true;
@@ -4249,6 +4899,26 @@
   function say(text){
     // QUIET MODE: show it, never speak it.
     if(localStorage.buddy_quiet==='on'){ toast(text); return; }
+    // ── NATIVE VOICE SEAM ──────────────────────────────────────────────────
+    // On the phone, the native shell provides a real, characterful voice via
+    // window.visSpeak(text, opts). If it's there, Vis speaks through it — the
+    // whole app's speech routes through this one place, so a premium voice
+    // (iOS AVSpeechSynthesizer or an ElevenLabs-style engine) drops in without
+    // touching any skill. Web falls back to the browser voice below. The opts
+    // carry the same intent (whisper volume, the AU accent) so native honours
+    // his settings; native calls back window.visSpokeDone() so the mic resumes.
+    if(window.visSpeak){
+      try{
+        buddySpeaking=true; pauseListening(); orbState('speaking');
+        window.visSpeak(text, {
+          lang:'en-AU',
+          volume: localStorage.buddy_whisper==='on' ? 0.25 : 1,
+          whisper: localStorage.buddy_whisper==='on'
+        });
+        toast(text);
+        return;
+      }catch(e){ /* fall through to browser TTS */ }
+    }
     try{
       buddySpeaking=true; pauseListening();   // don't let the mic hear Vision talking
       speechSynthesis.resume();   // iOS gets stuck in a paused state
@@ -4263,6 +4933,13 @@
     }catch(e){ buddySpeaking=false; }
     toast(text);
   }
+  // Native calls this when its voice finishes speaking, so the mic resumes and
+  // the orb settles — mirrors the browser utterance's onend. One callback, so
+  // hands-free conversation works identically on native and web.
+  window.visSpokeDone = function(){
+    buddySpeaking=false; orbState('idle');
+    if(handsFree) setTimeout(startListening, 300);
+  };
 
   // ---- Hands-free conversation: tap 🎤 once, talk naturally; Vision pauses the mic
   // while it speaks (so it doesn't hear itself) and resumes after. Tap again to stop.
@@ -5045,6 +5722,11 @@
   async function addContact(){
     const name=(await askText("Contact name?")||'').trim(); if(!name) return;
     const num=(await askText(`Number for ${name}? (with country code for intl)`)||'').replace(/[^\d+]/g,''); if(!num) return;
+    // A saved contact is a stored landmine: you'll trust it weeks later and dial
+    // it without looking. A too-short string is almost always a mis-hear or a
+    // half-typed number — refuse it now rather than let a bad call happen later.
+    const digits=num.replace(/\D/g,'');
+    if(digits.length<5){ say(`That doesn't look like a full phone number — I didn't save ${name}. Try again with the whole number.`); return; }
     const a=contactsGet(); a.unshift({name,num}); contactsSave(a.slice(0,30));
     say(`Saved ${name}.`); quickDial();
   }
@@ -7612,12 +8294,131 @@
       captureMoment(m51[1]?Number(m51[1]):30, m51[2]||''); return;
     }
     if(/^(start|turn on) (life ?log|logging my day|my day)$/i.test(text)){
-      lifelogStart(); const m="Life log on — I'll quietly note where we are and what's around, and glance only when somewhere's new. Say stop life log anytime."; addMsg('buddy',m); say(m); return;
+      lifelogStart(); cueAmbientOn(); const m="Life log on — I'll quietly note where we are and what's around, and glance only when somewhere's new. Say stop life log anytime."; addMsg('buddy',m); say(m); return;
     }
     if(/^(stop|turn off) (life ?log|logging)$/i.test(text)){
       lifelogStop(); const m='Life log off.'; addMsg('buddy',m); say(m); return;
     }
+    // ── AMBIENT AUDIO (the "listen too" half of ambient) ──
+    if(/^(?:vis(?:ion)?,?\s*)?(?:start listening|listen too|ambient listening on|hear me too|catch what i say)$/i.test(text)){
+      localStorage.buddy_ambient_audio='on'; if(!lifelogOn()) lifelogStart(); cueAmbientOn();
+      const m="Listening too now, boss — I'll catch the useful bits and note them, nothing else kept. Say \u201cstop listening\u201d anytime."; addMsg('buddy',m); say(m); return;
+    }
+    if(/^(?:vis(?:ion)?,?\s*)?(?:stop listening|quit listening|ambient listening off|stop hearing me)$/i.test(text)){
+      localStorage.buddy_ambient_audio='off'; const m="Ears off, boss."; addMsg('buddy',m); say(m); return;
+    }
+    // ── THE KILL-SWITCH (instant privacy — kills ambient entirely) ──
+    if(/^(?:vis(?:ion)?,?\s*)?(?:go blind|stop everything|privacy|kill logging|stop watching|eyes and ears off)$/i.test(text)){
+      lifelogStop(); localStorage.buddy_ambient_audio='off'; if(liveOn) liveStop(); cueAllOff();
+      const m="Gone dark, boss — not watching, not listening, nothing logged. Say \u201ckeep a log\u201d when you want me back."; addMsg('buddy',m); say(m); return;
+    }
+    // ── "WHAT'S ON?" — the pull-not-push status check. Say it anytime and Vis
+    // tells him exactly which modes are running. This is the honest, on-demand
+    // answer to "am I still recording?" — no nagging, just there when he asks.
+    if(/^(?:vis(?:ion)?,?\s*)?(what(?:'?s)?(?: the)? |which )?(version|build)(\s|\?|$)/i.test(text) && !/what'?s on/i.test(text)){
+      (async()=>{ let bv=BUILD_VERSION, sv='?';
+        try{ const {data}=await api('/version',{}); if(data&&data.version) sv=data.version; }catch(e){}
+        const m=(bv===sv)?`Build ${bv}, boss — app and brain match, all in sync.`:`App is build ${bv}, brain is ${sv}, boss — they don't match, so a deploy may still be catching up.`;
+        openChat(); addMsg('buddy',m); say(m); })();
+      return;
+    }
+    if(/^(?:vis(?:ion)?,?\s*)?(?:what'?s on|what'?s running|what'?s active|are you (?:still )?(?:on|recording|logging|listening)|status|mode status|what are you doing)$/i.test(text)){
+      const on=[];
+      if(liveOn) on.push(isMovingFast()&&localStorage.buddy_live_feed_riding!=='on' ? 'live mode, audio-only while you\u2019re moving' : 'live mode');
+      if(lifelogOn()) on.push('life log');
+      if(localStorage.buddy_ambient_audio==='on') on.push('listening for the useful bits');
+      let m;
+      if(!on.length) m='Nothing running, boss — not watching, not listening, not logging. All quiet.';
+      else if(on.length===1) m=`Just ${on[0]}, boss.`;
+      else m=`Running right now: ${on.slice(0,-1).join(', ')} and ${on[on.length-1]}, boss. Say \u201cgo blind\u201d to kill the lot.`;
+      addMsg('buddy',m); say(m);
+      // If a model provider is down, mention it here too (checked on demand).
+      (async()=>{ try{ const {data}=await api('/health/providers',{});
+        const down=Object.entries(data&&data.state||{}).filter(([k,v])=>!v.ok);
+        if(down.length){ const NAME={gemini:'Gemini',openai:'OpenAI'};
+          const dm=down.map(([k,v])=>`${NAME[k]||k} (${v.reason})`).join(' and ');
+          const m2=`One thing — ${dm} ${down.length>1?'are':'is'} down, so I'm running everything on Claude for now. Worth sorting when you get a sec.`;
+          addMsg('buddy',m2); say(m2);
+        } }catch(e){} })();
+      return;
+    }
+    // ── CUE PREVIEW — learn the sounds once, deliberately ──
+    if(/^(?:vis(?:ion)?,?\s*)?(?:play your sounds|preview (?:your )?(?:sounds|cues)|what do your sounds mean|demo (?:your )?sounds)$/i.test(text)){
+      previewCues(); return;
+    }
+    // ── LIVE FEED WHILE RIDING — his override of the safe audio-only default ──
+    if(/^(?:vis(?:ion)?,?\s*)?keep (?:the )?feed on(?: while i ride| when i ride| while riding)?$/i.test(text)){
+      localStorage.buddy_live_feed_riding='on';
+      const m="Feed stays on while you ride, boss — your call. Eyes up out there. Say \u201cfeed off while riding\u201d to switch it back."; addMsg('buddy',m); say(m);
+      if(liveOn && window.visLiveStart) try{ window.visLiveStart('', { audioOnly:false }); }catch(e){}
+      return;
+    }
+    if(/^(?:vis(?:ion)?,?\s*)?(?:feed off while riding|audio only while riding|drop the feed when i ride)$/i.test(text)){
+      localStorage.buddy_live_feed_riding='off';
+      const m="Back to audio-only when you're moving, boss — safer that way."; addMsg('buddy',m); say(m); return;
+    }
+    // ── LIVE MODE (opt-in burst: video + full conversation) ──
+    // Requires the wake opener "Vis live" / "Vision live" so common phrases
+    // ("what's this", "look at that") DON'T accidentally fire the camera. After
+    // the wake, any natural phrasing works and Vis reads the feed — he never has
+    // to name the thing (concert, park, animal, castle, whatever).
+    {
+      const mLive=text.match(/^(?:vis(?:ion)?)\s+live(?:[\s,.:—-]+(.+))?$/i);
+      if(mLive){
+        const rest=(mLive[1]||'').trim();
+        // pull a topic hint if he named one ("...about the castle"), else none
+        const t=rest.match(/(?:about|of)\s+(?:a |an |the )?(.+)$/i);
+        liveStart(t?t[1].trim():''); return;
+      }
+    }
+    // Stop live — many easy ways, since he needs to end it fast and hands-free.
+    // Only intercepts when live is actually ON (so plain "stop"/"done" don't
+    // collide with other commands the rest of the time).
+    if(liveOn && /^(?:vis(?:ion)?,?\s*)?(?:that'?s enough|stop(?: live)?|end (?:live|tour)|we'?re done|done|enough|close live|thanks vis(?:ion)?)$/i.test(text)){
+      liveStop(); return;
+    }
+    // ══════════════════════════════════════════════════════════════════════
+    // VOICE COMMAND TABLE — ordering rule: MOST SPECIFIC FIRST.
+    // Everything here is checked in order before the fast path / router, so a
+    // broader pattern placed above a narrower one will shadow it. When adding a
+    // command, put it in its section and test it doesn't collide with a
+    // neighbour (audit-scenarios50 has a VOICE no-collision group for this).
+    // Sections: COST&MODEL · ECOSYSTEM · ACTIONS · CAPTURE&MEMORY · COACHING
+    //           · SYSTEM · CONDUCTOR · PLACES · BRIEFINGS · VOICE · LOOKS
+    // ══════════════════════════════════════════════════════════════════════
+    // ── COST & MODEL: spend, budget, which AI runs what ───────────────────
     if(/^(what have i|what'?s my|my) (day|spend|cost)/i.test(text) && /cost|spend/i.test(text)){ spendCheck(); return; }
+    // Set / clear a monthly budget ceiling by voice.
+    {const mb=text.match(/^set (?:my )?budget(?: to| at)? \$?([0-9]+(?:\.[0-9]+)?)/i);
+     if(mb){ (async()=>{ const amt=parseFloat(mb[1]);
+       const r=await api('/budget',{action:'set',amount:amt});
+       try{localStorage.removeItem('buddy_budget_warned');}catch(e){}
+       const m=`Monthly budget set to $${amt.toFixed(2)}, boss. I'll give you a heads-up as you get near it.`;
+       openChat(); addMsg('buddy',m); say(m); })(); return; }}
+    if(/^(remove|clear|turn off|cancel) (?:my )?budget/i.test(text)){ (async()=>{ await api('/budget',{action:'set',amount:0}); const m='Budget removed, boss — no more budget nudges.'; openChat(); addMsg('buddy',m); say(m); })(); return; }
+
+    if(/^(which ai|which model|change (the )?model|model settings|pick (a )?model|what ai runs)/i.test(text)){ modelPicker(); return; }
+    // Ecosystem: booking emails / boarding pass / WhatsApp (native-backed; stubs on web)
+    // ── ECOSYSTEM: inbox / wallet / WhatsApp (native-backed, web stubs) ───
+    if(/^(any )?(booking|reservation|confirmation) (emails?|mail)|check my (email|inbox) for booking|what.s in my inbox/i.test(text)){
+      if(window.visRequestInbox){ try{ window.visRequestInbox(); }catch(e){} } else { visInbox([]); } return; }
+    if(/^(read|what.s on|check) my (boarding pass|ticket|flight)/i.test(text) || /^boarding pass$/i.test(text)){
+      if(window.visRequestWallet){ try{ window.visRequestWallet(); }catch(e){} } else { visWallet(null); } return; }
+    {const wa=text.match(/^(?:message|whatsapp|text|tell)\s+(\w+)\s+(.+)/i);
+     if(wa && /whatsapp/i.test(text)){ whatsappSend(wa[1], wa[2]); return; }}
+
+    // ── ACTION HANDOFFS: Grab (ride/food), Maps nav, airline check-in ──
+    {const ride=text.match(/^(?:grab|get|book|call)(?: me)? a (?:ride|grab|car|taxi|lift)(?: to (.+))?/i);
+     if(ride){ visAction({kind:'ride', dest:(ride[1]||'').trim()}); return; }}
+    {const food=text.match(/^(?:order|get|grab)(?: me)? (?:some )?food(?: from| \- )?(.+)?/i) || text.match(/^grab food(?: (.+))?/i);
+     if(food && /food/i.test(text)){ visAction({kind:'food', query:(food[1]||'').trim()}); return; }}
+    {const nav=text.match(/^(?:navigate|directions|take me|drive me|walk me|get me) to (.+)/i);
+     if(nav){ visAction({kind:'navigate', dest:nav[1].trim(), mode:/walk/i.test(text)?'walk':/transit|train|bus/i.test(text)?'transit':'drive'}); return; }}
+    {const chk=text.match(/^(?:check ?in|check me in)(?: (?:for|to|on) )?(.+)?/i);
+     if(chk && /check ?in/i.test(text)){ visAction({kind:'checkin', query:(chk[1]||'').trim()}); return; }}
+
+
+    // ── CAPTURE & MEMORY: what Vis records and remembers ─────────────────
     if(/^(start|turn on) auto ?capture$/i.test(text)){
       localStorage.buddy_autocapture='on';
       const m="Auto-capture on — I'll look when a moment seems worth it, up to "+(localStorage.buddy_capmax||20)+" a day."; addMsg('buddy',m); say(m); return;
@@ -7631,6 +8432,7 @@
     if(/^(start|resume|turn on) (remembering|memory)$/i.test(text)){
       localStorage.buddy_memory='on'; const m='Remembering again.'; addMsg('buddy',m); say(m); return;
     }
+    // ── COACHING & SUGGESTIONS: how much Vis volunteers ──────────────────
     if(/^(stop|no more) (coaching|tips|hints)( me)?$/i.test(text)){
       localStorage.buddy_coach='off'; const m="No more tips — I'll stay out of your way."; addMsg('buddy',m); say(m); return;
     }
@@ -7661,6 +8463,7 @@
       runningPlan.cancelled=true; finishPlan('Stopped.'); return;
     }
     if(m51=text.match(/^(?:log|report)\s*(?:a\s*)?bug\b[:\s-]*(.*)$/i)){ logBug(m51[1].trim()); return; }
+    // ── SYSTEM: diagnostics, memory health, tests, recovery ──────────────
     if(/^(my bugs|bug log|show (me )?(the )?bugs)$/i.test(text)){ bugsView(); return; }
     if(/^(what do you know|memory health|my memory|tidy (up )?(my )?memory)$/i.test(text)){ memoryHealth(); return; }
     if(/^(test|test runner|run tests|what needs testing)$/i.test(text)){ testRunner(); return; }
@@ -7668,6 +8471,7 @@
     if(/^(my )?recovery code$/i.test(text)){ recoveryCode(); return; }
     if(/^(email|send) (me )?(that|this|the details|it)( to me)?$/i.test(text)){ sendHandover(''); return; }
     // The volume knob HE holds over the conductor.
+    // ── CONDUCTOR: the volume knob he holds — quiet / later / resume ─────
     if(/^(?:stop|quiet|go quiet|be quiet|shush|hush|do not disturb|dnd|silence)(?: mode)?$/i.test(text)){
       api('/conductor',{action:'stop'}).then(({data})=>{ const m=(data&&data.spoken)||"I'll go quiet."; openChat(); addMsg('buddy',m); say(m); }).catch(()=>{}); return;
     }
@@ -7703,6 +8507,7 @@
       voiceSaveSpot(raw); return;
     }
     // The conductor, by voice — pull a fused briefing for the moment.
+    // ── BRIEFINGS: morning / here / evening ──────────────────────────────
     if(/^(?:brief me|catch me up|what'?s (?:the )?(?:latest|up|going on)|my briefing|sit ?rep|fill me in)$/i.test(text)){ briefMe('morning'); return; }
     if(/^(?:what(?:'?s| do i need to know)?(?: about)? here|where am i|what'?s around(?: here)?|brief me on (?:here|this place|my surroundings))$/i.test(text)){ briefMe('here'); return; }
     if(/^(?:how(?:'?d| did) today go|wrap up(?: my day)?|end of day|evening brief|how was (?:my|the) day)$/i.test(text)){ briefMe('evening'); return; }
@@ -7797,6 +8602,40 @@
       const m=on?`${label} on.`:`${label} off.`;
       addMsg('buddy',m); say(m); return;
     }
+    // ── VOICE CHARACTER: pick how Vis sounds (native honours it; web is limited) ──
+    {const vh=text.match(/^(?:set |use |change |make )?(?:your |the |a |it )?voice(?: to)? (.+)/i)
+              || text.match(/^(?:use |make )(?:your |the )?voice (.+)/i)
+              || text.match(/^(?:set |use |change |make )(?:your |the |a )?(.+?) voice$/i)
+              || (/^(?:what|which) voice/i.test(text)?['','']:null);
+     if(vh){
+       if(/^(?:what|which) voice/i.test(text)){
+         const cur=localStorage.buddy_voice||'default';
+         const m=`I'm on the ${cur} voice, boss. Say "set voice to British butler" or "warmer" to change it — takes full effect on the phone.`;
+         addMsg('buddy',m); say(m); return;
+       }
+       const choice=vh[1].trim().toLowerCase().replace(/[.!]$/,'');
+       localStorage.buddy_voice=choice;
+       if(window.visSetVoice){ try{ window.visSetVoice(choice); }catch(e){} }
+       const m=`Voice set to ${choice}. ${window.visSetVoice?'':'That lands properly on the phone — the browser voice is whatever the system gives me.'}`;
+       addMsg('buddy',m.trim()); say(m.trim()); return;
+     }}
+    // ── PREMIUM VOICE ENGINE (ElevenLabs) — optional, OFF by default ──────────
+    // The built-in voice is the default: free and works with no signal. If he's
+    // added an ElevenLabs key and wants the richer voice, he turns it on here.
+    // Native reads buddy_voice_engine: 'premium' → try ElevenLabs when online,
+    // fall back to the built-in voice offline; 'system' → always built-in.
+    {const ve=text.match(/\b(?:turn |switch )?(?:on|off|enable|disable|use)?\s*(?:the )?(?:eleven ?labs|premium|fancy|rich(?:er)?|natural) voice\b/i)
+              || text.match(/\b(?:use |switch to )(?:the )?(?:built.?in|system|basic|default) voice\b/i)
+              || text.match(/\bvoice engine\b/i);
+     if(ve){
+       const wantOn=/\b(on|enable|use|premium|fancy|rich|natural|eleven)/i.test(text) && !/\b(off|disable|stop|system|basic|built.?in)\b/i.test(text);
+       localStorage.buddy_voice_engine = wantOn ? 'premium' : 'system';
+       if(window.visSetVoiceEngine){ try{ window.visSetVoiceEngine(wantOn?'premium':'system'); }catch(e){} }
+       const m = wantOn
+         ? "Premium voice on, boss — I'll use it when we're online and drop to the built-in voice when there's no signal. Needs your ElevenLabs key in Service keys."
+         : "Back to the built-in voice — free, and it works with no signal.";
+       addMsg('buddy',m); say(m); return;
+     }}
     // ---- FAST PATH: resolve the obvious ones locally, no round trip ----
     try{
       const fast=fastRoute(text);
@@ -9057,7 +9896,7 @@
   // ---- battery indicator + voice alarm (reads real value once wired to native) ----
   let alarmed={20:false,10:false};
   function setBattery(v){
-    v=Math.round(v); battPct.textContent=v; battFill.style.width=v+'%';
+    v=Math.round(v); window.visBatteryPct=v; battPct.textContent=v; battFill.style.width=v+'%';
     battFill.style.background=v>40?'var(--teal)':v>15?'var(--amber)':'var(--coral)';
     alarmTag.classList.toggle('on',v<=20);
     if(v<=20&&v>10&&!alarmed[20]){alarmed[20]=true;say('Glasses battery at 20 percent.');}
