@@ -302,6 +302,7 @@
       <div class="chat-head">
         <span class="dot-live"></span>
         <h3>Vision</h3>
+        <button class="x" onclick="copyChat(this)" title="Copy this conversation">📋 Copy</button>
         <button class="x" onclick="closeChat()">Close</button>
       </div>
       <div class="chat-log" id="chatLog"></div>
@@ -1616,6 +1617,37 @@
   // TripAdvisor — they're partner-only. Deep links are better anyway: real
   // prices, real availability, your account and card already in their app.
   // Vision pre-fills the search across several at once so you can compare.
+  /* IATA codes for the deep links. Skyscanner and Trip.com both need airport
+   * codes, not city names — passing "brisbane" gives a 404. This covers the
+   * airports he'll realistically fly from and to; anything unknown returns
+   * null and the caller falls back to a plain search URL rather than a broken
+   * link. Keys are lowercase, matched loosely so "Bali", "Denpasar" and
+   * "Kuta" all resolve to DPS. */
+  const IATA = {
+    // home
+    brisbane:'BNE', bne:'BNE', sydney:'SYD', melbourne:'MEL', 'gold coast':'OOL',
+    perth:'PER', adelaide:'ADL', cairns:'CNS', darwin:'DRW', canberra:'CBR', hobart:'HBA',
+    // the trip
+    bali:'DPS', denpasar:'DPS', kuta:'DPS', seminyak:'DPS', ubud:'DPS', legian:'DPS',
+    jakarta:'CGK', lombok:'LOP', surabaya:'SUB', yogyakarta:'JOG',
+    bangkok:'BKK', phuket:'HKT', 'chiang mai':'CNX', 'koh samui':'USM', krabi:'KBV',
+    'ho chi minh':'SGN', saigon:'SGN', hanoi:'HAN', 'da nang':'DAD', 'nha trang':'CXR',
+    'hoi an':'DAD', phnompenh:'PNH', 'phnom penh':'PNH', 'siem reap':'SAI',
+    singapore:'SIN', 'kuala lumpur':'KUL', penang:'PEN', manila:'MNL', cebu:'CEB',
+    vientiane:'VTE', 'luang prabang':'LPQ', yangon:'RGN', colombo:'CMB',
+    tokyo:'HND', osaka:'KIX', seoul:'ICN', 'hong kong':'HKG', taipei:'TPE',
+    delhi:'DEL', mumbai:'BOM', dubai:'DXB',
+  };
+  function iata(s){
+    if(!s) return null;
+    const k=String(s).trim().toLowerCase();
+    if(/^[a-z]{3}$/.test(k)) return k.toUpperCase();      // already a code
+    if(IATA[k]) return IATA[k];
+    // loose match: "Bali, Indonesia" / "Brisbane QLD" / "flights to Bangkok"
+    for(const key of Object.keys(IATA)){ if(k.includes(key)) return IATA[key]; }
+    return null;
+  }
+
   const VENDORS={
     stay:[
       {id:'booking',  name:'Booking.com', icon:'🏨',
@@ -1630,6 +1662,9 @@
          if(q.from) p.push('checkin='+encodeURIComponent(q.from));
          if(q.to) p.push('checkout='+encodeURIComponent(q.to));
          if(q.people) p.push('adults='+encodeURIComponent(q.people));
+         // BUDGET (beta fix): "under 40 a night" was being dropped entirely —
+         // he'd land on an unfiltered list and have to re-enter it himself.
+         if(q.maxPrice) p.push('price_max='+encodeURIComponent(q.maxPrice));
          return `https://www.airbnb.com/s/${encodeURIComponent(q.where)}/homes`+(p.length?'?'+p.join('&'):'');
        }},
       {id:'agoda',    name:'Agoda', icon:'🛏️',
@@ -1662,10 +1697,24 @@
     fly:[
       {id:'googleflights', name:'Google Flights', icon:'🔎',
        url:(q)=>`https://www.google.com/travel/flights?q=${encodeURIComponent(`Flights to ${q.where} from ${q.from||''}${q.when?' in '+q.when:''}`)}`},
+      // ⚠️ BETA FIX (build171): both of these were BROKEN. Skyscanner's path
+      // takes IATA codes (bne/dps) — nothing populated fromCode/toCode, so it
+      // fell back to "brisbane"/"bali" and 404'd. Trip.com wants city slugs in
+      // its own format. iata() resolves the airports he'll actually use and
+      // falls back to a plain SEARCH url rather than a broken deep link —
+      // a working search beats a dead deep link every time.
       {id:'skyscanner',    name:'Skyscanner', icon:'✈️',
-       url:(q)=>`https://www.skyscanner.net/transport/flights/${encodeURIComponent(String(q.fromCode||q.from||'').slice(0,20))}/${encodeURIComponent(String(q.toCode||q.where||'').slice(0,20))}/${q.from8||''}`},
+       url:(q)=>{
+         const f=iata(q.fromCode||q.from), t=iata(q.toCode||q.where);
+         if(!f||!t) return `https://www.skyscanner.net/transport/flights-from/${encodeURIComponent(String(q.from||'').toLowerCase().replace(/\s+/g,'-'))}/`;
+         return `https://www.skyscanner.net/transport/flights/${f}/${t}/${q.from8||''}`;
+       }},
       {id:'tripcom',       name:'Trip.com', icon:'🛫',
-       url:(q)=>`https://www.trip.com/flights/${encodeURIComponent(String(q.from||'').toLowerCase().replace(/\s+/g,'-'))}-to-${encodeURIComponent(String(q.where||'').toLowerCase().replace(/\s+/g,'-'))}/`},
+       url:(q)=>{
+         const f=iata(q.fromCode||q.from), t=iata(q.toCode||q.where);
+         if(f&&t) return `https://www.trip.com/flights/showfarefirst?dcity=${f}&acity=${t}${q.from8?`&ddate=${q.from8}`:''}`;
+         return `https://www.trip.com/flights/`;
+       }},
     ],
     // Overland travel across SE Asia. 12Go is the only real option for buses,
     // trains and ferries there, and nothing in Vision covered it.
@@ -2263,7 +2312,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='170';
+  const BUILD_VERSION='172';
   async function logBug(report){
     if(!report){
       report=await askText("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -6729,6 +6778,38 @@
     lines.push('What do you need?');
     return lines.join(' ');
   }
+  /* 📋 COPY CHAT (beta): he's testing on his phone and reporting faults by
+   * pasting transcripts. Selecting a long chat by hand on iOS is miserable, so
+   * one tap puts the whole exchange on the clipboard as plain text — who said
+   * what, in order, with the build version so a report is always traceable to
+   * a build. Falls back to a selectable textarea where the clipboard API is
+   * blocked (older iOS Safari over http). */
+  async function copyChat(btn){
+    const log=document.getElementById('chatLog');
+    if(!log){ return; }
+    const lines=[];
+    log.querySelectorAll('.msg').forEach(el=>{
+      const who=el.classList.contains('me')?'ME':'VIS';
+      const txt=(el.innerText||el.textContent||'').trim();
+      if(txt) lines.push(`${who}: ${txt}`);
+    });
+    if(!lines.length){ return; }
+    const out=`Vision v${BUILD_VERSION} — ${new Date().toLocaleString()}\n\n`+lines.join('\n\n');
+    const done=()=>{ if(btn){ const o=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=o,1500); } };
+    try{
+      await navigator.clipboard.writeText(out);
+      done();
+    }catch(e){
+      // Clipboard API blocked — give him something he can select and copy.
+      const ta=document.createElement('textarea');
+      ta.value=out;
+      ta.style.cssText='position:fixed;left:5%;top:10%;width:90%;height:70%;z-index:99999;font-size:13px;padding:10px';
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); done(); }catch(_){}
+      setTimeout(()=>{ try{ ta.remove(); }catch(_){} }, 8000);
+    }
+  }
+
   function closeChat(){ document.getElementById('chat').classList.remove('open'); }
   function scrollChat(){ try{ const l=document.getElementById('chatLog'); if(l) l.scrollTop=l.scrollHeight; }catch(e){} }
   // Batch 60: replace a thinking bubble with its answer IN PLACE — the message
@@ -6867,7 +6948,7 @@
       if(skill==='journal'){ tripJournal(); return true; }
       if(skill==='music'){ const q=a.query||original.replace(/^play\s+/i,''); openMusicSearch(q); addMsg('buddy',`🎧 Opening ${q}…`); return true; }
       if(skill==='findfood'){ findFoodWith(a.craving||original); return true; }
-      if(skill==='nearby'){ nearbyQuery(a.query||original); return true; }
+      if(skill==='nearby'){ nearbyQuery(a.query||original, a.where||''); return true; }
       if(skill==='navigate'){
         // Batch 153: asking for directions IS the instruction. This used to
         // auto-open only if he happened to say "take me" or "in maps", and
@@ -6923,7 +7004,19 @@
       if(skill==='bugs'){ await bugsView(); return true; }
       if(skill==='plan'){ await runPlan(a.goal||original); return true; }
       if(skill==='menu'){ await readMenu(); return true; }
-      if(skill==='menulookup'){ await menuLookup(a.name||'', a.address||''); return true; }
+      if(skill==='menulookup'){
+        // ⚠️ build172: the router sometimes passes a mangled name (it once sent
+        // "Shaun" — his own name, scraped from a review). The place we were
+        // just discussing is far more reliable than a re-guess, so prefer it
+        // unless the router's name is clearly a different, longer place.
+        const known=(brain.lastPlace&&brain.lastPlace.name)||'';
+        const guess=String(a.name||'').trim();
+        const useKnown = known && (!guess || guess.length<4 ||
+          known.toLowerCase().includes(guess.toLowerCase()) ||
+          guess.toLowerCase().includes(known.toLowerCase().slice(0,6)));
+        await menuLookup(useKnown?known:guess, useKnown?((brain.lastPlace&&brain.lastPlace.addr)||''):(a.address||''));
+        return true;
+      }
       if(skill==='savechat'){ await saveConversation(a.tag||''); return true; }
       if(skill==='recallchat'){ await recallConversation(a.query||original); return true; }
       if(skill==='bookings'){ await bookingsView(a.query||''); return true; }
@@ -6934,7 +7027,7 @@
       if(skill==='handover'){ await sendHandover(a.context||''); return true; }
       if(skill==='expiry'){ await expiryView(); return true; }
       if(skill==='procedures'){ await proceduresView(); return true; }
-      if(skill==='findstay'){ await vendorHandoff('stay',{where:a.where,from:a.from,to:a.to,people:a.people}); return true; }
+      if(skill==='findstay'){ await vendorHandoff('stay',{where:a.where,from:a.from,to:a.to,people:a.people,maxPrice:a.maxPrice,nights:a.nights}); return true; }
       if(skill==='thingstobook'){ await vendorHandoff('doing',{where:a.where,what:a.what}); return true; }
       if(skill==='getthere'){ await vendorHandoff('getthere',{where:a.where,from:a.from}); return true; }
       if(skill==='orderfood'){ await vendorHandoff('order',{where:a.where,what:a.what}); return true; }
@@ -9033,11 +9126,58 @@
 
   // ---- live: nearby ----
   // Voice/route version: search nearby directly with a given query (no prompt).
-  function nearbyQuery(what){
-    if(!navigator.geolocation){ say('Location unavailable.'); return; }
-    // strip filler so "find me local restaurants" → "restaurants"
-    const q=String(what||'').replace(/^(find|show|get|me|some|a|any|local|nearby|near me|closest|nearest|the)\s+/gi,'').replace(/\s+(near me|nearby|around here|around me|closest|nearest|to me)$/gi,'').trim()||'restaurants';
+  /* ⚠️ BETA FIX (build172): this ALWAYS searched his current GPS, so "best gym
+   * in Lombok" stripped to "gym" and returned gyms in Beerwah. If he names a
+   * place, that place wins — geocode it and search THERE. Systemic: the same
+   * bug hit any "<thing> in <city>" query.
+   * `where` comes from the router (args.where); we also catch it from the raw
+   * text as a fallback, since the fast path doesn't parse args. */
+  function nearbyQuery(what, where){
+    // Pull a trailing "in <place>" out of the query if the router didn't give one.
+    let place = (where||'').trim();
+    let raw = String(what||'');
+    if(!place){
+      const m = raw.match(/\s+in\s+([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F'’.\- ]{1,40})$/);
+      if(m){ place = m[1].trim(); raw = raw.slice(0, m.index); }
+    } else {
+      // Router gave us a place — strip it from the query text so we search
+      // "gym", not "gym in Lombok".
+      raw = raw.replace(new RegExp('\\s+in\\s+'+place.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*$','i'), '');
+    }
+    // Strip filler REPEATEDLY — one pass left "me a pharmacy" from "find me a
+    // pharmacy", and "Fined me the best gym" from his actual typo'd query.
+    let q=String(raw||'');
+    for(let i=0;i<6;i++){
+      const before=q;
+      q=q.replace(/^(find|fined|show|get|me|some|a|an|any|local|nearby|near me|closest|nearest|the|best|good|top)\s+/i,'');
+      if(q===before) break;
+    }
+    q=q.replace(/\s+(near me|nearby|around here|around me|closest|nearest|to me)$/gi,'').trim()||'restaurants';
     prefRecord('place',q);
+
+    // A named place: search there instead of around him. No geolocation needed.
+    if(place){
+      openChat(); addMsg('me',`📍 ${q} in ${place}`);
+      const t=addMsg('buddy',`Looking in ${place}…`,'think');
+      (async()=>{
+        try{
+          const {status,data}=await api('/places',{query:`${q} in ${place}`, near:place, recommend:'auto'});
+          if(status===501){ settle(t,'Nearby search needs the Google Maps key in Settings.'); return; }
+          t.remove();
+          const list=(data.places||[]).slice(0,5);
+          if(!list.length){ const m=`I couldn't find ${q} in ${place}.`; addMsg('buddy',m); say(m); return; }
+          const line=data.recommendation||`Here are ${q} in ${place}.`;
+          addMsg('buddy',line); say(line);
+          const _favs=favPlacesGet();
+          // No distances here — he isn't there yet, so "10 min drive" would be a lie.
+          list.forEach(p=>{ const loved=_favs[String(p.name||'').toLowerCase()]?'💛 you loved this — ':''; addMsg('buddy',`${loved}📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${p.address?`\n${p.address}`:(p.vicinity?`\n${p.vicinity}`:'')}`); });
+          if(list[0]) brain.setPlace(list[0].name, list[0].address||list[0].vicinity||place);
+        }catch(e){ settle(t,`Couldn't search ${place} just now.`); }
+      })();
+      return;
+    }
+
+    if(!navigator.geolocation){ say('Location unavailable.'); return; }
     openChat(); addMsg('me','📍 Nearby: '+q); const t=addMsg('buddy','Looking around you…','think');
     navigator.geolocation.getCurrentPosition(async pos=>{
       try{

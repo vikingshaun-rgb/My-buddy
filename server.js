@@ -1869,7 +1869,7 @@ const ROUTER_SKILLS =
       "\"journal\" (trip journal / write up our trip / trip story; args: none), " +
       "\"music\" (play music/a song/artist/playlist/vibe; args: query), " +
       "\"findfood\" (ORDER food for delivery, I'm hungry order me a <dish>, food delivery — NOT finding places to go; args: craving), " +
-      "\"nearby\" (find/show ANY kind of place NEAR ME — restaurants, cafes, bars, pubs, banks, ATM, pharmacy, hospital, doctor, shops, supermarket, petrol, cinema, gym, park, beach, temple, market, laundry, barber, post office — plus 'closest X', 'nearest X', 'where can I get X', 'is there a X around', 'what's around here'; args: query), " +
+      "\"nearby\" (find/show ANY kind of place — restaurants, cafes, bars, pubs, banks, ATM, pharmacy, hospital, doctor, shops, supermarket, petrol, cinema, gym, park, beach, temple, market, laundry, barber, post office — plus 'closest X', 'nearest X', 'where can I get X', 'is there a X around'. IF HE NAMES A CITY OR AREA (best gym in Lombok, cafes in Seminyak) put that place in `where` and keep `query` to the thing itself (gym), NOT the whole phrase. Leave `where` EMPTY for near-me queries; args: query, where), " +
       "\"navigate\" (directions / take me to / how do I get to / route to / walk me to / drive me to / get me to a NAMED place or address — including 'take me to the cinema', 'take me to a chemist' where he wants to GO there; args: destination), " +
       "\"itinerary\" (my trip/bookings/flights/what's next/my schedule; args: none), " +
       "\"status\" (my status/briefing/how am I doing/catch me up; args: none), " +
@@ -1886,7 +1886,7 @@ const ROUTER_SKILLS =
       "\"backto\" (take me back to my car/hotel/a saved spot; args: label), " +
       "\"sayphrase\" (how do I say X here / teach me a local phrase; args: text), " +
       "\"flightsearch\" (find/shop for flights to BUY — cheapest flights to X, flights from A to B in <month>, when should I fly; args: from, to, when), " +
-      "\"stay\" (find a hotel/hostel/villa/place to stay, where should I stay in X, accommodation near me; args: area, what), " +
+      "\"stay\" (accommodation NEAR HIM RIGHT NOW — \"somewhere to stay tonight\", \"hotels near me\", he's standing somewhere and needs a bed; NO dates, NO budget; args: area, what), " +
       "\"activities\" (things to do, what's worth doing/seeing here, any events on, ideas for tomorrow; args: interests), " +
       "\"tripplan\" (plan my trip/X days in Y, build me an itinerary for a destination; args: destination, days, budget, interests), " +
       "\"tripday\" (what's on today/tomorrow/day N of my plan, what's next on the trip; args: day), " +
@@ -1910,7 +1910,7 @@ const ROUTER_SKILLS =
       "\"handover\" (email me that, send me the details, send that to my inbox, I'll deal with it later; args: context = what to write up), " +
       "\"expiry\" (passport expiry, when does my visa run out, are my documents still valid, document dates; args: none), " +
       "\"procedures\" (how do I do things, what habits have you noticed, how I work; args: none), " +
-      "\"findstay\" (find somewhere to stay, book a hotel, airbnb, accommodation in X; args: where, from, to, people), " +
+      "\"findstay\" (BOOKING a stay for a trip — mentions AIRBNB or any booking site, OR a budget/price per night, OR dates, OR a number of nights/weeks, OR a city he isn't in yet. \"cheap airbnb in Kuta under 40 a night for 2 weeks\" is THIS, never \"stay\". args: where, from, to, people, maxPrice, nights), " +
       "\"thingstobook\" (tours, attractions, tickets, what can we book in X, things to do; args: where, what), " +
       "\"getthere\" (bus/train/ferry/overland travel between two places — 'how do I get from Hanoi to Sapa', 'bus to Chiang Mai', 'ferry to the island'; args: from, where), " +
       "\"orderfood\" (order food TO me / delivery — 'order me some pho', 'get food delivered', 'grabfood'; args: what, where), " +
@@ -2804,19 +2804,30 @@ app.post("/places", requireAuth, async (req, res) => {
     return res.status(501).json({ error: "google_places_disabled",
       hint: "Set GOOGLE_MAPS_API_KEY (same key as Directions works if Places API is enabled)." });
   }
-  const { lat, lng, query, type, radius } = req.body || {};
-  if (lat == null || lng == null) {
-    return res.status(400).json({ error: "lat and lng required" });
+  const { lat, lng, query, type, radius, near } = req.body || {};
+  /* ⚠️ BETA FIX (build172): this hard-required lat/lng, so asking for "the best
+   * gym in Lombok" from Brisbane either 400'd or searched Brisbane. Google's
+   * text search works fine on a place name alone ("gym in Lombok") — the
+   * location bias is an OPTIMISATION, not a requirement. Now: coords if we
+   * have them, a named place if he gave one, and only an error if neither. */
+  if ((lat == null || lng == null) && !near && !query) {
+    return res.status(400).json({ error: "lat and lng, or near/query, required" });
   }
+  const hasCoords = lat != null && lng != null;
   const r = radius || 1500;
 
   let url;
   if (query) {
-    // Text search: best for "find me X" spoken queries.
+    // Text search: best for "find me X" spoken queries. Works on a place name
+    // alone ("gym in Lombok"), so the location bias is applied ONLY when we
+    // actually have coords — biasing a Lombok search toward Brisbane would
+    // hand back Brisbane gyms, which is exactly the bug this fixes.
     url = new URL("https://maps.googleapis.com/maps/api/place/textsearch/json");
     url.searchParams.set("query", query);
-    url.searchParams.set("location", `${lat},${lng}`);
-    url.searchParams.set("radius", String(r));
+    if (hasCoords && !near) {
+      url.searchParams.set("location", `${lat},${lng}`);
+      url.searchParams.set("radius", String(r));
+    }
   } else {
     // Nearby search: best for "what's around me" / a type filter.
     url = new URL("https://maps.googleapis.com/maps/api/place/nearbysearch/json");
@@ -2851,7 +2862,9 @@ app.post("/places", requireAuth, async (req, res) => {
     // THAT instead. Same rule everywhere /nearby is used: findfood, nearby,
     // cinema, chemist, the lot.
     for (const p of places) {
-      if (p.lat != null && lat != null) {
+      // Only when he's actually near them. For "gyms in Lombok" searched from
+      // Brisbane, a distance is meaningless (and a "10 min drive" is a lie).
+      if (p.lat != null && hasCoords && !near) {
         p.distanceM = Math.round(haversineM(lat, lng, p.lat, p.lng));
         p.walkMin = Math.max(1, Math.round(p.distanceM / 80));   // kept for callers that want it
         p.travelMode = p.distanceM < 3000 ? "walking" : "driving";
@@ -3048,6 +3061,11 @@ app.post("/menulookup", requireAuth, async (req, res) => {
     model: "claude-haiku-4-5-20251001", max_tokens: 700,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
     system: "You are Vision, a warm travel companion speaking aloud. Shaun wants to know what a restaurant serves BEFORE he goes. Web-search for their actual menu. " +
+      /* ⚠️ build172: it wandered — searched "Shaun restaurant" (his own name,
+       * picked out of a review), announced it couldn't find it, then offered
+       * alternatives he never asked about. Search the name given, nothing else. */
+      "SEARCH THE EXACT PLACE NAMED — do not substitute a different restaurant, do not search for anything else, and never suggest alternative venues he didn't ask about. " +
+      "If you can't find that specific place's menu, say so in one line and give the best link you did find for IT. " +
       "Reply as JSON ONLY: {\"spoken\": \"2-3 spoken sentences — the KIND of food, the price range, and one or two standout dishes if you found them\", " +
       "\"dishes\": [\"dish — short note\"], \"link\": \"the best URL you actually found for their menu or site\", \"source\": \"where the link goes, e.g. their website / Facebook / a listing site\"}. " +
       "RULES: never invent dishes or prices — if the search didn't surface the real menu, say so plainly in `spoken` and still return the best LINK you found so he can look himself. " +
@@ -5974,7 +5992,7 @@ app.post("/models/config", requireAuth, (req, res) => {
 });
 
 // Reports the brain's build version so the app can confirm a deploy took effect.
-app.post("/version", requireAuth, (_req, res) => { res.json({ version: "170" }); });
+app.post("/version", requireAuth, (_req, res) => { res.json({ version: "172" }); });
 
 // Monthly budget ceiling (optional). GET returns it; set stores it. The spend
 // response reports how close this month is to it, so Vis can warn once near/over.
@@ -8228,7 +8246,7 @@ app.post("/native/hello", requireAuth, (req, res) => {
     // Bump when the client contract changes in a way Swift must handle.
     contract: 1,
     brain: {
-      version: "170",
+      version: "172",
       // Every model-backed endpoint returns `spoken`. This is the promise the
       // whole thin-connector design rests on, stated explicitly so a client
       // can rely on it rather than inferring it.
