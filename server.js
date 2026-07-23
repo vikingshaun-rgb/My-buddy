@@ -582,6 +582,28 @@ const VIS_PERSONA =
   "When something genuinely matters — he's lost at night, a real scam, riding after drinks, his stress is up — DROP the wit entirely and get straight, calm, direct; you judge when that moment is. " +
   "Never medicalise or alarm him about his own body. Never nag or repeat a concern he's waved off. Never pad — no 'happy to help', no 'great question', no filler. Keep it to a sentence or two; you're spoken aloud into his ear.";
 
+/* ⚠️ WHAT YOU CAN ACTUALLY DO (beta fix, build170)
+ * Vis was telling him "I don't have access to flight booking" and "I can't set
+ * reminders" — moments AFTER those very skills had run and answered. It was
+ * disclaiming capabilities the app genuinely has, which reads as the assistant
+ * arguing with itself. The chat fallback has no idea what the 108 skills do,
+ * so it assumed it could do nothing. This tells it the truth.
+ * Appended to every conversational reply, so it can never contradict a skill. */
+const CAPABILITIES =
+  " WHAT YOU CAN ACTUALLY DO — never claim otherwise: you search flights, stays and things to book (handing him to the real site to pay — that's deliberate, not a limitation); " +
+  "you navigate and open Maps; you find places nearby and judge whether they're any good; you read and translate menus from a photo AND look up a named restaurant's menu online; " +
+  "you convert currency, check if a price is a rip-off, track flights, read his mail and texts, manage his calendar and reminders, remember places and facts he tells you, " +
+  "log his spending, plan trips and days, and speak the local language for him. " +
+  "If a skill just ran and answered him, DO NOT second-guess it or repeat it differently — the answer he already got stands. " +
+  "The only things you genuinely cannot do: take payment or complete a booking yourself, and act while his phone is asleep (that's coming). " +
+  "If something truly is outside you, say so in one short line and hand him the fastest way to do it himself — never a lecture about your limitations." +
+  /* ⚠️ build170: he asked for a menu and got "what kind of food are you after?";
+   * he asked about a Bali flight and got "what's your departure city?" when
+   * Brisbane was already known. A butler infers. */
+  " ANSWER, DON'T INTERROGATE: work it out from what you already know — where he is, where he's been, what he just asked, what you remember. " +
+  "Never ask for something you can infer or already have. Never ask a clarifying question you could answer yourself by just picking the sensible option and saying which you picked. " +
+  "One question maximum, only when you genuinely cannot proceed without it, and only after you've given him what you CAN.";
+
 const ANSWER_FIRST =
   " Lead with the ANSWER, never the reasoning. Say the thing he asked for in the first few words. " +
   "Detail he did not ask for — ratings, addresses, opening hours, why you picked it — is noise until he decides, " +
@@ -1271,9 +1293,11 @@ function buddyPersona(ctx) {
     VIS_PERSONA,
     // CAPABILITY MANIFEST — without this the brain thinks it's blind and sends
     // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
+    // ⚠️ build170: the comment claimed a manifest but there was NO ACTUAL LIST
+    // here — so chat disclaimed skills that had literally just run ("I don't
+    // have access to flight booking" after the flight skill answered). Fixed.
+    CAPABILITIES,
     "When it's genuinely helpful, end with a short proactive offer — e.g. 'Want me to set a reminder?' or 'Shall I find one nearby?' — but only when it truly adds value. Never tack on a filler question.",
-    // CAPABILITY MANIFEST — without this the brain thinks it's blind and sends
-    // Shaun to competitors ("ask Google Assistant"). It must know its own hands.
     ctx.styleLine || "",
     ctx.core || "",
     ctx.verdicts || "",
@@ -1876,7 +1900,8 @@ const ROUTER_SKILLS =
       "\"logbug\" (log a bug / something's broken / that's wrong / report a problem — anything reporting Vision itself misbehaving; args: report = what he said was wrong), " +
       "\"bugs\" (my bugs / show the bug log / what have I reported; args: none), " +
       "\"plan\" (a whole outing in one go — 'sort dinner tonight', 'plan my afternoon', 'organise getting to the airport', 'find me somewhere to eat and get me there' — anything needing SEVERAL steps; args: goal = what he said), " +
-      "\"menu\" (read/translate a menu, what can I eat here, what is good on this menu; args: none — he photographs it), " +
+      "\"menu\" (read/translate a menu he is PHOTOGRAPHING — he is AT the place with the menu in front of him; args: none), " +
+      "\"menulookup\" (LOOK UP what a named restaurant serves, before he goes — \"find the menu for X\", \"what do they serve\", \"can you find the menu\" after discussing a place; args: name, address), " +
       "\"savechat\" (save/remember this conversation, save that as the hotel manager, log what we agreed; args: tag), " +
       "\"recallchat\" (what did the driver say, what did we agree with X, what did the hotel manager promise; args: query), " +
       "\"bookings\" (my bookings, what have I booked, my reservations, booking reference, add a booking; args: query), " +
@@ -2818,12 +2843,24 @@ app.post("/places", requireAuth, async (req, res) => {
       placeId: p.place_id,
       photoRef: p.photos?.[0]?.photo_reference || null,
     }));
-    // MAPS DEPTH: straight-line distance + walk estimate. Free (no Distance
-    // Matrix billing) and honest enough for "about 4 min away".
+    // MAPS DEPTH: straight-line distance + a HONEST travel estimate.
+    // ⚠️ FIXED (beta): this used to convert EVERY distance to walking minutes,
+    // so a restaurant 8km away came back as "105 min walk" — and the model then
+    // reasoned from that ("quite a trek", "six hours walk") and gave bad advice.
+    // Nobody walks 8km to dinner. Past ~3km it's a drive or a scooter, so quote
+    // THAT instead. Same rule everywhere /nearby is used: findfood, nearby,
+    // cinema, chemist, the lot.
     for (const p of places) {
       if (p.lat != null && lat != null) {
         p.distanceM = Math.round(haversineM(lat, lng, p.lat, p.lng));
-        p.walkMin = Math.max(1, Math.round(p.distanceM / 80));
+        p.walkMin = Math.max(1, Math.round(p.distanceM / 80));   // kept for callers that want it
+        p.travelMode = p.distanceM < 3000 ? "walking" : "driving";
+        p.travelMin = p.travelMode === "walking"
+          ? p.walkMin
+          : Math.max(2, Math.round(p.distanceM / 500));          // ~30km/h door-to-door w/ traffic
+        p.travelText = p.travelMode === "walking"
+          ? `~${p.travelMin} min walk`
+          : `~${p.travelMin} min drive (${(p.distanceM / 1000).toFixed(1)} km)`;
       }
     }
 
@@ -2836,7 +2873,7 @@ app.post("/places", requireAuth, async (req, res) => {
     const ranked = [...places].sort((a, b) =>
       (Number(b.openNow) - Number(a.openNow)) || ((b.rating || 0) - (a.rating || 0)));
     const top = ranked.slice(0, 5).map(p =>
-      `${p.name}${p.rating ? ` (${p.rating}★)` : ""}${p.openNow === false ? " [closed now]" : p.openNow ? " [open]" : ""}${p.walkMin ? ` [~${p.walkMin} min walk]` : ""} — ${p.address}`
+      `${p.name}${p.rating ? ` (${p.rating}★)` : ""}${p.openNow === false ? " [closed now]" : p.openNow ? " [open]" : ""}${p.travelText ? ` [${p.travelText}]` : ""} — ${p.address}`
     ).join("\n");
     const wants = style === "list"
       ? "Give Shaun a SHORT ranked shortlist (top 3), one line each, warm and spoken. End by offering directions to his pick."
@@ -2847,7 +2884,12 @@ app.post("/places", requireAuth, async (req, res) => {
       const rec = await callClaude({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 220,
-        system: "You are Vision, Shaun's warm companion in his glasses. Recommend places like a helpful local friend — never a raw list dump." + NO_INVENT_STRICT + ANSWER_FIRST,
+        system: "You are Vision, Shaun's warm companion in his glasses. Recommend places like a helpful local friend — never a raw list dump. " +
+          /* ⚠️ build170: it kept saying things like \"quite a trek at nearly two
+           * hours on foot\" and \"about six hours walk\" for places a normal
+           * person drives to. He has a car at home and a scooter abroad. */
+          "HOW HE TRAVELS: he drives (or rides a scooter abroad). Anything past a couple of kilometres he DRIVES — never describe it as a walk, never call a drivable distance a trek, and never rule a place out for being 'far' when it's a ten-minute drive. " +
+          "The travel estimate given for each place already accounts for this — use it as stated and don't editorialise about distance." + NO_INVENT_STRICT + ANSWER_FIRST,
         messages: [{ role: "user", content: `${wants}\n\nNearby options:\n${top}` }],
       });
       let recommendation = "";
@@ -2985,6 +3027,40 @@ app.post("/activities", requireAuth, async (req, res) => {
     let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 300), items: [] }; }
     res.json({ spoken: p.spoken || "", items: Array.isArray(p.items) ? p.items.slice(0, 6) : [] });
   } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't do that just now — try me again in a moment.", detail: "activities: " + String(e && e.message || e).slice(0, 140) }); }
+});
+
+/* --- 🍽️ MENULOOKUP: "can you find the menu" for a place we're already
+ * talking about. DISTINCT from /menu, which reads a PHOTO of a menu in front
+ * of him. This one is a LOOKUP: he named a restaurant, or we just discussed
+ * one, and he wants to know what they serve BEFORE he goes.
+ *
+ * ⚠️ Built from beta feedback: asking "can you find the menu" for Warrior
+ * Restaurant sent him to the camera skill (which wants a photo he can't take
+ * — he's not there yet) or to chat, which gave a vague hedged answer with no
+ * link. The fix is a real skill that web-searches and RETURNS THE LINK, so he
+ * can tap through. Answer first, link always, no waffle.
+ * Body: { name, address?, city? } → { spoken, dishes[], link, source } */
+app.post("/menulookup", requireAuth, async (req, res) => {
+  const { name, address, city } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  const where = [address, city].filter(Boolean).join(", ");
+  const body = {
+    model: "claude-haiku-4-5-20251001", max_tokens: 700,
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+    system: "You are Vision, a warm travel companion speaking aloud. Shaun wants to know what a restaurant serves BEFORE he goes. Web-search for their actual menu. " +
+      "Reply as JSON ONLY: {\"spoken\": \"2-3 spoken sentences — the KIND of food, the price range, and one or two standout dishes if you found them\", " +
+      "\"dishes\": [\"dish — short note\"], \"link\": \"the best URL you actually found for their menu or site\", \"source\": \"where the link goes, e.g. their website / Facebook / a listing site\"}. " +
+      "RULES: never invent dishes or prices — if the search didn't surface the real menu, say so plainly in `spoken` and still return the best LINK you found so he can look himself. " +
+      "Always return a link if one exists. No markdown." + NO_INVENT_STRICT + ANSWER_FIRST + SPOKEN_PLAIN,
+    messages: [{ role: "user", content: `Menu for ${name}${where ? ` (${where})` : ""}. What do they serve, roughly what does it cost, and where can I see the actual menu?` }],
+  };
+  try {
+    const { status, text } = await callClaude(body);
+    if (status !== 200) return res.status(200).json({ fallback: true, spoken: "Couldn't pull that menu up just now — give me another go in a moment.", detail: "menulookup_failed" });
+    const raw = (JSON.parse(text).content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    let p; try { p = JSON.parse(raw.replace(/```json|```/g, "").trim()); } catch { p = { spoken: raw.slice(0, 400), dishes: [], link: "" }; }
+    res.json({ spoken: p.spoken || "", dishes: Array.isArray(p.dishes) ? p.dishes.slice(0, 8) : [], link: p.link || "", source: p.source || "" });
+  } catch (e) { res.status(200).json({ fallback: true, spoken: "Couldn't pull that menu up just now — try me again in a moment.", detail: "menulookup: " + String(e && e.message || e).slice(0, 140) }); }
 });
 
 // --- 🗺️ TRIPPLAN: multi-day itinerary, returned structured so the app can SAVE it ---
@@ -5898,7 +5974,7 @@ app.post("/models/config", requireAuth, (req, res) => {
 });
 
 // Reports the brain's build version so the app can confirm a deploy took effect.
-app.post("/version", requireAuth, (_req, res) => { res.json({ version: "169" }); });
+app.post("/version", requireAuth, (_req, res) => { res.json({ version: "170" }); });
 
 // Monthly budget ceiling (optional). GET returns it; set stores it. The spend
 // response reports how close this month is to it, so Vis can warn once near/over.
@@ -8152,7 +8228,7 @@ app.post("/native/hello", requireAuth, (req, res) => {
     // Bump when the client contract changes in a way Swift must handle.
     contract: 1,
     brain: {
-      version: "169",
+      version: "170",
       // Every model-backed endpoint returns `spoken`. This is the promise the
       // whole thin-connector design rests on, stated explicitly so a client
       // can rely on it rather than inferring it.

@@ -2263,7 +2263,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='169';
+  const BUILD_VERSION='170';
   async function logBug(report){
     if(!report){
       report=await askText("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -2582,6 +2582,33 @@
   }
 
   // 🍽️ MENU READER (batch 86): photograph a menu, hear what's safe and good.
+  // 🍽️ MENU LOOKUP (beta fix): "can you find the menu" for a place we're
+  // already discussing. Different job from readMenu() — that reads a PHOTO of
+  // a menu in his hands; this looks one UP for somewhere he hasn't gone yet.
+  // Falls back to the last place discussed, so "find the menu" after asking
+  // about a restaurant just works without him naming it again.
+  async function menuLookup(name, addr){
+    const place = name || (brain.lastPlace && brain.lastPlace.name) || '';
+    if(!place){ const m="Which place, boss?"; addMsg('buddy',m); say(m); return true; }
+    const where = addr || (brain.lastPlace && brain.lastPlace.addr) || '';
+    openChat(); addMsg('me',`🍽️ Menu for ${place}`);
+    const t=addMsg('buddy','Looking up the menu…','think');
+    try{
+      const {ok,data}=await api('/menulookup',{name:place, address:where, city:localStorage.getItem('buddy_city')||''});
+      if(!ok||!data.spoken){ settle(t,"Couldn't find their menu online — worth a quick call."); return true; }
+      settle(t,data.spoken); say(data.spoken);
+      (data.dishes||[]).slice(0,8).forEach(d=>addMsg('buddy',`• ${d}`));
+      if(data.link){
+        const el=addMsg('buddy',`🔗 See the menu${data.source?` (${data.source})`:''}`);
+        el.style.cursor='pointer'; el.style.textDecoration='underline';
+        el.onclick=()=>{ try{ window.open(data.link,'_blank'); }catch(e){} };
+      }
+      brain.setPlace(place, where);
+      brain.suggest(`Directions to ${place}`, ()=>confirmNavigate(where||place));
+    }catch(e){ settle(t,"Couldn't reach the menu just now."); }
+    return true;
+  }
+
   async function readMenu(){
     const avoid=(localStorage.getItem('buddy_avoid')||'').trim();   // usually empty
     const f=await pickImageFile(); if(!f) return;
@@ -6896,6 +6923,7 @@
       if(skill==='bugs'){ await bugsView(); return true; }
       if(skill==='plan'){ await runPlan(a.goal||original); return true; }
       if(skill==='menu'){ await readMenu(); return true; }
+      if(skill==='menulookup'){ await menuLookup(a.name||'', a.address||''); return true; }
       if(skill==='savechat'){ await saveConversation(a.tag||''); return true; }
       if(skill==='recallchat'){ await recallConversation(a.query||original); return true; }
       if(skill==='bookings'){ await bookingsView(a.query||''); return true; }
@@ -9021,7 +9049,7 @@
         const line=data.recommendation||`Here are ${q} near you.`;
         addMsg('buddy',line); say(line);
         const _favs=favPlacesGet();
-        list.forEach(p=>{ const walk=p.walkMin?` · 🚶${p.walkMin} min`:''; const loved=_favs[String(p.name||'').toLowerCase()]?'💛 you loved this — ':''; addMsg('buddy',`${loved}📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${walk}${p.address?`\n${p.address}`:(p.vicinity?`\n${p.vicinity}`:'')}`); });
+        list.forEach(p=>{ const walk=p.travelText?` · ${p.travelMode==='walking'?'🚶':'🚗'}${p.travelText.replace(/^~/,'')}`:(p.walkMin?` · 🚶${p.walkMin} min`:''); const loved=_favs[String(p.name||'').toLowerCase()]?'💛 you loved this — ':''; addMsg('buddy',`${loved}📍 ${p.name}${p.rating?` · ⭐${p.rating}`:''}${walk}${p.address?`\n${p.address}`:(p.vicinity?`\n${p.vicinity}`:'')}`); });
         // MAPS DEPTH: the top pick arrives enriched — photo, today's hours, phone.
         const top0=list[0];
         if(top0&&top0.photo) addImg(top0.photo, top0.name);
