@@ -473,6 +473,20 @@ function recordUsage(model, u) {
       { usd: Math.round((((u.input_tokens || 0) / 1e6) * pi + ((u.output_tokens || 0) / 1e6) * po) * 100000) / 100000 }); } catch {}
   const m = usageTotals[model] = usageTotals[model] || { calls: 0, inTok: 0, outTok: 0 };
   m.calls++; m.inTok += u.input_tokens || 0; m.outTok += u.output_tokens || 0;
+  // PROMPT CACHE VISIBILITY: the API reports how many input tokens were READ
+  // from cache vs WRITTEN to it. The router's skill list (~3.3k tokens) is the
+  // big cached block and fires on nearly every request, so these numbers show
+  // what caching is actually saving. Cache reads bill at ~10% of normal input,
+  // cache writes at ~125% — so a healthy hit rate is where the win comes from.
+  try {
+    const cr = u.cache_read_input_tokens || 0;
+    const cw = u.cache_creation_input_tokens || 0;
+    if (cr || cw) {
+      STORE.cache = STORE.cache || { read: 0, created: 0, since: Date.now() };
+      STORE.cache.read += cr;
+      STORE.cache.created += cw;
+    }
+  } catch {}
   // Batch 68: durable spend ledger — survives redeploys, keyed by day.
   try {
     const [pi, po] = PRICES[model] || [3, 15];
@@ -5884,7 +5898,7 @@ app.post("/models/config", requireAuth, (req, res) => {
 });
 
 // Reports the brain's build version so the app can confirm a deploy took effect.
-app.post("/version", requireAuth, (_req, res) => { res.json({ version: "167" }); });
+app.post("/version", requireAuth, (_req, res) => { res.json({ version: "169" }); });
 
 // Monthly budget ceiling (optional). GET returns it; set stores it. The spend
 // response reports how close this month is to it, so Vis can warn once near/over.
@@ -5934,12 +5948,24 @@ app.post("/spend", requireAuth, (_req, res) => {
   const dayOfMonth = now.getUTCDate();
   const daysInMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0).getUTCDate();
   const projectedMonth = dayOfMonth > 0 ? (thisMonth / dayOfMonth) * daysInMonth : thisMonth;
+  // Prompt-cache effectiveness. Cache READS bill at ~10% of normal input, so
+  // read tokens are the saving; WRITES cost ~125% and are the price of priming
+  // it. hitPct = share of cacheable traffic served from cache. High = working.
+  const _c = STORE.cache || { read: 0, created: 0 };
+  const _cTotal = _c.read + _c.created;
+  const cache = {
+    read: _c.read, created: _c.created,
+    hitPct: _cTotal ? Math.round((_c.read / _cTotal) * 100) : null,
+    // Rough saving: reads would have cost full input price; they cost ~10%.
+    savedUsd: Math.round(((_c.read / 1e6) * 3 * 0.9) * 10000) / 10000,
+  };
   res.json({ today, thisMonth, last7, series,
     byToday, by7, byMonth, providers,
     projectedMonth: Math.round(projectedMonth * 10000) / 10000, dayOfMonth, daysInMonth,
     budget: STORE.budget || 0,
     budgetPct: STORE.budget ? Math.round((thisMonth / STORE.budget) * 100) : null,
     projectedPct: STORE.budget ? Math.round((projectedMonth / STORE.budget) * 100) : null,
+    cache,
     note: "Estimate from real token counts — each provider's own console is the actual bill." });
 });
 
@@ -8126,7 +8152,7 @@ app.post("/native/hello", requireAuth, (req, res) => {
     // Bump when the client contract changes in a way Swift must handle.
     contract: 1,
     brain: {
-      version: "167",
+      version: "169",
       // Every model-backed endpoint returns `spoken`. This is the promise the
       // whole thin-connector design rests on, stated explicitly so a client
       // can rely on it rather than inferring it.

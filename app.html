@@ -2181,6 +2181,21 @@
       'font-family:var(--f-mono)';
     wrap.appendChild(inp);
     first.parentNode.insertBefore(wrap, first);
+    // ⌨️ QUIET MODE: Enter here ASKS VIS the typed question. Typing filters
+    // tiles as before, but Enter hands the text to the normal chat path
+    // (chatText + sendChat) — same command table, same router, no second seam.
+    // This is the text way in from the home screen when speaking isn't an option.
+    inp.addEventListener('keydown',e=>{
+      if(e.key!=='Enter') return;
+      const q=inp.value.trim();
+      if(!q) return;
+      e.preventDefault();
+      inp.value='';
+      try{ inp.oninput(); }catch(_){}
+      openChat();
+      const box=document.getElementById('chatText');
+      if(box){ box.value=q; sendChat(); }
+    });
     inp.oninput=()=>{
       const q=inp.value.trim().toLowerCase();
       document.querySelectorAll('.grid').forEach(grid=>{
@@ -2248,7 +2263,7 @@
   // 🐞 BUG LOG (batch 92): say "log bug" and Vision captures what was actually
   // happening — not just your words. That turns "the orb looked wrong" into
   // something fixable.
-  const BUILD_VERSION='167';
+  const BUILD_VERSION='169';
   async function logBug(report){
     if(!report){
       report=await askText("What went wrong? (say it plainly — I'll capture the rest)",'');
@@ -4153,6 +4168,15 @@
         addMsg('buddy',`🎯 Budget: ${f(data.thisMonth)} of ${f(data.budget)} (${data.budgetPct}%)${data.projectedPct?` · on pace for ~${data.projectedPct}%`:''}`);
       } else {
         addMsg('buddy','No monthly budget set. Say “set my budget to 20” to get a heads-up as you approach it.');
+      }
+      // ── PROMPT CACHE: what the cached router/persona blocks are saving. ──
+      // Cache reads bill at a fraction of normal input, so a high hit rate is
+      // money not spent. Only shown once there's real data to report.
+      if(data.cache && (data.cache.read>0 || data.cache.created>0)){
+        const c=data.cache;
+        let cLine=`⚡ Prompt cache: ${c.hitPct}% of cacheable input served from cache`;
+        if(c.savedUsd>0) cLine+=` — roughly ${f(c.savedUsd)} saved`;
+        addMsg('buddy',cLine);
       }
       addMsg('buddy','Estimate from real token counts — each provider\u2019s own console is the actual bill.');
       let spoken=`Today ${f(data.today)}, this month ${f(data.thisMonth)} so far`;
